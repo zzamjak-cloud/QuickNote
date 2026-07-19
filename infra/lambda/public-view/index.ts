@@ -2,7 +2,7 @@
 // 보안 원칙:
 //  - 유효한 token 이 곧 capability. 미존재/해제/삭제 등 인가성 실패는 균일한 404(존재 여부 오라클 차단).
 //  - 페이지 조회는 "게시 루트의 자손 집합 소속 + workspaceId 일치"를 강제한다(IDOR 가드).
-//  - 자산 presign 은 해당 페이지 doc(+icon/coverImage)에 실제 참조된 assetId 만 허용한다.
+//  - 자산 응답은 해당 페이지 doc(+icon/coverImage)에 실제 참조된 assetId 만 허용한다.
 //  - 응답 필드는 화이트리스트 — dbCells·blockComments·lastEditedBy* 등은 절대 내보내지 않는다.
 
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
@@ -12,7 +12,6 @@ import {
   QueryCommand,
 } from "@aws-sdk/lib-dynamodb";
 import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
-import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { collectDocAssetIds } from "./docAssets";
 import {
   collectSubtreeIds,
@@ -41,9 +40,12 @@ const BUCKET = process.env.IMAGES_BUCKET!;
 
 const TOKEN_RE = /^[A-Za-z0-9_-]{16,64}$/;
 const ID_RE = /^[A-Za-z0-9:._-]{1,128}$/;
-const ASSET_PRESIGN_TTL_SECONDS = 300;
 // 짧은 CDN/브라우저 캐시 — 게시 해제 반영이 최대 이 시간만큼 지연되는 트레이드오프.
 const CACHE_CONTROL = "public, max-age=30, s-maxage=300, stale-while-revalidate=300";
+// 공개 자산은 권한 검증 후 Lambda가 바이트를 반환하고 CloudFront가 캐시한다.
+// URL에 snapshotVersion(v)이 붙으므로 스냅샷 갱신 시 새 캐시 키로 전환된다.
+const PUBLIC_ASSET_CACHE_CONTROL =
+  "public, max-age=300, s-maxage=3600, stale-while-revalidate=86400";
 // 워크스페이스 트리 계산 결과 컨테이너 내 메모(요청 폭주 완충).
 const TREE_MEMO_TTL_MS = 30_000;
 const PUBLISH_LINK_QUERY_CONCURRENCY = 8;
@@ -57,6 +59,7 @@ type FnUrlResult = {
   statusCode: number;
   headers: Record<string, string>;
   body: string;
+  isBase64Encoded?: boolean;
 };
 
 type PublishRecord = {
@@ -142,6 +145,30 @@ async function bodyToString(body: unknown): Promise<string | null> {
   const maybe = body as { transformToString?: () => Promise<string> };
   if (typeof maybe.transformToString === "function") {
     return await maybe.transformToString();
+  }
+  return null;
+}
+
+async function bodyToBuffer(body: unknown): Promise<Buffer | null> {
+  if (!body) return null;
+  if (body instanceof Uint8Array) return Buffer.from(body);
+  const maybe = body as {
+    transformToByteArray?: () => Promise<Uint8Array>;
+    transformToString?: () => Promise<string>;
+    [Symbol.asyncIterator]?: () => AsyncIterator<Uint8Array | Buffer | string>;
+  };
+  if (typeof maybe.transformToByteArray === "function") {
+    return Buffer.from(await maybe.transformToByteArray());
+  }
+  if (typeof maybe[Symbol.asyncIterator] === "function") {
+    const chunks: Buffer[] = [];
+    for await (const chunk of maybe as AsyncIterable<Uint8Array | Buffer | string>) {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    }
+    return Buffer.concat(chunks);
+  }
+  if (typeof maybe.transformToString === "function") {
+    return Buffer.from(await maybe.transformToString());
   }
   return null;
 }
@@ -399,7 +426,7 @@ async function handlePage(
   });
 }
 
-/** 자산이 해당 워크스페이스에서 실제 사용(AssetUsage)되는지 — 교차 워크스페이스 presign 차단. */
+/** 자산이 해당 워크스페이스에서 실제 사용(AssetUsage)되는지 — 교차 워크스페이스 다운로드 차단. */
 async function assetUsedInWorkspace(
   assetId: string,
   workspaceId: string,
@@ -440,7 +467,7 @@ async function handleAsset(
       pageDoc,
     });
   }
-  // 1차 방어: 페이지에 실제 참조된 자산만(임의 assetId presign 금지).
+  // 1차 방어: 페이지에 실제 참조된 자산만(임의 assetId 다운로드 금지).
   const refs = collectDocAssetIds(pageDoc, [
     page.icon,
     page.coverImage,
@@ -463,19 +490,26 @@ async function handleAsset(
     new GetCommand({ TableName: ASSET_TABLE, Key: { id: assetId } }),
   );
   const asset = assetRow.Item as
-    | { status?: string; key?: string }
+    | { status?: string; key?: string; mimeType?: string }
     | undefined;
   if (!asset || asset.status !== "READY" || !asset.key) return notFound();
-  const url = await getSignedUrl(
-    s3,
+
+  const object = await s3.send(
     new GetObjectCommand({ Bucket: BUCKET, Key: asset.key }),
-    { expiresIn: ASSET_PRESIGN_TTL_SECONDS },
   );
+  const body = await bodyToBuffer(object.Body);
+  if (!body) return notFound();
+  const contentType = object.ContentType ?? asset.mimeType ?? "application/octet-stream";
+  const headers = {
+    ...baseHeaders(PUBLIC_ASSET_CACHE_CONTROL),
+    "content-type": contentType,
+  };
+  if (typeof object.ETag === "string") headers.etag = object.ETag;
   return {
-    // presign 은 만료(300s)보다 짧게만 캐시 — 만료된 URL 이 브라우저에 남지 않도록.
-    statusCode: 302,
-    headers: { ...baseHeaders("public, max-age=120"), location: url },
-    body: "",
+    statusCode: 200,
+    headers,
+    body: body.toString("base64"),
+    isBase64Encoded: true,
   };
 }
 

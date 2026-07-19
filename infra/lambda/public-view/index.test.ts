@@ -33,9 +33,6 @@ vi.mock("@aws-sdk/client-s3", async (importOriginal) => {
     },
   };
 });
-vi.mock("@aws-sdk/s3-request-presigner", () => ({
-  getSignedUrl: vi.fn(async () => "https://s3.example/presigned"),
-}));
 
 import { handler } from "./index";
 
@@ -50,6 +47,16 @@ function getEvent(qs: Record<string, string>) {
   return {
     requestContext: { http: { method: "GET" } },
     queryStringParameters: qs,
+  };
+}
+
+function s3ImageObject(bytes = [137, 80, 78, 71]) {
+  return {
+    Body: {
+      transformToByteArray: async () => new Uint8Array(bytes),
+    },
+    ContentType: "image/png",
+    ETag: "\"asset-etag\"",
   };
 }
 
@@ -482,21 +489,28 @@ describe("public-view handler", () => {
     expect(result.body).not.toContain("deep-secret-menu");
   });
 
-  it("op=asset — doc 참조 + 게시 워크스페이스 사용(AssetUsage) 확인 후 presign 302", async () => {
+  it("op=asset — doc 참조 + 게시 워크스페이스 사용(AssetUsage) 확인 후 CDN 캐시 가능한 이미지 바이트를 반환한다", async () => {
     sendMock
       .mockResolvedValueOnce({ Item: publishRecord }) // 토큰
       .mockResolvedValueOnce({ Item: rootPage }) // 루트 servable 메타
       .mockResolvedValueOnce({ Item: rootPage }) // 대상 페이지 full
       .mockResolvedValueOnce({ Items: [{ workspaceId: "ws-1" }] }) // AssetUsage(같은 ws)
-      .mockResolvedValueOnce({ Item: { id: "asset-1", status: "READY", key: "k/asset-1" } });
+      .mockResolvedValueOnce({
+        Item: { id: "asset-1", status: "READY", key: "k/asset-1", mimeType: "image/png" },
+      });
+    s3SendMock.mockResolvedValueOnce(s3ImageObject());
     const r = await handler(
       getEvent({ op: "asset", token: TOKEN, pageId: "root-1", assetId: "asset-1" }),
     );
-    expect(r.statusCode).toBe(302);
-    expect(r.headers.location).toBe("https://s3.example/presigned");
+    expect(r.statusCode).toBe(200);
+    expect(r.isBase64Encoded).toBe(true);
+    expect(r.headers["content-type"]).toBe("image/png");
+    expect(r.headers["cache-control"]).toContain("s-maxage=3600");
+    expect(Buffer.from(r.body, "base64")).toEqual(Buffer.from([137, 80, 78, 71]));
+    expect(s3SendMock).toHaveBeenCalledTimes(1);
   });
 
-  it("op=asset — A 페이지 삭제 뒤에도 B의 stale inline 대신 최신 공유 갤러리 자산을 302", async () => {
+  it("op=asset — A 페이지 삭제 뒤에도 B의 stale inline 대신 최신 공유 갤러리 자산을 CDN 바이트로 반환한다", async () => {
     const pageWithGallery = {
       ...rootPage,
       doc: JSON.stringify({
@@ -540,16 +554,24 @@ describe("public-view handler", () => {
         }],
       })
       .mockResolvedValueOnce({
-        Item: { id: "gallery-asset-1", status: "READY", key: "k/gallery-asset-1" },
+        Item: {
+          id: "gallery-asset-1",
+          status: "READY",
+          key: "k/gallery-asset-1",
+          mimeType: "image/png",
+        },
       });
+    s3SendMock.mockResolvedValueOnce(s3ImageObject([1, 2, 3]));
     const result = await handler(getEvent({
       op: "asset",
       token: GALLERY_TOKEN,
       pageId: "root-1",
       assetId: "gallery-asset-1",
     }));
-    expect(result.statusCode).toBe(302);
-    expect(result.headers.location).toBe("https://s3.example/presigned");
+    expect(result.statusCode).toBe(200);
+    expect(result.isBase64Encoded).toBe(true);
+    expect(result.headers["content-type"]).toBe("image/png");
+    expect(Buffer.from(result.body, "base64")).toEqual(Buffer.from([1, 2, 3]));
   });
 
   it("op=asset — doc 에 있어도 타 워크스페이스 자산이면 404 (교차 워크스페이스 유출 차단)", async () => {
@@ -562,10 +584,10 @@ describe("public-view handler", () => {
       getEvent({ op: "asset", token: TOKEN, pageId: "root-1", assetId: "asset-1" }),
     );
     expect(r.statusCode).toBe(404);
-    expect(sendMock).toHaveBeenCalledTimes(4); // 자산 GetItem·presign 도달 전 차단
+    expect(sendMock).toHaveBeenCalledTimes(4); // 자산 GetItem·S3 GetObject 도달 전 차단
   });
 
-  it("op=asset — doc 에 없는 assetId 는 404 (AssetUsage·presign 시도조차 없음)", async () => {
+  it("op=asset — doc 에 없는 assetId 는 404 (AssetUsage·S3 GetObject 시도조차 없음)", async () => {
     sendMock
       .mockResolvedValueOnce({ Item: publishRecord })
       .mockResolvedValueOnce({ Item: rootPage })
@@ -577,7 +599,7 @@ describe("public-view handler", () => {
     expect(sendMock).toHaveBeenCalledTimes(3); // 참조 화이트리스트에서 이미 차단
   });
 
-  it("op=asset — 페이지 icon chrome 은 AssetUsage 없이 presign 한다", async () => {
+  it("op=asset — 페이지 icon chrome 은 AssetUsage 없이 CDN 바이트로 반환한다", async () => {
     const pageWithIcon = {
       ...rootPage,
       icon: "quicknote-image://icon-chrome",
@@ -588,8 +610,14 @@ describe("public-view handler", () => {
       .mockResolvedValueOnce({ Item: pageWithIcon })
       .mockResolvedValueOnce({ Item: pageWithIcon })
       .mockResolvedValueOnce({
-        Item: { id: "icon-chrome", status: "READY", key: "k/icon-chrome" },
+        Item: {
+          id: "icon-chrome",
+          status: "READY",
+          key: "k/icon-chrome",
+          mimeType: "image/png",
+        },
       });
+    s3SendMock.mockResolvedValueOnce(s3ImageObject([9, 8, 7]));
     const r = await handler(
       getEvent({
         op: "asset",
@@ -598,9 +626,11 @@ describe("public-view handler", () => {
         assetId: "icon-chrome",
       }),
     );
-    expect(r.statusCode).toBe(302);
-    // AssetUsage Query 없이 GetItem+presign 만
+    expect(r.statusCode).toBe(200);
+    expect(Buffer.from(r.body, "base64")).toEqual(Buffer.from([9, 8, 7]));
+    // AssetUsage Query 없이 GetItem+S3 GetObject 만
     expect(sendMock).toHaveBeenCalledTimes(4);
+    expect(s3SendMock).toHaveBeenCalledTimes(1);
   });
 
   it("op=page — fullWidth 스냅샷을 응답에 포함한다", async () => {

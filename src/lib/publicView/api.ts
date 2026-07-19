@@ -110,11 +110,18 @@ export async function fetchPublicPage(
   );
 }
 
-/** 자산(이미지·파일)의 공개 URL — Lambda 가 검증 후 S3 presign 으로 302 리다이렉트한다. */
+/** 자산(이미지·파일)의 공개 URL — Lambda 가 검증 후 CDN 캐시 가능한 binary 응답을 반환한다. */
 export function buildPublicAssetUrl(
   token: string,
   pageId: string,
   assetId: string,
+  snapshotVersion?: string | null,
 ): string {
-  return endpoint({ op: "asset", token, pageId, assetId });
+  return endpoint({
+    op: "asset",
+    token,
+    pageId,
+    assetId,
+    ...(snapshotVersion ? { v: snapshotVersion } : {}),
+  });
 }

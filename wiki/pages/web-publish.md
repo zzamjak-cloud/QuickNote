@@ -22,8 +22,9 @@
   ② 루트 BFS 자손 집합 포함 확인을 모두 통과해야 한다. **이 검사를 약화시키지 말 것.**
 - **BFS 는 visited + 상한 필수** (`tree.ts` `TREE_NODE_MAX`) — 클라이언트 `isDescendant` 는
   순환 가드가 없으므로 서버로 이식 금지.
-- **presign 화이트리스트**: `op=asset` 은 해당 페이지 doc(+icon/coverImage)에서 추출된
-  assetId 만 presign(`docAssets.ts`). 임의 assetId presign 금지. TTL 300s.
+- **자산 화이트리스트**: `op=asset` 은 해당 페이지 doc(+icon/coverImage)에서 추출된
+  assetId 만 다운로드(`docAssets.ts`)한다. 임의 assetId 다운로드 금지. 이미지 바이트는
+  Lambda 응답을 CloudFront가 캐시한다.
 - **필드 화이트리스트**: Pages 조회는 ProjectionExpression — `dbCells`·`blockComments`·
   `lastEditedBy*` 는 공개 응답에 절대 포함하지 않는다.
 - 재게시는 항상 **새 토큰**. publish 는 멱등(active 있으면 토큰 유지) — 단 멱등 분기에서
@@ -50,7 +51,7 @@
   2026-07-11)으로 한다. 브레드크럼은 op=site 메타의 parentId 체인을 클라이언트에서 걷는다
   (순환 가드·깊이 상한, 5뎁스 초과 시 가운데 접힘). 뒤로가기 버튼은 뷰어 내 탐색 깊이가
   0 이면 비활성(사이트 밖 이탈 방지). crumb 아이콘 asset 은 **각 crumb 자신의 pageId
-  컨텍스트**로 presign 해야 한다(op=asset 은 해당 페이지 참조 자산만 허용).
+  컨텍스트**로 요청해야 한다(op=asset 은 해당 페이지 참조 자산만 허용).
 - 페이지 아이콘: 제목은 `PublicPageIcon`(op=asset). 본문 callout/tab 등은
   `transformPublicDoc` 이 `icon`/`emoji`/`src` 의 `quicknote-image://` 를 공개 URL 로
   치환해 `useImageUrl` Cognito 경로를 우회한다. 인증 훅을 공개 뷰어에 붙이지 말 것.
@@ -79,7 +80,7 @@
   루트↔자식 왕복 시 재요청·`undefined` 화면 비움을 없애 인라인 아이콘 재마운트(재연결) 출렁임을
   막는다. 변환 doc 는 동일 참조를 유지해 read-only 에디터 재생성을 줄인다.
 - **CDN cache-busting**: 공개 뷰어는 먼저 `op=manifest` 를 `cache: "no-store"` 로 호출해 최신
-  `snapshotVersion` 을 얻는다. 이후 `op=site`/`op=page` 에 `v=<snapshotVersion>` 을 붙인다.
+  `snapshotVersion` 을 얻는다. 이후 `op=site`/`op=page`/`op=asset` 에 `v=<snapshotVersion>` 을 붙인다.
   스냅샷 업데이트는 토큰/링크를 바꾸지 않고 `snapshotVersion` 만 교체하므로, CloudFront invalidation
   없이 다음 공개 화면 로드·새로고침·페이지 이동에서 새 캐시 키로 즉시 최신 스냅샷을 읽는다.
 - doc 변환: 자산 스킴 → `op=asset` URL, `databaseBlock`/`flowchartBlock` → placeholder,
@@ -112,8 +113,8 @@
    CDN 전환 전 Function URL, 전환 후 CloudFront 도메인이 서로 다르다. **prod 호스트를 빠뜨리면
    `quick-note-khaki.vercel.app/p/<token>` 에서 fetch 가 CSP 에 막혀 뷰어가 항상
    "페이지를 찾을 수 없습니다" 로 죽는다.** live 배포 시 반드시 prod CDN URL 을 허용할 것.
-4. curl 검증: `op=manifest` no-store, `op=site/page&v=<snapshotVersion>` CDN hit, 유효/무효 토큰,
-   형제 pageId 거부, revoked 404, **타 워크스페이스 자산 404**
+4. curl 검증: `op=manifest` no-store, `op=site/page/asset&v=<snapshotVersion>` CDN hit,
+   유효/무효 토큰, 형제 pageId 거부, revoked 404, **타 워크스페이스 자산 404**
 
 ## 알려진 한계·후속
 
@@ -123,6 +124,6 @@
 - **Vercel Deployment Protection(SSO)**: Preview(`/quick-note-git-develop-…`) 는 익명
   `/p` 접근이 로그인으로 막힐 수 있다. **시크릿 창 검증·외부 공유는 라이브(khaki)에서
   게시한 링크**를 쓸 것. Preview 는 로그인된 개발자 확인용.
-- **op=asset 효율**: 이미지 많은 공개 페이지는 자산마다 왕복(토큰·페이지·AssetUsage·asset)이 발생.
-  `reservedConcurrentExecutions=10` 이라 동시 열람이 많으면 스로틀될 수 있다. 필요 시
-  (token,pageId)별 자산 화이트리스트 단기 메모 또는 op=page 응답에 presign 동봉으로 개선.
+- **op=asset 효율**: 이미지 바이트는 CloudFront가 캐시하지만, edge miss 때는 보안 검증을 위해
+  토큰·페이지·AssetUsage·asset 확인 후 S3 원본을 한 번 읽는다. 같은 `token/pageId/assetId/v`
+  조합은 이후 CDN hit가 되므로 동시 열람 비용이 크게 줄어든다.

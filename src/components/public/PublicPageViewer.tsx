@@ -527,14 +527,15 @@ export function PublicPageViewer() {
   }, [site]);
 
   const publicDocCtx = useMemo((): PublicDocContext | null => {
-    if (!token || !effectivePageId) return null;
+    if (!token || !effectivePageId || !manifest) return null;
     return {
       token,
       pageId: effectivePageId,
+      snapshotVersion: manifest.snapshotVersion,
       publishedPageIds,
       pageIcons,
     };
-  }, [token, effectivePageId, publishedPageIds, pageIcons]);
+  }, [token, effectivePageId, manifest, publishedPageIds, pageIcons]);
 
   // 변환 결과를 page 객체 참조와 함께 캐시해 **동일 객체 참조**를 유지한다.
   // 같은 공개 페이지를 재검증해 새 스냅샷이 오면 변환 캐시도 자연스럽게 갱신한다.
@@ -630,9 +631,15 @@ export function PublicPageViewer() {
             token ? (
               <PublicPageIcon
                 icon={meta.icon}
-                // 아이콘 asset presign 은 "그 페이지에 참조된 자산"만 허용되므로
+                // 아이콘 asset 은 "그 페이지에 참조된 자산"만 허용되므로
                 // 각 crumb 자신의 pageId 컨텍스트로 요청해야 한다(현재 페이지 ctx 재사용 금지).
-                ctx={{ token, pageId: ctx.pageId, publishedPageIds, pageIcons }}
+                ctx={{
+                  token,
+                  pageId: ctx.pageId,
+                  snapshotVersion: manifest?.snapshotVersion ?? null,
+                  publishedPageIds,
+                  pageIcons,
+                }}
                 size={16}
                 className=""
               />

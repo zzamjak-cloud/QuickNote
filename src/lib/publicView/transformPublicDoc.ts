@@ -25,6 +25,8 @@ import {
 export type PublicDocContext = {
   token: string;
   pageId: string;
+  /** 공개 스냅샷 version — 자산 CDN 캐시 키 교체용. */
+  snapshotVersion?: string | null;
   /** 게시 트리(루트+자손)에 포함된 페이지 id 집합 */
   publishedPageIds: ReadonlySet<string>;
   /** site 메타의 pageId → icon (멘션 라벨 보강용, 선택) */
@@ -46,7 +48,7 @@ export function toPublicAssetUrl(
   if (typeof value !== "string") return null;
   const assetId = decodeImageRef(value) ?? decodeFileRef(value);
   if (!assetId) return null;
-  return buildPublicAssetUrl(ctx.token, ctx.pageId, assetId);
+  return buildPublicAssetUrl(ctx.token, ctx.pageId, assetId, ctx.snapshotVersion);
 }
 
 function publicPageHref(token: string, pageId: string): string {
@@ -110,12 +112,12 @@ function transformSharedBlockNode(
 /** 대상 페이지 소유 자산(icon)용 공개 URL — op=asset 화이트리스트는 owner pageId 기준. */
 function toPublicPageIconAssetUrl(
   icon: string,
-  token: string,
+  ctx: PublicDocContext,
   ownerPageId: string,
 ): string | null {
   const assetId = decodeImageRef(icon) ?? decodeFileRef(icon);
   if (!assetId) return null;
-  return buildPublicAssetUrl(token, ownerPageId, assetId);
+  return buildPublicAssetUrl(ctx.token, ownerPageId, assetId, ctx.snapshotVersion);
 }
 
 /** 게시 트리 안 페이지 링크/멘션 → 아이콘(이모지·Lucide·이미지) + 링크 텍스트 인라인 노드. */
@@ -140,7 +142,7 @@ function toPublicPageLinkInline(
     });
   } else if (icon && isImageLikePageIcon(icon)) {
     const src =
-      toPublicPageIconAssetUrl(icon, ctx.token, targetId) ??
+      toPublicPageIconAssetUrl(icon, ctx, targetId) ??
       (icon.startsWith("http://") || icon.startsWith("https://") ? icon : null);
     if (src) {
       nodes.push({ type: "imageInlineIcon", attrs: { src } });

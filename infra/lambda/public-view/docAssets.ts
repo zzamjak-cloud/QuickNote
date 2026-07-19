@@ -1,5 +1,5 @@
 // 페이지 doc(TipTap JSONContent)에서 참조된 자산 id(quicknote-image://, quicknote-file://)를 추출한다.
-// op=asset presign 인가의 화이트리스트 — 여기서 수집되지 않은 assetId 는 절대 presign 하지 않는다.
+// op=asset 공개 다운로드 인가의 화이트리스트 — 여기서 수집되지 않은 assetId 는 절대 내려주지 않는다.
 
 const ASSET_SCHEMES = ["quicknote-image://", "quicknote-file://"] as const;
 const MAX_DEPTH = 200;

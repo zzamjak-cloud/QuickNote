@@ -9,6 +9,7 @@ import { transformPublicDoc } from "../transformPublicDoc";
 const ctx = {
   token: "tok-1234567890abcdef",
   pageId: "page-1",
+  snapshotVersion: "snap-1",
   publishedPageIds: new Set(["page-1", "child-1"]),
 };
 
@@ -24,6 +25,7 @@ describe("transformPublicDoc", () => {
     expect(src).toContain("op=asset");
     expect(src).toContain("assetId=img-1");
     expect(src).toContain(`token=${ctx.token}`);
+    expect(src).toContain(`v=${ctx.snapshotVersion}`);
     // 다른 attrs 보존 + 원본 불변
     expect(img?.attrs?.width).toBe(100);
     expect(doc.content?.[0]?.attrs?.src).toBe("quicknote-image://img-1");

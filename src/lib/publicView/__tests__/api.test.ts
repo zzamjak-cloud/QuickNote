@@ -1,6 +1,11 @@
 // 공개 뷰어 API 래퍼 — 공개 페이지 데이터 캐시 정책 검증.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { fetchPublicManifest, fetchPublicPage, fetchPublicSite } from "../api";
+import {
+  buildPublicAssetUrl,
+  fetchPublicManifest,
+  fetchPublicPage,
+  fetchPublicSite,
+} from "../api";
 
 describe("publicView api", () => {
   beforeEach(() => {
@@ -53,5 +58,15 @@ describe("publicView api", () => {
     expect(pageUrl.searchParams.get("v")).toBe("snap-1");
     expect(calls[0]?.[1]).toEqual({ method: "GET" });
     expect(calls[1]?.[1]).toEqual({ method: "GET" });
+  });
+
+  it("asset URL도 snapshotVersion을 v query로 포함해 이미지 CDN 캐시 키를 교체한다", () => {
+    const url = new URL(buildPublicAssetUrl("token-1", "page-1", "asset-1", "snap-1"));
+
+    expect(url.searchParams.get("op")).toBe("asset");
+    expect(url.searchParams.get("token")).toBe("token-1");
+    expect(url.searchParams.get("pageId")).toBe("page-1");
+    expect(url.searchParams.get("assetId")).toBe("asset-1");
+    expect(url.searchParams.get("v")).toBe("snap-1");
   });
 });
