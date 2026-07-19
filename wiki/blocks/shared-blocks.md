@@ -10,6 +10,7 @@
 - store key는 `[workspaceId, sharedBlockId]` 복합 키다. 같은 id가 다른 워크스페이스 캐시와 섞이지 않는다.
 - 같은 `sharedBlockId`를 가진 마운트된 복제본은 Zustand 레코드를 함께 구독하므로 서버 저장 성공 직후 모두 다시 렌더된다.
 - 마운트 시 `fetchSharedBlockApi`, 저장 시 `pushSharedBlockApi`, 원격 병합은 `updatedAt` LWW다. upsert 응답의 서버 승자를 다시 store에 반영해 동시 편집도 수렴시킨다.
+- AppSync `AWSJSON`이 직렬화 문자열을 한 번 더 감싼 응답도 최대 두 번까지 해제한다. 이 방어가 없으면 서버에는 메뉴·이미지가 저장돼도 클라이언트가 빈 공유 블록으로 해석해 화면과 인라인 스냅샷을 비우게 된다.
 - 복사/붙여넣기와 페이지 복제는 `sharedBlockId`를 유지한다. `attrs.id`만 제거하는 기존 블록 복사 규칙을 바꾸지 않는다.
 - 편집 팝업은 로컬 draft를 사용하고 `변경사항 저장` 시에만 공유 레코드를 원자적으로 갱신한다. 서버 저장 실패 시 팝업을 닫거나 복제본을 먼저 갱신하지 않고 재시도 오류를 표시한다.
 - `align`은 각 페이지의 배치 속성으로 `left | center | right`를 사용한다. 공유 메뉴 내용과 분리해 드래그 핸들 메뉴에서 현재 블럭만 정렬한다.

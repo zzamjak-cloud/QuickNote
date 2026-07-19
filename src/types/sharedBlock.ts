@@ -51,18 +51,19 @@ export type SharedBlockRecord = {
 const MAX_ITEMS = 50;
 
 function objectValue(raw: unknown): Record<string, unknown> | null {
-  if (typeof raw === "string") {
+  let value = raw;
+  // AppSync AWSJSON 응답은 호출 경로에 따라 직렬화 문자열을 한 번 더 감싸서
+  // 반환할 수 있다. 공유 레코드는 서버 저장본이 권위이므로 최대 두 번까지 풀어
+  // 정상 데이터를 빈 메뉴/갤러리로 덮어쓰는 일을 막는다.
+  for (let depth = 0; depth < 2 && typeof value === "string"; depth += 1) {
     try {
-      const parsed = JSON.parse(raw) as unknown;
-      return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-        ? (parsed as Record<string, unknown>)
-        : null;
+      value = JSON.parse(value) as unknown;
     } catch {
       return null;
     }
   }
-  return raw && typeof raw === "object" && !Array.isArray(raw)
-    ? (raw as Record<string, unknown>)
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
     : null;
 }
 

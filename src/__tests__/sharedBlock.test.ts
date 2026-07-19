@@ -36,6 +36,31 @@ describe("공유 블록 데이터", () => {
     expect(parseDropdownMenuData(serializeSharedBlockData(data))).toEqual(data);
   });
 
+  it("AppSync AWSJSON 이중 인코딩에서도 드롭다운과 갤러리를 복원한다", () => {
+    const dropdown = {
+      kind: "dropdown-menu" as const,
+      items: [{ id: "ko", label: "한국어", pageId: "page-ko" }],
+    };
+    const gallery = {
+      kind: "gallery" as const,
+      images: [
+        {
+          id: "banner-1",
+          src: "quicknote-image://asset-banner-1",
+          alt: "배너 1",
+        },
+      ],
+      intervalMs: 5_000,
+    };
+
+    expect(
+      parseDropdownMenuData(JSON.stringify(serializeSharedBlockData(dropdown))),
+    ).toEqual(dropdown);
+    expect(
+      parseGalleryData(JSON.stringify(serializeSharedBlockData(gallery))),
+    ).toEqual(gallery);
+  });
+
   it("깨진 드롭다운 데이터는 안전한 빈 메뉴로 복원한다", () => {
     expect(parseDropdownMenuData("{broken")).toEqual(emptyDropdownMenu());
   });

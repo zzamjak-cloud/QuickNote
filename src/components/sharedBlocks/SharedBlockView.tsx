@@ -779,8 +779,17 @@ function SharedBlockView({
       ? state.records[sharedBlockRecordKey(workspaceId, sharedBlockId)]
       : undefined,
   );
-  const data = storeRecord && !storeRecord.deletedAt && storeRecord.kind === expectedKind
-    ? storeRecord.data
+  // seedIfAbsent 가 만든 updatedAt=0 레코드는 서버 권위값이 아니라 "마운트된 복제본 동기화 슬롯"이다.
+  // 새로고침 후 페이지 JSON 의 인라인 스냅샷에 이미지가 있는데 오래된 빈 seed 가 persist 돼 있으면
+  // seed 가 inline data 를 가려 갤러리가 사라져 보일 수 있으므로, 실제 원격/저장 레코드만 우선한다.
+  const authoritativeStoreRecord = storeRecord
+    && storeRecord.updatedAt > 0
+    && !storeRecord.deletedAt
+    && storeRecord.kind === expectedKind
+    ? storeRecord
+    : null;
+  const data = authoritativeStoreRecord
+    ? authoritativeStoreRecord.data
     : inlineData;
   const seedIfAbsent = useSharedBlockStore((state) => state.seedIfAbsent);
   const applyRemote = useSharedBlockStore((state) => state.applyRemote);
@@ -862,8 +871,12 @@ function SharedBlockView({
       setSaveError("서버에 저장하지 못했습니다. 연결을 확인한 뒤 다시 시도하세요.");
       return;
     }
-    if (applyRemote(remote)) {
-      updateAttributes({ data: serializeSharedBlockData(remote.data) });
+    const applied = applyRemote(remote);
+    const latest = applied
+      ? remote
+      : useSharedBlockStore.getState().records[sharedBlockRecordKey(workspaceId, sharedBlockId)] ?? remote;
+    if (latest.kind === expectedKind && !latest.deletedAt) {
+      updateAttributes({ data: serializeSharedBlockData(latest.data) });
       flushHostPageDoc();
     }
     setSaving(false);

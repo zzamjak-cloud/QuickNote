@@ -64,4 +64,43 @@ describe("pushSharedBlockApi", () => {
     expect(warn).toHaveBeenCalledOnce();
     warn.mockRestore();
   });
+
+  it("이중 인코딩된 갤러리 AWSJSON 응답도 서버 승자로 복원한다", async () => {
+    const local: SharedBlockRecord = {
+      id: "shared-gallery",
+      workspaceId: "workspace-1",
+      kind: "gallery",
+      data: { kind: "gallery", images: [], intervalMs: 5_000 },
+      updatedAt: Date.parse("2026-07-18T00:00:00.000Z"),
+      deletedAt: null,
+    };
+    const serverData = {
+      kind: "gallery" as const,
+      images: [
+        {
+          id: "banner-1",
+          src: "quicknote-image://asset-banner-1",
+          alt: "배너 1",
+        },
+      ],
+      intervalMs: 5_000,
+    };
+    mocks.graphql.mockResolvedValue({
+      data: {
+        upsertSharedBlock: {
+          id: local.id,
+          workspaceId: local.workspaceId,
+          kind: local.kind,
+          data: JSON.stringify(JSON.stringify(serverData)),
+          createdAt: "2026-07-18T00:00:00.000Z",
+          updatedAt: "2026-07-18T00:00:01.000Z",
+          deletedAt: null,
+        },
+      },
+    });
+
+    const winner = await pushSharedBlockApi(local);
+
+    expect(winner?.data).toEqual(serverData);
+  });
 });
