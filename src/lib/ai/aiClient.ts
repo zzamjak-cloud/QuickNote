@@ -3,7 +3,7 @@
 
 import { ensureFreshTokensForAppSync } from "../auth/apiTokens";
 import { createSseJsonDecoder } from "./sse";
-import type { AiToolCall, AiWireMessage } from "./tools";
+import type { AiGeminiHistoryPart, AiToolCall, AiWireMessage } from "./tools";
 
 export type AiChatMessage = { role: "user" | "assistant"; content: string };
 
@@ -13,6 +13,7 @@ export type AiStreamResult = {
   finishReason: string | null;
   usage: AiStreamUsage | null;
   toolCalls: AiToolCall[];
+  geminiParts: AiGeminiHistoryPart[];
 };
 
 export class AiRequestError extends Error {
@@ -83,6 +84,7 @@ type SseEvent = {
   retryAfterSec?: number | null;
   tool_call?: AiToolCall;
   toolCalls?: AiToolCall[];
+  geminiParts?: AiGeminiHistoryPart[];
 };
 
 export type AiAction =
@@ -149,7 +151,12 @@ export async function streamAiChat(args: {
   }
   if (!res.body) throw new AiRequestError("스트리밍 응답 없음");
 
-  const result: AiStreamResult = { finishReason: null, usage: null, toolCalls: [] };
+  const result: AiStreamResult = {
+    finishReason: null,
+    usage: null,
+    toolCalls: [],
+    geminiParts: [],
+  };
   let streamError: AiRequestError | null = null;
   const seenToolIds = new Set<string>();
 
@@ -168,6 +175,7 @@ export async function streamAiChat(args: {
       result.finishReason = event.finishReason ?? null;
       result.usage = event.usage ?? null;
       for (const tc of event.toolCalls ?? []) pushTool(tc);
+      result.geminiParts = event.geminiParts ?? [];
     }
     if (event.error) {
       streamError = new AiRequestError(event.error, null, event.retryAfterSec ?? null);

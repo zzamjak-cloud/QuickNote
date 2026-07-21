@@ -22,13 +22,18 @@ export const AI_PROVIDERS = ["gemini", "anthropic", "openai"] as const;
 export type AiProvider = (typeof AI_PROVIDERS)[number];
 
 export const AI_MODELS_BY_PROVIDER: Record<AiProvider, readonly string[]> = {
-  gemini: ["gemini-2.5-flash", "gemini-2.5-pro"],
+  gemini: [
+    "gemini-3.6-flash",
+    "gemini-3.5-flash",
+    "gemini-3.5-flash-lite",
+    "gemini-3.1-pro-preview",
+  ],
   anthropic: ["claude-haiku-4-5", "claude-sonnet-5"],
   openai: ["gpt-5-mini", "gpt-5.1"],
 };
 
 export const AI_DEFAULT_MODEL_BY_PROVIDER: Record<AiProvider, string> = {
-  gemini: "gemini-2.5-flash",
+  gemini: "gemini-3.6-flash",
   anthropic: "claude-haiku-4-5",
   openai: "gpt-5-mini",
 };

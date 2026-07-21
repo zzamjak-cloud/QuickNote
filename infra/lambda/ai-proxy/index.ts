@@ -34,6 +34,7 @@ import {
 } from "./prompts";
 import {
   TOOLS_SYSTEM_HINT,
+  type AiGeminiHistoryPart,
   type AiImageAttachment,
   type AiToolCall,
   type AiWireMessage,
@@ -58,6 +59,12 @@ const MAX_MESSAGE_CHARS = 32_000;
 const MAX_TOTAL_MESSAGE_CHARS = 200_000;
 const MAX_CONTEXT_CHARS = 120_000;
 const MAX_TOOL_RESULT_CHARS = 24_000;
+const MAX_THOUGHT_SIGNATURE_CHARS = 32_000;
+const MAX_TOOL_CALLS_PER_MESSAGE = 20;
+const MAX_TOOL_CALL_ID_CHARS = 4_096;
+const MAX_TOOL_NAME_CHARS = 128;
+const MAX_TOOL_ARGS_CHARS = 32_000;
+const MAX_GEMINI_HISTORY_PARTS = 200;
 // 이미지 첨부 — Lambda 요청 페이로드 6MB 제한 내 여유
 const IMAGE_MIME_WHITELIST = new Set([
   "image/jpeg",
@@ -96,7 +103,17 @@ type AiChatRequest = {
     role?: string;
     content?: string;
     images?: Array<{ mimeType?: string; dataBase64?: string }>;
-    toolCalls?: Array<{ id?: string; name?: string; args?: Record<string, unknown> }>;
+    geminiParts?: Array<{
+      text?: string;
+      thought?: boolean;
+      thoughtSignature?: string;
+    }>;
+    toolCalls?: Array<{
+      id?: string;
+      name?: string;
+      args?: Record<string, unknown>;
+      thoughtSignature?: string;
+    }>;
     toolCallId?: string;
     name?: string;
   }>;
@@ -374,20 +391,83 @@ function validateRequest(req: AiChatRequest):
         messages.push({ role: "user", content: m.content, images });
         continue;
       }
-      messages.push({ role: m.role, content: m.content });
+      if (m.role === "assistant" && m.geminiParts !== undefined) {
+        if (
+          !Array.isArray(m.geminiParts) ||
+          m.geminiParts.length === 0 ||
+          m.geminiParts.length > MAX_GEMINI_HISTORY_PARTS
+        ) {
+          return { ok: false, error: "잘못된 Gemini 응답 파트" };
+        }
+        const geminiParts: AiGeminiHistoryPart[] = [];
+        let joinedText = "";
+        for (const part of m.geminiParts) {
+          if (
+            !part ||
+            (part.text !== undefined && typeof part.text !== "string") ||
+            (part.thought !== undefined && typeof part.thought !== "boolean") ||
+            (part.thoughtSignature !== undefined &&
+              (typeof part.thoughtSignature !== "string" ||
+                part.thoughtSignature.length > MAX_THOUGHT_SIGNATURE_CHARS)) ||
+            (part.text === undefined && !part.thoughtSignature)
+          ) {
+            return { ok: false, error: "잘못된 Gemini 응답 파트" };
+          }
+          const text = part.text ?? "";
+          joinedText += text;
+          geminiParts.push({
+            ...(part.text !== undefined ? { text } : {}),
+            ...(part.thought !== undefined ? { thought: part.thought } : {}),
+            ...(part.thoughtSignature !== undefined
+              ? { thoughtSignature: part.thoughtSignature }
+              : {}),
+          });
+        }
+        if (joinedText !== m.content) {
+          return { ok: false, error: "Gemini 응답 파트와 본문이 일치하지 않습니다" };
+        }
+        messages.push({ role: "assistant", content: m.content, geminiParts });
+      } else {
+        messages.push({ role: m.role, content: m.content });
+      }
       continue;
     }
     if (m.role === "assistant_tools") {
       if (!enableTools) return { ok: false, error: "도구 메시지는 enableTools 필요" };
+      if ((m.toolCalls?.length ?? 0) > MAX_TOOL_CALLS_PER_MESSAGE) {
+        return { ok: false, error: "도구 호출이 너무 많습니다" };
+      }
       const toolCalls: AiToolCall[] = [];
       for (const tc of m.toolCalls ?? []) {
-        if (!tc?.id || !tc?.name || typeof tc.name !== "string") {
+        if (
+          typeof tc?.id !== "string" ||
+          tc.id.length === 0 ||
+          tc.id.length > MAX_TOOL_CALL_ID_CHARS ||
+          typeof tc.name !== "string" ||
+          tc.name.length === 0 ||
+          tc.name.length > MAX_TOOL_NAME_CHARS
+        ) {
           return { ok: false, error: "잘못된 toolCalls" };
         }
+        if (
+          tc.thoughtSignature !== undefined &&
+          (typeof tc.thoughtSignature !== "string" ||
+            tc.thoughtSignature.length > MAX_THOUGHT_SIGNATURE_CHARS)
+        ) {
+          return { ok: false, error: "잘못된 thoughtSignature" };
+        }
+        const args = tc.args && typeof tc.args === "object" ? tc.args : {};
+        if (JSON.stringify(args).length > MAX_TOOL_ARGS_CHARS) {
+          return { ok: false, error: "도구 인자가 너무 큽니다" };
+        }
         toolCalls.push({
-          id: String(tc.id).slice(0, 128),
-          name: String(tc.name).slice(0, 64),
-          args: tc.args && typeof tc.args === "object" ? tc.args : {},
+          // Gemini 3.x 호출 ID는 모델이 발급한 값을 정확히 되돌려줘야 한다.
+          id: tc.id,
+          name: tc.name,
+          args,
+          ...(tc.thoughtSignature !== undefined
+            ? { thoughtSignature: tc.thoughtSignature }
+            : {}),
         });
       }
       if (toolCalls.length === 0) return { ok: false, error: "toolCalls 필요" };
@@ -398,7 +478,11 @@ function validateRequest(req: AiChatRequest):
       if (!enableTools) return { ok: false, error: "도구 메시지는 enableTools 필요" };
       if (
         typeof m.toolCallId !== "string" ||
+        m.toolCallId.length === 0 ||
+        m.toolCallId.length > MAX_TOOL_CALL_ID_CHARS ||
         typeof m.name !== "string" ||
+        m.name.length === 0 ||
+        m.name.length > MAX_TOOL_NAME_CHARS ||
         typeof m.content !== "string"
       ) {
         return { ok: false, error: "잘못된 tool 결과" };
@@ -408,17 +492,29 @@ function validateRequest(req: AiChatRequest):
       }
       messages.push({
         role: "tool",
-        toolCallId: m.toolCallId.slice(0, 128),
-        name: m.name.slice(0, 64),
+        toolCallId: m.toolCallId,
+        name: m.name,
         content: m.content,
       });
       continue;
     }
     return { ok: false, error: "잘못된 메시지 형식" };
   }
-  // 메시지 합산 상한 — 개별 상한만으로는 40개 × 32K ≈ 1.3MB 까지 가능하므로 총량도 막는다
+  // 메시지 합산 상한 — 본문뿐 아니라 도구 인자·ID·추론 서명도 포함한다.
+  // 이미지는 별도 개수·총 base64 상한으로 검증한다.
   const totalChars = messages.reduce(
-    (sum, m) => sum + ("content" in m && typeof m.content === "string" ? m.content.length : 0),
+    (sum, m) => {
+      if (m.role === "assistant_tools") {
+        return sum + JSON.stringify(m.toolCalls).length;
+      }
+      if (m.role === "tool") {
+        return sum + m.toolCallId.length + m.name.length + m.content.length;
+      }
+      if (m.role === "assistant" && m.geminiParts) {
+        return sum + m.content.length + JSON.stringify(m.geminiParts).length;
+      }
+      return sum + m.content.length;
+    },
     0,
   );
   if (totalChars > MAX_TOTAL_MESSAGE_CHARS) {
@@ -544,6 +640,7 @@ export const handler = awslambda.streamifyResponse<FnUrlEvent>(
           finishReason: result.finishReason,
           usage: { inputTokens: result.inputTokens, outputTokens: result.outputTokens },
           toolCalls: result.toolCalls.length > 0 ? result.toolCalls : undefined,
+          geminiParts: result.geminiParts?.length ? result.geminiParts : undefined,
         });
         await logUsage(
           req.workspaceId!,

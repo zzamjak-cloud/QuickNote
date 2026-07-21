@@ -502,7 +502,7 @@ async function handleAsset(
   const body = await bodyToBuffer(object.Body);
   if (!body) return notFound();
   const contentType = object.ContentType ?? asset.mimeType ?? "application/octet-stream";
-  const headers = {
+  const headers: Record<string, string> = {
     ...baseHeaders(PUBLIC_ASSET_CACHE_CONTROL),
     "content-type": contentType,
   };

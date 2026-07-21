@@ -12,8 +12,18 @@ export const AI_PROVIDERS: Array<{ id: AiProvider; label: string }> = [
 
 export const AI_MODELS_BY_PROVIDER: Record<AiProvider, AiModelOption[]> = {
   gemini: [
-    { id: "gemini-2.5-flash", label: "Gemini 2.5 Flash — 빠름·저비용 (권장)", provider: "gemini" },
-    { id: "gemini-2.5-pro", label: "Gemini 2.5 Pro — 고품질", provider: "gemini" },
+    { id: "gemini-3.6-flash", label: "Gemini 3.6 Flash — 최신·고성능 (권장)", provider: "gemini" },
+    { id: "gemini-3.5-flash", label: "Gemini 3.5 Flash — 균형형", provider: "gemini" },
+    {
+      id: "gemini-3.5-flash-lite",
+      label: "Gemini 3.5 Flash-Lite — 빠름·저비용",
+      provider: "gemini",
+    },
+    {
+      id: "gemini-3.1-pro-preview",
+      label: "Gemini 3.1 Pro — 고성능 (Preview)",
+      provider: "gemini",
+    },
   ],
   anthropic: [
     {
@@ -30,7 +40,7 @@ export const AI_MODELS_BY_PROVIDER: Record<AiProvider, AiModelOption[]> = {
 };
 
 export const AI_DEFAULT_MODEL_BY_PROVIDER: Record<AiProvider, string> = {
-  gemini: "gemini-2.5-flash",
+  gemini: "gemini-3.6-flash",
   anthropic: "claude-haiku-4-5",
   openai: "gpt-5-mini",
 };

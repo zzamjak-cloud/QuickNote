@@ -35,6 +35,7 @@ import {
   AI_TOOL_ROUND_LIMIT,
   executeAiTool,
   toolStatusLabel,
+  type AiGeminiHistoryPart,
   type AiImageAttachment,
   type AiWireMessage,
 } from "../lib/ai/tools";
@@ -62,6 +63,8 @@ export type AiChatBubble = {
   fromCache?: boolean;
   /** 멘션 페이지·첨부 표시용 메타 (user 전용) */
   attachments?: AiBubbleAttachment[];
+  /** Gemini 후속 턴에서 추론 서명을 같은 응답 파트에 되돌리기 위한 메타. */
+  geminiParts?: AiGeminiHistoryPart[];
 };
 
 /** send() 에 실어 보내는 멘션·첨부. */
@@ -281,8 +284,19 @@ export const useAiStore = create<AiState & AiActions>()(
                 onToolCall: (call) => set({ toolStatus: toolStatusLabel(call.name) }),
               });
               assistantText += segment;
+              // UI 말풍선 하나가 실제 모델 턴 하나와 정확히 대응할 때만 서명을 보존한다.
+              // 도구/이어쓰기 라운드는 여러 모델 턴을 합쳐 표시하므로 합성 파트로 재전송하지 않는다.
+              if (
+                toolRounds === 0 &&
+                continuations === 0 &&
+                result.toolCalls.length === 0 &&
+                result.geminiParts.length > 0
+              ) {
+                patchAssistant({ geminiParts: result.geminiParts });
+              }
 
               if (enableTools && result.toolCalls.length > 0) {
+                patchAssistant({ geminiParts: undefined });
                 toolRounds += 1;
                 if (toolRounds >= AI_TOOL_ROUND_LIMIT) break;
                 // 도구 호출 턴 — 로컬 해석 후 후속 요청
@@ -306,6 +320,7 @@ export const useAiStore = create<AiState & AiActions>()(
 
               // 출력 토큰 상한으로 잘린 응답은 끊긴 지점부터 자동 이어쓰기
               if (isLengthCutFinish(result.finishReason) && continuations < MAX_CONTINUATIONS) {
+                patchAssistant({ geminiParts: undefined });
                 continuations += 1;
                 wireMessages = [
                   ...wireMessages,
@@ -467,7 +482,15 @@ export const useAiStore = create<AiState & AiActions>()(
           const history: AiWireMessage[] = get()
             .messages.filter((m) => !m.error && m.content)
             .slice(-(CHAT_HISTORY_LIMIT - 1))
-            .map((m) => ({ role: m.role, content: m.content }));
+            .map((m): AiWireMessage =>
+              m.role === "assistant"
+                ? {
+                    role: "assistant",
+                    content: m.content,
+                    geminiParts: m.geminiParts,
+                  }
+                : { role: "user", content: m.content },
+            );
           await runStream(workspaceId, {
             action: "chat",
             userBubbleText: trimmed || "(첨부 전송)",

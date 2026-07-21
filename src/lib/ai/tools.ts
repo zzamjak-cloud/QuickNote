@@ -16,14 +16,23 @@ export type AiToolCall = {
   id: string;
   name: string;
   args: Record<string, unknown>;
+  /** Gemini 3.x 다중 턴 함수 호출에 필요한 불투명 추론 서명. */
+  thoughtSignature?: string;
 };
 
 /** user 메시지에 첨부되는 이미지 — base64 인라인(서버가 제공사 멀티모달 입력으로 전달). */
 export type AiImageAttachment = { mimeType: string; dataBase64: string };
 
+/** Gemini 응답 파트의 불투명 추론 서명을 원래 파트 위치에 보존한다. */
+export type AiGeminiHistoryPart = {
+  text?: string;
+  thought?: boolean;
+  thoughtSignature?: string;
+};
+
 export type AiWireMessage =
   | { role: "user"; content: string; images?: AiImageAttachment[] }
-  | { role: "assistant"; content: string }
+  | { role: "assistant"; content: string; geminiParts?: AiGeminiHistoryPart[] }
   | { role: "assistant_tools"; toolCalls: AiToolCall[] }
   | { role: "tool"; toolCallId: string; name: string; content: string };
 

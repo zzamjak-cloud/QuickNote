@@ -3,6 +3,7 @@
 // 컨텍스트를 user 메시지에 섞지 않는다 → Gemini implicit prompt caching 적중.
 import {
   geminiFunctionDeclarations,
+  type AiGeminiHistoryPart,
   type AiToolCall,
   type AiWireMessage,
 } from "./tools";
@@ -14,6 +15,7 @@ export type GeminiStreamResult = {
   outputTokens: number;
   finishReason: string | null;
   toolCalls: AiToolCall[];
+  geminiParts?: AiGeminiHistoryPart[];
 };
 
 export class ProviderError extends Error {
@@ -29,9 +31,12 @@ export class ProviderError extends Error {
 
 type GeminiPart = {
   text?: string;
+  thought?: boolean;
+  thoughtSignature?: string;
   inlineData?: { mimeType: string; data: string };
-  functionCall?: { name?: string; args?: Record<string, unknown> };
+  functionCall?: { id?: string; name?: string; args?: Record<string, unknown> };
   functionResponse?: {
+    id?: string;
     name?: string;
     response?: Record<string, unknown>;
   };
@@ -61,18 +66,28 @@ function toGeminiContents(messages: AiWireMessage[]): Array<{
       ];
       contents.push({ role: "user", parts });
     } else if (m.role === "assistant") {
-      contents.push({ role: "model", parts: [{ text: m.content }] });
+      contents.push({
+        role: "model",
+        parts:
+          m.geminiParts && m.geminiParts.length > 0
+            ? m.geminiParts
+            : [{ text: m.content }],
+      });
     } else if (m.role === "assistant_tools") {
       contents.push({
         role: "model",
         parts: m.toolCalls.map((tc) => ({
-          functionCall: { name: tc.name, args: tc.args },
+          functionCall: { id: tc.id, name: tc.name, args: tc.args },
+          ...(tc.thoughtSignature
+            ? { thoughtSignature: tc.thoughtSignature }
+            : {}),
         })),
       });
     } else if (m.role === "tool") {
       // 연속 tool 결과는 같은 user 턴으로 묶는다
       const part: GeminiPart = {
         functionResponse: {
+          id: m.toolCallId,
           name: m.name,
           response: { result: m.content },
         },
@@ -100,12 +115,34 @@ export async function streamGeminiChat(args: {
   onToolCall?: (call: AiToolCall) => void;
 }): Promise<GeminiStreamResult> {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(args.model)}:streamGenerateContent?alt=sse`;
+  const contents = toGeminiContents(args.messages);
+  const last = contents.at(-1);
+  if (last?.role === "model") {
+    throw new ProviderError("Gemini 요청의 마지막 턴은 model일 수 없습니다", 400);
+  }
+  if (
+    last?.role === "user" &&
+    !last.parts.some(
+      (part) =>
+        Boolean(part.text?.trim()) ||
+        Boolean(part.inlineData) ||
+        Boolean(part.functionResponse),
+    )
+  ) {
+    throw new ProviderError("Gemini 요청의 마지막 user 턴이 비어 있습니다", 400);
+  }
+  const omitsSamplingConfig = args.model.startsWith("gemini-3.");
+  const generationConfig =
+    omitsSamplingConfig
+      ? { maxOutputTokens: 32_768 }
+      : { temperature: 0.7, maxOutputTokens: 32_768 };
   const body: Record<string, unknown> = {
     systemInstruction: { parts: [{ text: args.systemPrompt }] },
-    contents: toGeminiContents(args.messages),
-    // 취합·표 생성 등 긴 출력 대응 — Gemini 2.5 는 최대 65K 출력 지원.
+    contents,
+    // 취합·표 생성 등 긴 출력 대응 — Gemini 3.6 Flash 는 최대 65K 출력 지원.
     // 클라이언트에 MAX_TOKENS 자동 이어쓰기도 있으나 왕복을 줄이는 게 우선.
-    generationConfig: { temperature: 0.7, maxOutputTokens: 32_768 },
+    // Gemini 3.x는 기본 temperature 1.0 최적화를 유지하도록 샘플링 값을 보내지 않는다.
+    generationConfig,
   };
   if (args.enableTools) {
     body.tools = [{ functionDeclarations: geminiFunctionDeclarations() }];
@@ -131,6 +168,7 @@ export async function streamGeminiChat(args: {
     outputTokens: 0,
     finishReason: null,
     toolCalls: [],
+    geminiParts: [],
   };
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
@@ -150,12 +188,31 @@ export async function streamGeminiChat(args: {
     const cand = chunk.candidates?.[0];
     for (const part of cand?.content?.parts ?? []) {
       if (part.text) args.onDelta(part.text);
+      if (!part.functionCall && (part.text !== undefined || part.thoughtSignature)) {
+        if (part.thoughtSignature) {
+          result.geminiParts!.push({
+            ...(part.text !== undefined ? { text: part.text } : {}),
+            ...(part.thought !== undefined ? { thought: part.thought } : {}),
+            thoughtSignature: part.thoughtSignature,
+          });
+        } else if (part.text !== undefined) {
+          const previous = result.geminiParts!.at(-1);
+          if (previous && !previous.thoughtSignature) {
+            previous.text = `${previous.text ?? ""}${part.text}`;
+          } else {
+            result.geminiParts!.push({ text: part.text });
+          }
+        }
+      }
       if (part.functionCall?.name) {
         toolSeq += 1;
         const call: AiToolCall = {
-          id: `gemini-tool-${toolSeq}`,
+          id: part.functionCall.id ?? `gemini-tool-${toolSeq}`,
           name: part.functionCall.name,
           args: part.functionCall.args ?? {},
+          ...(part.thoughtSignature
+            ? { thoughtSignature: part.thoughtSignature }
+            : {}),
         };
         result.toolCalls.push(call);
         args.onToolCall?.(call);
