@@ -203,4 +203,24 @@ describe("databaseStore GraphQL serialization", () => {
     const parsedTemplates = JSON.parse(payload.templates as string) as DatabaseTemplate[];
     expect(parsedTemplates[0]?.automation).toEqual(templates[0]?.automation);
   });
+
+  it("독립 템플릿 버전이 없는 legacy 캐시는 templates를 구조 업서트에 싣지 않는다", () => {
+    const payload = toGqlDatabase(
+      {
+        id: "db-1",
+        workspaceId: "ws-1",
+        title: "DB",
+        createdAt: Date.parse("2026-01-01T00:00:00.000Z"),
+        updatedAt: Date.parse("2026-01-01T00:00:01.000Z"),
+      },
+      [{ id: "title", name: "Name", type: "title" }],
+      "member-1",
+      [],
+      undefined,
+      [],
+    );
+
+    expect(payload).not.toHaveProperty("templates");
+    expect(payload).not.toHaveProperty("templatesUpdatedAt");
+  });
 });

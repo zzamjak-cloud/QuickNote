@@ -78,11 +78,12 @@ export function toGqlDatabase(
   if (panelState !== undefined) {
     payload.panelState = serializePanelState(panelState);
   }
-  if (templates !== undefined) {
+  // 독립 템플릿 버전이 없는 legacy 캐시의 배열은 권위 여부를 판단할 수 없다.
+  // 구조 materialize가 전역 updatedAt을 새 템플릿 버전으로 합성해 서버 목록을
+  // 빈 배열로 덮지 않도록, 명시적 templatesUpdatedAt이 있을 때만 함께 전송한다.
+  if (templates !== undefined && meta.templatesUpdatedAt !== undefined) {
     payload.templates = JSON.stringify(templates);
-    payload.templatesUpdatedAt = new Date(
-      meta.templatesUpdatedAt ?? meta.updatedAt,
-    ).toISOString();
+    payload.templatesUpdatedAt = new Date(meta.templatesUpdatedAt).toISOString();
   }
   return payload;
 }

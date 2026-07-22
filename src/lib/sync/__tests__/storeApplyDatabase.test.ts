@@ -254,6 +254,62 @@ describe("applyRemoteDatabaseToStore", () => {
     expect(useDatabaseStore.getState().dbTemplates["db-1"]).toEqual([]);
   });
 
+  it("독립 버전이 없는 기존 캐시보다 서버 templatesUpdatedAt을 단건·배치에서 우선한다", () => {
+    const applyCases = [
+      (database: GqlDatabase) => applyRemoteDatabaseToStore(database),
+      (database: GqlDatabase) => applyRemoteDatabasesToStore([database]),
+    ];
+
+    for (const apply of applyCases) {
+      useDatabaseStore.setState({
+        databases: {
+          "db-1": {
+            meta: {
+              id: "db-1",
+              workspaceId: "ws-1",
+              title: "CAT 면접",
+              createdAt: 1,
+              updatedAt: Date.parse("2026-07-22T01:03:57.011Z"),
+            },
+            columns: [{ id: "title", name: "Name", type: "title" }],
+            presets: [],
+            rowPageOrder: [],
+          },
+        },
+        dbTemplates: {},
+        cacheWorkspaceId: "ws-1",
+      });
+
+      apply({
+        ...remoteDatabase(),
+        title: "CAT 면접",
+        updatedAt: "2026-07-22T01:03:57.011Z",
+        templatesUpdatedAt: "2026-07-22T01:01:14.909Z",
+        templates: JSON.stringify([
+          {
+            id: "template-interview",
+            title: "새 템플릿",
+            cells: {},
+            pageId: "template-page-interview",
+          },
+        ]),
+      });
+
+      const state = useDatabaseStore.getState();
+      expect(state.dbTemplates["db-1"]).toEqual([
+        {
+          id: "template-interview",
+          title: "새 템플릿",
+          cells: {},
+          pageId: "template-page-interview",
+        },
+      ]);
+      expect(state.databases["db-1"]?.meta.templatesUpdatedAt).toBe(
+        Date.parse("2026-07-22T01:01:14.909Z"),
+      );
+    }
+  });
+
   it("DB 구조 이벤트가 오래되어도 최신 templatesUpdatedAt의 빈 배열 삭제를 단건·배치에서 반영한다", () => {
     const applyCases = [
       (database: GqlDatabase) => applyRemoteDatabaseToStore(database),

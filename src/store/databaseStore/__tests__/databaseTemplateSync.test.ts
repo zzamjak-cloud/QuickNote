@@ -154,6 +154,31 @@ describe("데이터베이스 템플릿 즉시 동기화", () => {
     expect(useDatabaseStore.getState().databases["db-1"]?.rowPageOrder).toEqual([]);
   });
 
+  it("독립 버전이 없는 legacy 캐시의 빈 목록을 협업 materialize가 전송하지 않는다", () => {
+    const doc = new Y.Doc();
+    seedDbStructure(doc, {
+      columns: database.columns,
+      presets: [],
+      panelState: {},
+      rowPageOrder: [],
+      rows: {},
+      rowMembers: [],
+    });
+    registerDbCollab("db-1", {
+      doc,
+      baseline: readDbStructure(doc),
+    });
+
+    useDatabaseStore.getState().applyCollabDbStructure("db-1", readDbStructure(doc));
+
+    const materializedPayload = enqueueAsync.mock.calls
+      .filter(([kind]) => kind === "upsertDatabase")
+      .at(-1)?.[1] as Record<string, unknown> | undefined;
+    expect(materializedPayload).toBeDefined();
+    expect(materializedPayload).not.toHaveProperty("templates");
+    expect(materializedPayload).not.toHaveProperty("templatesUpdatedAt");
+  });
+
   it("협업 DB에서도 templates payload를 서버 업서트에 포함한다", () => {
     const doc = new Y.Doc();
     const collabOnlyColumn = { id: "remote", name: "원격 컬럼", type: "text" } as const;

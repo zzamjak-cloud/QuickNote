@@ -31,6 +31,7 @@ import { useCustomIconStore } from "./store/customIconStore";
 import { useSyncWatermarkStore } from "./store/syncWatermarkStore";
 import { useSchedulerViewStore } from "./store/schedulerViewStore";
 import { usePageStore } from "./store/pageStore";
+import { ensureDatabasePersistHydrated } from "./lib/sync/persistHydration";
 import { useMemberStore } from "./store/memberStore";
 import { useWorkspaceOptionsStore } from "./store/workspaceOptionsStore";
 import { fetchMeWithClientPrefs } from "./lib/sync/memberApi";
@@ -200,6 +201,10 @@ function useSyncBootstrap(): void {
       // 부트스트랩 진행 중에는 복원된 풀페이지 DB 탭으로 홈을 재생성하지 않도록 막는다.
       useUiStore.getState().setWorkspaceBootstrapping(true);
       try {
+        // 원격 템플릿을 먼저 적용한 뒤 늦은 persist hydrate가 빈 목록으로 덮지 않도록
+        // 워크스페이스 스냅샷 처리 전에 DB 캐시 복원을 완료한다.
+        await ensureDatabasePersistHydrated();
+        if (cancelled) return;
         const switchResult = await applyWorkspaceSwitch(
           prevWorkspaceId,
           currentWorkspaceId,

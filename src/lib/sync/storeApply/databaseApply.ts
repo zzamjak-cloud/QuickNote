@@ -114,19 +114,24 @@ function remoteTemplatesUpdatedAt(db: GqlDatabase): number {
   return isoToMs(db.templatesUpdatedAt ?? db.updatedAt) || isoToMs(db.updatedAt);
 }
 
-function localTemplatesUpdatedAt(local: DatabaseBundle | undefined): number {
-  return local?.meta.templatesUpdatedAt ?? local?.meta.updatedAt ?? 0;
-}
-
 function shouldApplyRemoteTemplates(
   local: DatabaseBundle | undefined,
   db: GqlDatabase,
   templates: DatabaseTemplate[] | undefined,
 ): boolean {
-  return (
-    templates !== undefined &&
-    (!local || remoteTemplatesUpdatedAt(db) >= localTemplatesUpdatedAt(local))
-  );
+  if (templates === undefined) return false;
+  if (!local) return true;
+
+  const localTemplatesUpdatedAt = local.meta.templatesUpdatedAt;
+  if (localTemplatesUpdatedAt !== undefined) {
+    return remoteTemplatesUpdatedAt(db) >= localTemplatesUpdatedAt;
+  }
+
+  // templatesUpdatedAt 도입 전 캐시는 DB 구조 updatedAt만 가진다. 서버가 독립 템플릿
+  // 버전을 명시했다면 로컬에는 비교 가능한 템플릿 버전이 없으므로 서버 배열을 복원한다.
+  // 양쪽 모두 독립 버전이 없는 구버전 조합에서만 기존 updatedAt 폴백을 유지한다.
+  if (isoToMs(db.templatesUpdatedAt) > 0) return true;
+  return remoteTemplatesUpdatedAt(db) >= local.meta.updatedAt;
 }
 
 function mergeRemoteSchedulerMemberOrder(
@@ -315,9 +320,7 @@ export function applyRemoteDatabaseToStore(
   const applyRemoteTemplates = shouldApplyRemoteTemplates(local, db, templates);
   const templatesUpdatedAt = applyRemoteTemplates
     ? remoteTemplatesUpdatedAt(db)
-    : local
-      ? localTemplatesUpdatedAt(local)
-      : undefined;
+    : local?.meta.templatesUpdatedAt;
 
   const bundle: DatabaseBundle = {
     meta: {
@@ -529,9 +532,7 @@ export function applyRemoteDatabasesToStore(
       const applyRemoteTemplates = shouldApplyRemoteTemplates(local, db, templates);
       const templatesUpdatedAt = applyRemoteTemplates
         ? remoteTemplatesUpdatedAt(db)
-        : local
-          ? localTemplatesUpdatedAt(local)
-          : undefined;
+        : local?.meta.templatesUpdatedAt;
       const bundle: DatabaseBundle = {
         meta: {
           id: db.id,
