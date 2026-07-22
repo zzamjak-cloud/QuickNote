@@ -66,10 +66,12 @@ loadingByDatabaseId:   Record<string, boolean>
 ```
 1. resolveExternalProtectedDatabaseId → null이면 skip
 2. currentWorkspaceId 없으면 skip (홈 워크스페이스 내부에서도 로드함 — 메타 baseline 은 dbCells 를 안 줌)
-3. scope 미지정 + row 캐시 완성 + nextToken 없음 → skip
-   (scope 지정 시엔 "1회 로드" 세션 가드로 단순화, 무한로드 방지)
+3. complete row 캐시는 즉시 화면에 표시하되, **새 DB 뷰 진입마다 서버 첫 배치를 재검증**
+   - 같은 뷰의 `rowPageOrder` 변경 재실행은 `viewLoadToken` + in-flight 공유로 1회에 합친다.
+   - scope 지정 시에도 뷰 진입별 1회만 조회해 필터 변경 무한 로드를 막는다.
 4. fetchDatabaseById + fetchDatabaseRowsBatch({ ...scope, limit: 100 })
 5. applyRemotePagesToStore / applyRemoteDatabasesToStore / setNextToken(복합키)
+   - 첫 batch의 `nextToken=null`은 완전 스냅샷이므로 row index를 reset해 서버에서 삭제된 stale 행을 제거한다.
 6. nextToken 이 있으면 fetchDatabaseRowIndexBatch 로 남은 row index 를 백그라운드 순차 로드
 7. useDatabaseRowIndexStore.upsertRows 로 로컬 row index 캐시 갱신
 ```
@@ -128,6 +130,8 @@ const milestoneRowIndexKey = resolveDatabaseRowRemoteKey(milestoneDatabaseId, wo
 
 - `protectedDatabaseRowsAreCached()` 는 페이지 존재뿐 아니라 **콘텐츠 적재(`contentLoaded !== false`)까지** 요구한다. 메타 baseline 은 row 를 dbCells 없이(`contentLoaded=false`) 적재하므로, 존재만으로 "완료"로 보면 셀이 빈 row 가 표시된다.
 - `databaseRowsAreCached()` 가 true 여도 `databaseRowRemoteStore.nextTokenByDatabaseId[indexKey]` 가 남아 있으면 전체 row 후보군은 미완성이다. 부분 캐시가 표시 설정 수량을 채웠다는 이유로 `ensureDatabaseRowsLoaded()` 를 skip 하지 않는다.
+- `complete=true` row index는 서버 최신 상태의 영구 보증이 아니다. 캐시는 stale-while-revalidate 용도로 즉시 렌더하고, 새 뷰 마운트의 `viewLoadToken`은 반드시 첫 row batch를 다시 확인해야 한다. 동일 마운트의 row order 변경만 토큰으로 dedupe 한다.
+- in-flight 요청은 시작한 뷰의 `cancelled` 결과를 다른 뷰가 완료로 오인하면 안 된다. 합류 호출은 해당 **요청 시도 토큰**이 실제 완료 표시됐는지 확인하고, 선행 뷰 cleanup으로 취소된 시도라면 새 요청을 실행한다. 반대로 합류한 소비자 자체가 대기 중 취소되면 그 소비자의 `viewLoadToken`은 완료 처리하지 않는다.
 - `loadContext`가 다르면 `compositeKey`도 달라진다. 로드 측과 읽기 측의 `loadContext`가 불일치하면 캐시 miss → 무한로드 또는 빈 뷰. 피처 타임라인에서 `rowIndexKey` 산출 시 반드시 `"inline"` 사용.
 - 홈 워크스페이스(LC 스케줄러) 내부에서도 로드한다(과거엔 skip 했음). 메타 baseline 이 row 콘텐츠를 안 내려주기 때문.
 - scope 하 "더 보기" 페이지네이션은 `DatabaseBlockView` 가 databaseId 키로만 nextToken 을 읽어 제한적 — scope 지정 시 1회 로드로 단순화. (후속 개선 여지)

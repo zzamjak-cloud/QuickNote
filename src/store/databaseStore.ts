@@ -691,7 +691,6 @@ export const useDatabaseStore = create<DatabaseStore>()(
         while (existingTitles.has(`${baseTitle} (${n})`)) n++;
         uniqueTitle = `${baseTitle} (${n})`;
       }
-      const pageId = createRowPage(databaseId, uniqueTitle);
       // 기본값 컬럼 + 템플릿 셀 값 병합 주입.
       const defaults: Record<string, CellValue> = {};
       for (const col of bundle.columns) {
@@ -699,6 +698,8 @@ export const useDatabaseStore = create<DatabaseStore>()(
         if (def != null) defaults[col.id] = def;
       }
       const cells = { ...defaults, ...templateCells };
+      // createPage가 다음 틱에 캡처한 최초 스냅샷부터 속성을 포함하도록 초기 셀을 함께 넘긴다.
+      const pageId = createRowPage(databaseId, uniqueTitle, cells);
       // 템플릿 페이지 본문(doc)도 새 행에 복제한다. 셀만 복사하고 본문을 빠뜨리면
       // 템플릿으로 만든 페이지가 빈 본문으로 생성된다(서버 자동화 경로는 본문 복사함).
       const templateDoc = templateDocHasContent(templatePage?.doc)
@@ -722,6 +723,9 @@ export const useDatabaseStore = create<DatabaseStore>()(
           };
         });
       }
+      // 템플릿으로 만든 신규 행의 셀도 일반 addRow와 동일하게 협업 Y.Doc에 즉시 시드한다.
+      // 빈 cells라도 행 inner map을 만들어 이후 동시 편집의 병합 기준을 보장한다.
+      writeCellsToCollabDoc(databaseId, pageId, cells);
       set((state) => {
         const b = state.databases[databaseId];
         if (!b) return state;
@@ -738,10 +742,12 @@ export const useDatabaseStore = create<DatabaseStore>()(
       });
       const bundleAfter = get().databases[databaseId];
       if (bundleAfter) enqueueUpsertDatabase(bundleAfter);
-      // 행 페이지 자체(주입된 doc·dbCells 포함)를 최종 상태로 재업서트한다.
-      // createPage 의 지연 upsert 는 빈 본문 스냅샷을 캡처하므로 누락된다(addRow 동일 패턴).
-      const newPage = usePageStore.getState().pages[pageId];
-      if (newPage) enqueueUpsertPageRaw(newPage);
+      // createPage가 예약한 초기 스냅샷 upsert보다 반드시 나중에 최종 doc·dbCells를 enqueue한다.
+      // 같은 page dedupe key에서 빈 초기 payload가 최종 payload를 다시 덮는 순서 역전을 막는다.
+      queueMicrotask(() => {
+        const newPage = usePageStore.getState().pages[pageId];
+        if (newPage) enqueueUpsertPageRaw(newPage, { includeCells: true });
+      });
       return pageId;
     },
 

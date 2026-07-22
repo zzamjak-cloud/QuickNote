@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [5.6.90] - 2026-07-23
+
+### Fixed
+
+- 템플릿으로 생성한 DB 페이지의 본문과 속성을 첫 저장부터 협업 Y.Doc 및 서버에 함께 반영해 다른 화면에서 즉시 동기화되도록 수정.
+- 완료된 DB 행 캐시도 새 뷰 진입 시 서버를 재검증하고, 취소·재진입 경합과 서버에서 삭제된 stale 행을 안전하게 정리하도록 수정.
+- 초기 DB 협업 동기화 전에 변경한 컬럼 타입과 프리셋을 서버 sync 직후 최신 Y.Doc 구조로 영속하도록 수정.
+
 ## [5.6.82] - 2026-07-19
 
 ### Fixed

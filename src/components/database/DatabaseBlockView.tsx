@@ -99,6 +99,10 @@ export function DatabaseBlockView(props: NodeViewProps) {
   );
   const databaseWorkspaceId =
     bundle?.meta.workspaceId ?? hostPageWorkspaceId ?? currentWorkspaceId;
+  const databaseRowViewLoadToken = useMemo<object>(
+    () => ({ databaseId, databaseWorkspaceId }),
+    [databaseId, databaseWorkspaceId],
+  );
 
   // DB 구조·셀 실시간 협업(Phase 4) — flag ON 인 DB 만 활성. materialize 시 store 에 투영, 첫 sync 시 행 셀 시드 폴백.
   useDatabaseCollabSession(
@@ -214,11 +218,20 @@ export function DatabaseBlockView(props: NodeViewProps) {
       cancelled: () => cancelled,
       rowLimit: resolveDatabaseInitialRowLimit(layout, panelState.itemLimit),
       source: "database-block",
+      viewLoadToken: databaseRowViewLoadToken,
     });
     return () => {
       cancelled = true;
     };
-  }, [databaseWorkspaceId, databaseId, hasDatabaseId, layout, panelState.itemLimit, rowPageOrder]);
+  }, [
+    databaseRowViewLoadToken,
+    databaseWorkspaceId,
+    databaseId,
+    hasDatabaseId,
+    layout,
+    panelState.itemLimit,
+    rowPageOrder,
+  ]);
 
   const executeDeleteDatabasePermanently = () => {
     if (!hasDatabaseId) return;

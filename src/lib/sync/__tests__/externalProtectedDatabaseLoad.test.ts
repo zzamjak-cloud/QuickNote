@@ -301,6 +301,347 @@ describe("externalProtectedDatabaseLoad", () => {
     expect(usePageStore.getState().pages["cat-row-1"]).toBeDefined();
   });
 
+  it("complete row 캐시가 있어도 새 DB 뷰 진입은 서버를 재검증하고 같은 뷰 재실행만 합친다", async () => {
+    const cachedAt = "2026-06-04T00:00:00.000Z";
+    const serverAt = "2026-06-04T00:01:00.000Z";
+    useDatabaseStore.setState({
+      databases: {
+        "normal-db": {
+          meta: {
+            id: "normal-db",
+            workspaceId: "cat-workspace",
+            title: "CAT DB",
+            createdAt: 1,
+            updatedAt: 1,
+          },
+          columns: [],
+          rowPageOrder: ["row-1"],
+        },
+      },
+      cacheWorkspaceId: "cat-workspace",
+    });
+    usePageStore.setState({
+      pages: {
+        "row-1": {
+          id: "row-1",
+          workspaceId: "cat-workspace",
+          title: "기존 항목",
+          icon: null,
+          doc: { type: "doc", content: [] },
+          parentId: null,
+          order: 1,
+          createdAt: Date.parse(cachedAt),
+          updatedAt: Date.parse(cachedAt),
+          databaseId: "normal-db",
+          contentLoaded: true,
+        },
+      },
+      cacheWorkspaceId: "cat-workspace",
+    });
+    useDatabaseRowRemoteStore.getState().setNextToken("normal-db", null);
+    useDatabaseRowIndexStore.setState({
+      snapshotsByKey: {
+        "normal-db": {
+          v: 1,
+          indexKey: "normal-db",
+          databaseId: "normal-db",
+          complete: true,
+          updatedAt: Date.parse(cachedAt),
+          rows: [
+            {
+              pageId: "row-1",
+              workspaceId: "cat-workspace",
+              databaseId: "normal-db",
+              title: "기존 항목",
+              icon: null,
+              order: 1,
+              dbCells: {},
+              updatedAt: Date.parse(cachedAt),
+            },
+            {
+              pageId: "row-deleted",
+              workspaceId: "cat-workspace",
+              databaseId: "normal-db",
+              title: "서버에서 삭제된 항목",
+              icon: null,
+              order: 2,
+              dbCells: {},
+              updatedAt: Date.parse(cachedAt),
+            },
+          ],
+        },
+      },
+      hydratedByKey: { "normal-db": true },
+      loadingByKey: {},
+    });
+    fetchDatabaseByIdMock.mockResolvedValue({
+      id: "normal-db",
+      workspaceId: "cat-workspace",
+      createdByMemberId: "member-1",
+      title: "CAT DB",
+      columns: [],
+      presets: [],
+      panelState: null,
+      createdAt: cachedAt,
+      updatedAt: serverAt,
+    });
+    fetchDatabaseRowsBatchMock.mockResolvedValue({
+      items: [
+        {
+          id: "row-1",
+          workspaceId: "cat-workspace",
+          createdByMemberId: "member-1",
+          title: "기존 항목",
+          parentId: null,
+          order: "1",
+          databaseId: "normal-db",
+          doc: { type: "doc", content: [] },
+          dbCells: {},
+          blockComments: null,
+          createdAt: cachedAt,
+          updatedAt: cachedAt,
+        },
+        {
+          id: "row-2",
+          workspaceId: "cat-workspace",
+          createdByMemberId: "member-1",
+          title: "새 항목",
+          parentId: null,
+          order: "2",
+          databaseId: "normal-db",
+          doc: { type: "doc", content: [] },
+          dbCells: {},
+          blockComments: null,
+          createdAt: serverAt,
+          updatedAt: serverAt,
+        },
+      ],
+      nextToken: null,
+    });
+
+    const firstViewLoadToken = {};
+    await expect(
+      ensureDatabaseRowsLoaded({
+        databaseId: "normal-db",
+        currentWorkspaceId: "cat-workspace",
+        source: "database-block",
+        viewLoadToken: firstViewLoadToken,
+      }),
+    ).resolves.toBe(true);
+
+    expect(fetchDatabaseRowsBatchMock).toHaveBeenCalledTimes(1);
+    expect(useDatabaseStore.getState().databases["normal-db"]?.rowPageOrder).toContain("row-2");
+    expect(
+      useDatabaseRowIndexStore.getState().snapshotsByKey["normal-db"]?.rows.map((row) => row.pageId),
+    ).toContain("row-2");
+    expect(
+      useDatabaseRowIndexStore.getState().snapshotsByKey["normal-db"]?.rows.map((row) => row.pageId),
+    ).not.toContain("row-deleted");
+
+    await expect(
+      ensureDatabaseRowsLoaded({
+        databaseId: "normal-db",
+        currentWorkspaceId: "cat-workspace",
+        source: "database-block",
+        viewLoadToken: firstViewLoadToken,
+      }),
+    ).resolves.toBe(false);
+    expect(fetchDatabaseRowsBatchMock).toHaveBeenCalledTimes(1);
+
+    await expect(
+      ensureDatabaseRowsLoaded({
+        databaseId: "normal-db",
+        currentWorkspaceId: "cat-workspace",
+        source: "database-block",
+        viewLoadToken: {},
+      }),
+    ).resolves.toBe(true);
+    expect(fetchDatabaseRowsBatchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("취소된 선행 in-flight 호출에 새 뷰가 합류하면 과거 완료 상태를 쓰지 않고 재시도한다", async () => {
+    const updatedAt = "2026-06-04T00:00:00.000Z";
+    const database = {
+      id: "normal-db",
+      workspaceId: "cat-workspace",
+      createdByMemberId: "member-1",
+      title: "CAT DB",
+      columns: [],
+      presets: [],
+      panelState: null,
+      createdAt: updatedAt,
+      updatedAt,
+    };
+    const row1 = {
+      id: "row-1",
+      workspaceId: "cat-workspace",
+      createdByMemberId: "member-1",
+      title: "기존 항목",
+      parentId: null,
+      order: "1",
+      databaseId: "normal-db",
+      doc: { type: "doc" as const, content: [] },
+      dbCells: {},
+      blockComments: null,
+      createdAt: updatedAt,
+      updatedAt,
+    };
+    const row2 = {
+      ...row1,
+      id: "row-2",
+      title: "재시도로 받은 항목",
+      order: "2",
+    };
+    useDatabaseStore.setState({
+      databases: {
+        "normal-db": {
+          meta: {
+            id: "normal-db",
+            workspaceId: "cat-workspace",
+            title: "CAT DB",
+            createdAt: 1,
+            updatedAt: 1,
+          },
+          columns: [],
+          rowPageOrder: ["row-1"],
+        },
+      },
+      cacheWorkspaceId: "cat-workspace",
+    });
+    usePageStore.setState({
+      pages: {
+        "row-1": {
+          id: "row-1",
+          workspaceId: "cat-workspace",
+          title: "기존 항목",
+          icon: null,
+          doc: { type: "doc", content: [] },
+          parentId: null,
+          order: 1,
+          createdAt: 1,
+          updatedAt: 1,
+          databaseId: "normal-db",
+          contentLoaded: true,
+        },
+      },
+      cacheWorkspaceId: "cat-workspace",
+    });
+    fetchDatabaseByIdMock.mockResolvedValue(database);
+    fetchDatabaseRowsBatchMock.mockResolvedValueOnce({ items: [row1], nextToken: null });
+
+    await ensureDatabaseRowsLoaded({
+      databaseId: "normal-db",
+      currentWorkspaceId: "cat-workspace",
+      viewLoadToken: {},
+      source: "race-baseline",
+    });
+
+    let resolveCancelledRows!: (
+      value: Awaited<ReturnType<typeof fetchDatabaseRowsBatch>>,
+    ) => void;
+    const cancelledRows = new Promise<Awaited<ReturnType<typeof fetchDatabaseRowsBatch>>>(
+      (resolve) => {
+        resolveCancelledRows = resolve;
+      },
+    );
+    fetchDatabaseRowsBatchMock.mockReturnValueOnce(cancelledRows);
+    fetchDatabaseRowsBatchMock.mockResolvedValueOnce({ items: [row1, row2], nextToken: null });
+
+    let firstCancelled = false;
+    const first = ensureDatabaseRowsLoaded({
+      databaseId: "normal-db",
+      currentWorkspaceId: "cat-workspace",
+      cancelled: () => firstCancelled,
+      viewLoadToken: {},
+      source: "race-first",
+    });
+    firstCancelled = true;
+    const joined = ensureDatabaseRowsLoaded({
+      databaseId: "normal-db",
+      currentWorkspaceId: "cat-workspace",
+      cancelled: () => false,
+      viewLoadToken: {},
+      source: "race-joined",
+    });
+
+    resolveCancelledRows({ items: [row1], nextToken: null });
+
+    await expect(first).resolves.toBe(false);
+    await expect(joined).resolves.toBe(true);
+    expect(fetchDatabaseRowsBatchMock).toHaveBeenCalledTimes(3);
+    expect(useDatabaseStore.getState().databases["normal-db"]?.rowPageOrder).toContain("row-2");
+  });
+
+  it("대기 중 취소된 joiner는 view token을 완료 처리하지 않아 다음 활성 호출이 재검증한다", async () => {
+    const updatedAt = "2026-06-04T00:00:00.000Z";
+    const database = {
+      id: "normal-db",
+      workspaceId: "cat-workspace",
+      createdByMemberId: "member-1",
+      title: "CAT DB",
+      columns: [],
+      presets: [],
+      panelState: null,
+      createdAt: updatedAt,
+      updatedAt,
+    };
+    const row = {
+      id: "row-1",
+      workspaceId: "cat-workspace",
+      createdByMemberId: "member-1",
+      title: "항목 1",
+      parentId: null,
+      order: "1",
+      databaseId: "normal-db",
+      doc: { type: "doc" as const, content: [] },
+      dbCells: {},
+      blockComments: null,
+      createdAt: updatedAt,
+      updatedAt,
+    };
+    fetchDatabaseByIdMock.mockResolvedValue(database);
+    let resolveRows!: (value: Awaited<ReturnType<typeof fetchDatabaseRowsBatch>>) => void;
+    const deferredRows = new Promise<Awaited<ReturnType<typeof fetchDatabaseRowsBatch>>>(
+      (resolve) => {
+        resolveRows = resolve;
+      },
+    );
+    fetchDatabaseRowsBatchMock.mockReturnValueOnce(deferredRows);
+    fetchDatabaseRowsBatchMock.mockResolvedValueOnce({ items: [row], nextToken: null });
+
+    const primary = ensureDatabaseRowsLoaded({
+      databaseId: "normal-db",
+      currentWorkspaceId: "cat-workspace",
+      viewLoadToken: {},
+      source: "join-primary",
+    });
+    const stableViewLoadToken = {};
+    let joinerCancelled = false;
+    const cancelledJoiner = ensureDatabaseRowsLoaded({
+      databaseId: "normal-db",
+      currentWorkspaceId: "cat-workspace",
+      cancelled: () => joinerCancelled,
+      viewLoadToken: stableViewLoadToken,
+      source: "join-cancelled",
+    });
+    joinerCancelled = true;
+    resolveRows({ items: [row], nextToken: null });
+
+    await expect(primary).resolves.toBe(true);
+    await expect(cancelledJoiner).resolves.toBe(false);
+
+    await expect(
+      ensureDatabaseRowsLoaded({
+        databaseId: "normal-db",
+        currentWorkspaceId: "cat-workspace",
+        cancelled: () => false,
+        viewLoadToken: stableViewLoadToken,
+        source: "join-reactivated",
+      }),
+    ).resolves.toBe(true);
+    expect(fetchDatabaseRowsBatchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("외부 워크스페이스 DB는 저장된 DB workspaceId 로 row를 적재한다", async () => {
     const updatedAt = "2026-06-04T00:00:00.000Z";
     useWorkspaceStore.setState({ currentWorkspaceId: "cat-workspace" });
@@ -422,8 +763,9 @@ describe("externalProtectedDatabaseLoad", () => {
     ]);
   });
 
-  it("캐시가 없을 때만 보이는 protected DB에서 LC 스케줄러 스냅샷을 지연 로드한다", async () => {
+  it("protected DB 스냅샷을 지연 로드하고 같은 뷰 재실행은 캐시로 합친다", async () => {
     const updatedAt = "2026-06-04T00:00:00.000Z";
+    const viewLoadToken = {};
     fetchDatabaseByIdMock.mockResolvedValue({
       id: LC_SCHEDULER_DATABASE_ID,
       workspaceId: LC_SCHEDULER_WORKSPACE_ID,
@@ -476,6 +818,7 @@ describe("externalProtectedDatabaseLoad", () => {
         databaseId: makeLCSchedulerDatabaseId("legacy-ws"),
         currentWorkspaceId: "cat-workspace",
         source: "test",
+        viewLoadToken,
       }),
     ).resolves.toBe(true);
 
@@ -499,6 +842,7 @@ describe("externalProtectedDatabaseLoad", () => {
         databaseId: LC_SCHEDULER_DATABASE_ID,
         currentWorkspaceId: "cat-workspace",
         source: "test",
+        viewLoadToken,
       }),
     ).resolves.toBe(false);
 

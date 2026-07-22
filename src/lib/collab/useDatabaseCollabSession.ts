@@ -58,6 +58,17 @@ export function useDatabaseCollabSession(
     let provider: QnWsProvider | null = null;
     let timer: number | null = null;
     let serverSynced = false;
+    let materializePendingAfterSync = false;
+
+    const materializeLatest = () => {
+      try {
+        onMaterializeRef.current(readDbStructure(doc));
+        materializePendingAfterSync = false;
+      } catch {
+        // 다음 변경 또는 재연결 sync 에서 최신 구조로 다시 시도한다.
+        materializePendingAfterSync = true;
+      }
+    };
 
     // Y.Doc 변경 → 디바운스 materialize → onMaterialize 콜백
     const scheduleMaterialize = () => {
@@ -66,8 +77,11 @@ export function useDatabaseCollabSession(
         timer = null;
         // 서버 sync 전(IndexedDB 단독 로드 등)의 로컬 Y 구조는 stale 일 수 있다 —
         // 서버 룸과 병합되기 전에 materialize 하면 최신 구조·행 순서를 과거로 되돌린다.
-        if (!serverSynced) return;
-        try { onMaterializeRef.current(readDbStructure(doc)); } catch { /* 다음 변경에서 재시도 */ }
+        if (!serverSynced) {
+          materializePendingAfterSync = true;
+          return;
+        }
+        materializeLatest();
       }, MATERIALIZE_DEBOUNCE_MS);
     };
     doc.on("update", scheduleMaterialize);
@@ -92,6 +106,14 @@ export function useDatabaseCollabSession(
           setSynced(true);
           setConnStatus(toBadgeStatus("connected", true));
           try { onSyncedRef.current?.(); } catch { /* 시드 폴백 실패는 무시 */ }
+          if (materializePendingAfterSync) {
+            // sync 중 추가된 변경까지 최신 구조에 포함하고 중복 디바운스 저장은 제거한다.
+            if (timer !== null) {
+              window.clearTimeout(timer);
+              timer = null;
+            }
+            materializeLatest();
+          }
         }
       });
       provider.connect();

@@ -59,6 +59,9 @@ DB 쪽은 applyCollabDbStructure 가 `enqueueUpsertDatabase(..., { skipCollab: t
 ## materialize 방어선 (useCollabSession.ts / databaseStore.ts)
 
 - **synced 게이트**: 서버 sync 전(IndexedDB 단독 로드) 상태는 stale 일 수 있어 materialize 금지.
+- **DB pre-sync 변경 replay**: DB 구조 변경의 디바운스가 서버 sync 전에 끝나면 pending 으로 보존하고,
+  서버 룸 병합이 끝난 `synced` 시점에 최신 Y.Doc 구조를 한 번 materialize 한다. synced 게이트를
+  우회하지 않으면서 초기 연결 중 컬럼 타입·프리셋 변경이 서버 저장에서 누락되지 않게 한다.
 - **빈 doc 가드**: `isCollabDocBodyEmpty`(fragment length 0) → 저장 생략.
 - **placeholder 가드**: 빈 문단뿐인 Y 상태가 의미 있는 기존 본문을 덮지 못함
   (`isPlaceholderBodyJson`, 서버 `preserveExistingDocForPlaceholderInput` 와 동일 의미).

@@ -117,6 +117,10 @@ export function DatabaseFullPageStandalone({
   const [extraRows, setExtraRows] = useState(0);
   const panelStateRef = useRef<DatabasePanelState>(panelState);
   panelStateRef.current = panelState;
+  const databaseRowViewLoadToken = useMemo<object>(
+    () => ({ databaseId, pageId }),
+    [databaseId, pageId],
+  );
 
   useEffect(() => {
     if (pageId) return;
@@ -135,11 +139,19 @@ export function DatabaseFullPageStandalone({
       cancelled: () => cancelled,
       rowLimit: resolveDatabaseInitialRowLimit("fullPage", panelState.itemLimit),
       source: pageId ? "database-fullpage-editor" : "database-fullpage-direct",
+      viewLoadToken: databaseRowViewLoadToken,
     });
     return () => {
       cancelled = true;
     };
-  }, [currentWorkspaceId, databaseId, pageId, panelState.itemLimit, rowPageOrderKey]);
+  }, [
+    currentWorkspaceId,
+    databaseId,
+    databaseRowViewLoadToken,
+    pageId,
+    panelState.itemLimit,
+    rowPageOrderKey,
+  ]);
 
   const updateBlockAttrs = useCallback(
     (attrs: Record<string, unknown>) => {

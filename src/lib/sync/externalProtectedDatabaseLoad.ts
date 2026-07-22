@@ -108,6 +108,8 @@ type EnsureExternalProtectedDatabaseLoadedArgs = {
   rowLimit?: number;
   source?: string;
   loadContext?: DatabaseRowLoadContext;
+  /** 같은 DB 뷰 마운트 안에서 rowPageOrder 변경에 따른 중복 재검증을 합치는 토큰. */
+  viewLoadToken?: object;
 };
 
 type DatabaseRowLoadTarget = {
@@ -120,8 +122,30 @@ type DatabaseRowLoadTarget = {
 const inFlightByDatabaseId = new Map<string, Promise<boolean>>();
 const inFlightMoreByDatabaseId = new Map<string, Promise<boolean>>();
 const inFlightWarmIndexByDatabaseId = new Map<string, Promise<void>>();
+const inFlightAttemptByDatabaseId = new Map<string, object>();
+const completedAttemptByDatabaseId = new Map<string, object>();
 const completedLoadDatabaseIds = new Set<string>();
 const completedLoadLimitsByDatabaseId = new Map<string, number>();
+let completedLoadLimitsByViewToken = new WeakMap<object, Map<string, number>>();
+
+function completedLoadLimitForViewToken(
+  viewLoadToken: object | undefined,
+  loadKey: string,
+): number {
+  if (!viewLoadToken) return 0;
+  return completedLoadLimitsByViewToken.get(viewLoadToken)?.get(loadKey) ?? 0;
+}
+
+function rememberCompletedViewLoad(
+  viewLoadToken: object | undefined,
+  loadKey: string,
+  rowLimit: number,
+): void {
+  if (!viewLoadToken) return;
+  const limits = completedLoadLimitsByViewToken.get(viewLoadToken) ?? new Map<string, number>();
+  limits.set(loadKey, Math.max(limits.get(loadKey) ?? 0, rowLimit));
+  completedLoadLimitsByViewToken.set(viewLoadToken, limits);
+}
 
 export function resolveExternalProtectedDatabaseId(databaseId: string | null | undefined): string | null {
   if (!isProtectedDatabaseId(databaseId)) return null;
@@ -379,6 +403,7 @@ export async function ensureExternalProtectedDatabaseLoaded({
   rowLimit = DEFAULT_ROW_BATCH_LIMIT,
   source = "unknown",
   loadContext = "inline",
+  viewLoadToken,
 }: EnsureExternalProtectedDatabaseLoadedArgs): Promise<boolean> {
   return ensureDatabaseRowsLoaded({
     databaseId,
@@ -387,44 +412,41 @@ export async function ensureExternalProtectedDatabaseLoaded({
     rowLimit,
     source,
     loadContext,
+    viewLoadToken,
   });
 }
 
-export async function ensureDatabaseRowsLoaded({
-  databaseId,
-  currentWorkspaceId,
-  cancelled,
-  rowLimit = DEFAULT_ROW_BATCH_LIMIT,
-  source = "unknown",
-  loadContext = "inline",
-}: EnsureExternalProtectedDatabaseLoadedArgs): Promise<boolean> {
+export async function ensureDatabaseRowsLoaded(
+  args: EnsureExternalProtectedDatabaseLoadedArgs,
+): Promise<boolean> {
+  const {
+    databaseId,
+    currentWorkspaceId,
+    cancelled,
+    rowLimit = DEFAULT_ROW_BATCH_LIMIT,
+    source = "unknown",
+    loadContext = "inline",
+    viewLoadToken,
+  } = args;
   const target = resolveDatabaseRowLoadTarget(databaseId, currentWorkspaceId, loadContext);
   if (!target) return false;
   const { resolvedDatabaseId, workspaceId, scope, protectedDatabase } = target;
   const scoped = hasScope(scope);
   const loadKey = compositeKey(resolvedDatabaseId, scope);
-  const rowRemoteState = useDatabaseRowRemoteStore.getState();
-  const rowPaginationKnown = Object.prototype.hasOwnProperty.call(
-    rowRemoteState.nextTokenByDatabaseId,
-    loadKey,
-  );
-  const cachedNextToken = rowRemoteState.nextTokenByDatabaseId[loadKey] ?? null;
   const completedLoadLimit = completedLoadLimitsByDatabaseId.get(loadKey) ?? 0;
+  const completedViewLoadLimit = completedLoadLimitForViewToken(viewLoadToken, loadKey);
 
-  // scope 미지정(전체 로드)일 때만 로컬 캐시 완료 판정으로 재로드를 건너뛴다.
-  // 단, row pagination 상태가 아직 없거나 nextToken 이 남아 있으면 전체 후보군 확인 전이므로 조회한다.
-  // scope 지정 시 캐시 완료 판정이 과복잡하므로 "scope 1회 로드"(session 가드)로 단순화해 무한로드를 막는다.
+  // complete 로컬 캐시는 즉시 렌더에만 사용하고, 새 DB 뷰 진입은 서버 첫 배치를 재검증한다.
+  // 같은 뷰 안에서 rowPageOrder 변경으로 effect가 재실행되는 경우에만 viewLoadToken으로 합친다.
+  // 토큰이 없는 scope 조회는 기존 세션 가드를 유지해 필터 변경 루프를 막는다.
   if (
-    !scoped &&
-    rowPaginationKnown &&
-    databaseRowsAreCached(resolvedDatabaseId) &&
-    cachedNextToken === null
-  ) {
-    return false;
-  }
-  if (
-    completedLoadDatabaseIds.has(loadKey) &&
-    completedLoadLimit >= rowLimit &&
+    (
+      completedViewLoadLimit >= rowLimit ||
+      (!viewLoadToken &&
+        scoped &&
+        completedLoadDatabaseIds.has(loadKey) &&
+        completedLoadLimit >= rowLimit)
+    ) &&
     (
       scoped ||
       databaseRowsAreCached(resolvedDatabaseId) ||
@@ -435,8 +457,27 @@ export async function ensureDatabaseRowsLoaded({
   }
 
   const existing = inFlightByDatabaseId.get(loadKey);
-  if (existing) return existing;
+  if (existing) {
+    const existingAttempt = inFlightAttemptByDatabaseId.get(loadKey);
+    const resolved = await existing;
+    if (cancelled?.()) return false;
+    const attemptCompleted = Boolean(
+      existingAttempt && completedAttemptByDatabaseId.get(loadKey) === existingAttempt,
+    );
+    if (!attemptCompleted) {
+      return ensureDatabaseRowsLoaded(args);
+    }
+    const loadedLimit = completedLoadLimitsByDatabaseId.get(loadKey) ?? 0;
+    if (loadedLimit < rowLimit) {
+      return ensureDatabaseRowsLoaded(args);
+    }
+    if (loadedLimit >= rowLimit) {
+      rememberCompletedViewLoad(viewLoadToken, loadKey, loadedLimit);
+    }
+    return resolved;
+  }
 
+  const attemptToken = {};
   const task = (async () => {
     const [database, rows] = await Promise.all([
       fetchDatabaseById(workspaceId, resolvedDatabaseId),
@@ -466,6 +507,7 @@ export async function ensureDatabaseRowsLoaded({
       resolvedDatabaseId,
       rows: rows.items,
       complete: !rows.nextToken,
+      reset: !rows.nextToken,
     });
     const rowIndexFallbackResolved =
       rows.items.length === 0 && !rows.nextToken
@@ -494,6 +536,8 @@ export async function ensureDatabaseRowsLoaded({
       scoped || databaseRowsAreCached(resolvedDatabaseId) || rowIndexFallbackResolved;
     completedLoadDatabaseIds.add(loadKey);
     completedLoadLimitsByDatabaseId.set(loadKey, rowLimit);
+    completedAttemptByDatabaseId.set(loadKey, attemptToken);
+    rememberCompletedViewLoad(viewLoadToken, loadKey, rowLimit);
     return resolved;
   })().catch(async (error) => {
     if (isSchemaUnavailableError(error)) {
@@ -509,9 +553,12 @@ export async function ensureDatabaseRowsLoaded({
     }
     return false;
   }).finally(() => {
+    if (inFlightAttemptByDatabaseId.get(loadKey) !== attemptToken) return;
     inFlightByDatabaseId.delete(loadKey);
+    inFlightAttemptByDatabaseId.delete(loadKey);
   });
 
+  inFlightAttemptByDatabaseId.set(loadKey, attemptToken);
   inFlightByDatabaseId.set(loadKey, task);
   return task;
 }
@@ -609,6 +656,9 @@ export function resetDatabaseRowLoadSessionState(): void {
   inFlightByDatabaseId.clear();
   inFlightMoreByDatabaseId.clear();
   inFlightWarmIndexByDatabaseId.clear();
+  inFlightAttemptByDatabaseId.clear();
+  completedAttemptByDatabaseId.clear();
   completedLoadDatabaseIds.clear();
   completedLoadLimitsByDatabaseId.clear();
+  completedLoadLimitsByViewToken = new WeakMap<object, Map<string, number>>();
 }

@@ -1,5 +1,5 @@
 // LC 스케줄러 풀스크린 모달 — createPortal, 뷰 모드 라우팅.
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { useSchedulerStore } from "../../store/schedulerStore";
 import { useSchedulerViewStore } from "../../store/schedulerViewStore";
@@ -71,6 +71,10 @@ export function LCSchedulerModal({ onClose }: Props) {
   const selectedMemberId = useSchedulerViewStore((s) => s.selectedMemberId);
   const selectedJobTitle = useSchedulerViewStore((s) => s.selectedJobTitle);
   const [bodyReady, setBodyReady] = useState(false);
+  const databaseRowViewLoadToken = useMemo<object>(
+    () => ({ selectedMemberId, selectedProjectId }),
+    [selectedMemberId, selectedProjectId],
+  );
 
   useEffect(() => {
     const id = window.requestAnimationFrame(() => setBodyReady(true));
@@ -93,6 +97,7 @@ export function LCSchedulerModal({ onClose }: Props) {
           currentWorkspaceId: schedulerWorkspaceId,
           cancelled: () => cancelled,
           source: "lc-scheduler-modal",
+          viewLoadToken: databaseRowViewLoadToken,
           // 피처는 scope(org/team/project)가 연결 마일스톤에서 미러될 뿐 자신의 dbCells 에는
           // 없어 서버 scoped 쿼리로는 누락된다. 전체(unscoped) 로드 후 클라가
           // getScopedMilestoneIds/matchesSchedulerScope 로 마일스톤 scope 기준 필터한다.
@@ -108,6 +113,7 @@ export function LCSchedulerModal({ onClose }: Props) {
     };
   }, [
     featureDatabaseId,
+    databaseRowViewLoadToken,
     milestoneDatabaseId,
     schedulerDatabaseId,
     schedulerWorkspaceId,
