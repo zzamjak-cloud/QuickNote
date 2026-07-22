@@ -57,7 +57,10 @@ import { getDbCollab } from "../lib/collab/dbCollabRegistry";
 import { readDbStructure } from "../lib/collab/dbBundleYjs";
 import { writeCellsToCollabDoc } from "../lib/collab/dbCellsCollab";
 import type { Page } from "../types/page";
-import { registerTemplatePageTitleChangeHandler } from "../lib/database/templatePageTitleSync";
+import {
+  registerTemplatePageMarkerReconcileHandler,
+  registerTemplatePageTitleChangeHandler,
+} from "../lib/database/templatePageTitleSync";
 
 export { migrateDatabaseStore } from "./databaseStore/migrations";
 export { normalizeDbTitle } from "./databaseStore/helpers";
@@ -86,6 +89,17 @@ function templateDocHasContent(doc: unknown): boolean {
     }
   }
   return true;
+}
+
+function isLiveFullTemplateMarkerPage(page: Page): boolean {
+  // Page 스토어는 tombstone을 보관하지 않고 원격 deletedAt 수신 즉시 엔트리를 제거한다.
+  // 구버전 persist에 삭제 필드가 섞였을 가능성도 방어하면서 full-content가 확인된 페이지만 복원한다.
+  const deletedAt = (page as Page & { deletedAt?: unknown }).deletedAt;
+  return (
+    deletedAt == null &&
+    page.contentLoaded === true &&
+    page.dbCells?.["_qn_isTemplate"] === "1"
+  );
 }
 
 type DatabaseStoreState = {
@@ -769,6 +783,57 @@ registerTemplatePageTitleChangeHandler((databaseId, pageId, title) => {
   );
   if (!template || template.title === title) return;
   state.updateTemplate(databaseId, template.id, { title });
+});
+
+registerTemplatePageMarkerReconcileHandler((databaseId) => {
+  const state = useDatabaseStore.getState();
+  const bundle = state.databases[databaseId];
+  if (!bundle) return;
+
+  const existingTemplates = state.dbTemplates[databaseId] ?? [];
+  const registeredPageIds = new Set(
+    existingTemplates
+      .map((template) => template.pageId)
+      .filter((pageId): pageId is string => Boolean(pageId)),
+  );
+  const orphanPages = Object.values(usePageStore.getState().pages)
+    .filter(
+      (page) =>
+        page.databaseId === databaseId &&
+        isLiveFullTemplateMarkerPage(page) &&
+        !registeredPageIds.has(page.id) &&
+        (!page.workspaceId ||
+          !bundle.meta.workspaceId ||
+          page.workspaceId === bundle.meta.workspaceId),
+    )
+    .sort((left, right) => left.id.localeCompare(right.id));
+  if (orphanPages.length === 0) return;
+
+  const templatesUpdatedAt = Math.max(
+    Date.now(),
+    (bundle.meta.templatesUpdatedAt ?? 0) + 1,
+  );
+  const recoveredTemplates: DatabaseTemplate[] = orphanPages.map((page) => ({
+    id: `recovered-template:${page.id}`,
+    title: page.title,
+    // 실제 적용 경로는 연결된 template page의 dbCells를 우선하므로 registry fallback은 비워 둔다.
+    cells: {},
+    pageId: page.id,
+  }));
+  const nextTemplates = [...existingTemplates, ...recoveredTemplates];
+  const recoveredPageIds = new Set(orphanPages.map((page) => page.id));
+  const nextBundle: DatabaseBundle = {
+    ...bundle,
+    meta: { ...bundle.meta, templatesUpdatedAt },
+    rowPageOrder: bundle.rowPageOrder.filter((pageId) => !recoveredPageIds.has(pageId)),
+  };
+
+  useDatabaseStore.setState((current) => ({
+    ...current,
+    databases: { ...current.databases, [databaseId]: nextBundle },
+    dbTemplates: { ...current.dbTemplates, [databaseId]: nextTemplates },
+  }));
+  enqueueUpsertDatabase(nextBundle, nextTemplates);
 });
 
 export function listDatabases(state: DatabaseStore): { id: string; meta: DatabaseMeta }[] {

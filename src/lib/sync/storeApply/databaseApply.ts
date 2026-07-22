@@ -35,6 +35,7 @@ import {
   collectRowPageIdsForDatabases,
   reconcileDatabaseRowOrders,
 } from "./rowOrder";
+import { reconcileTemplatePageMarkers } from "../../database/templatePageTitleSync";
 
 function parseRemoteDatabaseSchema(
   db: GqlDatabase,
@@ -304,6 +305,7 @@ export function applyRemoteDatabaseToStore(
       // page meta 구독이 먼저 도착해 일반 행으로 들어간 템플릿 pageId를 제거한다.
       reconcileDatabaseRowOrders(new Set([db.id]));
     }
+    reconcileTemplatePageMarkers(db.id);
     if (mergeRemoteSchedulerMemberOrderIntoLocalDatabase(db, local, schema)) return;
     useDatabaseStore.setState((s) =>
       s.cacheWorkspaceId === resolveNextCacheWorkspaceId(s.cacheWorkspaceId, db.workspaceId)
@@ -347,6 +349,7 @@ export function applyRemoteDatabaseToStore(
     cacheWorkspaceId: resolveNextCacheWorkspaceId(s.cacheWorkspaceId, db.workspaceId),
   }));
   if (applyRemoteTemplates) reconcileDatabaseRowOrders(new Set([db.id]));
+  reconcileTemplatePageMarkers(db.id);
   repairDbHistoryBaselineIfNeeded(db.id, structuredClone(bundle));
 }
 
@@ -580,6 +583,9 @@ export function applyRemoteDatabasesToStore(
 
   if (templateDatabaseIdsToReconcile.size > 0) {
     reconcileDatabaseRowOrders(templateDatabaseIdsToReconcile);
+  }
+  for (const databaseId of candidateDatabaseIds) {
+    reconcileTemplatePageMarkers(databaseId);
   }
 
   for (const bundle of repairedBundles) {

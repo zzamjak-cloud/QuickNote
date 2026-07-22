@@ -3,8 +3,10 @@ type TemplatePageTitleChangeHandler = (
   pageId: string,
   title: string,
 ) => void;
+type TemplatePageMarkerReconcileHandler = (databaseId: string) => void;
 
 let templatePageTitleChangeHandler: TemplatePageTitleChangeHandler | null = null;
+let templatePageMarkerReconcileHandler: TemplatePageMarkerReconcileHandler | null = null;
 
 export function registerTemplatePageTitleChangeHandler(
   handler: TemplatePageTitleChangeHandler,
@@ -23,4 +25,19 @@ export function notifyTemplatePageTitleChanged(
   title: string,
 ): void {
   templatePageTitleChangeHandler?.(databaseId, pageId, title);
+}
+
+export function registerTemplatePageMarkerReconcileHandler(
+  handler: TemplatePageMarkerReconcileHandler,
+): () => void {
+  templatePageMarkerReconcileHandler = handler;
+  return () => {
+    if (templatePageMarkerReconcileHandler === handler) {
+      templatePageMarkerReconcileHandler = null;
+    }
+  };
+}
+
+export function reconcileTemplatePageMarkers(databaseId: string): void {
+  templatePageMarkerReconcileHandler?.(databaseId);
 }

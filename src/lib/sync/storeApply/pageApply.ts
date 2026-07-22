@@ -33,6 +33,7 @@ import {
 } from "./helpers";
 import { EMPTY_DOC } from "../../../store/pageStore/helpers";
 import { shouldApplyRemoteSnapshot, resolveNextCacheWorkspaceId } from "./applyShared";
+import { reconcileTemplatePageMarkers } from "../../database/templatePageTitleSync";
 import {
   reconcileDatabaseRowOrders,
   removePageIdFromDatabaseRowOrder,
@@ -168,6 +169,9 @@ export function applyRemotePageToStoreCrossWorkspaceAware(
     usePageStore.setState((s) => ({
       pages: { ...s.pages, [local.id]: { ...s.pages[local.id], ...local } },
     }));
+    if (local.databaseId && local.dbCells?.["_qn_isTemplate"] === "1") {
+      reconcileTemplatePageMarkers(local.databaseId);
+    }
     return;
   }
   applyRemotePageToStore(remotePage);
@@ -243,6 +247,9 @@ export function applyRemotePageToStore(
 
   const after = usePageStore.getState().pages[p.id];
   if (after?.databaseId) {
+    if (after.dbCells?.["_qn_isTemplate"] === "1") {
+      reconcileTemplatePageMarkers(after.databaseId);
+    }
     ensurePageInDatabaseRowOrder(after.databaseId, after.id);
   }
 }
