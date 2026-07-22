@@ -52,6 +52,7 @@ import { createFullPageDbActions } from "./pageStore/actions/fullPageDbActions";
 import { createMoveActions } from "./pageStore/actions/moveActions";
 import { createDuplicateActions } from "./pageStore/actions/duplicateActions";
 import { createAppearanceActions } from "./pageStore/actions/appearanceActions";
+import { notifyTemplatePageTitleChanged } from "../lib/database/templatePageTitleSync";
 
 function canRestoreLocalPageHistory(): boolean {
   return false;
@@ -527,6 +528,9 @@ export const usePageStore = create<PageStore>()(
         });
         const after = get().pages[id];
         if (before && after && before.title !== after.title) {
+          if (after.databaseId) {
+            notifyTemplatePageTitleChanged(after.databaseId, id, after.title);
+          }
           recordPageMutation(
             id,
             "page.rename",

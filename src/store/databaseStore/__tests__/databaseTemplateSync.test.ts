@@ -120,6 +120,30 @@ describe("데이터베이스 템플릿 즉시 동기화", () => {
     expect(deletePayload?.templatesUpdatedAt).toBe(new Date(300).toISOString());
   });
 
+  it("템플릿 페이지 제목 변경을 템플릿 목록과 서버 payload에 즉시 반영한다", () => {
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(100);
+    const pageId = useDatabaseStore.getState().addTemplate("db-1");
+
+    nowSpy.mockReturnValue(200);
+    expect(usePageStore.getState().renamePage(pageId, "주간 회고")).toBe(true);
+
+    expect(useDatabaseStore.getState().dbTemplates["db-1"]?.[0]).toMatchObject({
+      pageId,
+      title: "주간 회고",
+    });
+    expect(useDatabaseStore.getState().databases["db-1"]?.meta).toMatchObject({
+      updatedAt: 1,
+      templatesUpdatedAt: 200,
+    });
+    const databasePayload = enqueueAsync.mock.calls
+      .filter(([kind]) => kind === "upsertDatabase")
+      .at(-1)?.[1] as Record<string, unknown> | undefined;
+    expect(databasePayload?.templatesUpdatedAt).toBe(new Date(200).toISOString());
+    expect(JSON.parse(String(databasePayload?.templates))).toEqual([
+      expect.objectContaining({ pageId, title: "주간 회고" }),
+    ]);
+  });
+
   it("meta-only 페이지도 dbTemplates의 pageId로 템플릿임을 판별한다", () => {
     useDatabaseStore.setState({
       dbTemplates: {

@@ -57,6 +57,7 @@ import { getDbCollab } from "../lib/collab/dbCollabRegistry";
 import { readDbStructure } from "../lib/collab/dbBundleYjs";
 import { writeCellsToCollabDoc } from "../lib/collab/dbCellsCollab";
 import type { Page } from "../types/page";
+import { registerTemplatePageTitleChangeHandler } from "../lib/database/templatePageTitleSync";
 
 export { migrateDatabaseStore } from "./databaseStore/migrations";
 export { normalizeDbTitle } from "./databaseStore/helpers";
@@ -760,6 +761,15 @@ export const useDatabaseStore = create<DatabaseStore>()(
     }
   )
 );
+
+registerTemplatePageTitleChangeHandler((databaseId, pageId, title) => {
+  const state = useDatabaseStore.getState();
+  const template = (state.dbTemplates[databaseId] ?? []).find(
+    (candidate) => candidate.pageId === pageId,
+  );
+  if (!template || template.title === title) return;
+  state.updateTemplate(databaseId, template.id, { title });
+});
 
 export function listDatabases(state: DatabaseStore): { id: string; meta: DatabaseMeta }[] {
   const currentWorkspaceId = useWorkspaceStore.getState().currentWorkspaceId;
