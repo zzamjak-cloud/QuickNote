@@ -87,4 +87,33 @@ describe("database row sources selector", () => {
     expect(rows[0]?.title).toBe("로컬 행");
     expect(rows[0]?.dbCells).toEqual({ col: "local" });
   });
+
+  it("rowPageOrder에 남은 로컬 템플릿 페이지는 행 소스에서 제외한다", () => {
+    const selector = createDatabaseRowSourcesSelector(["template"]);
+
+    expect(
+      selector(
+        state({
+          template: page("template", { dbCells: { _qn_isTemplate: "1" } }),
+        }),
+      ),
+    ).toEqual([]);
+  });
+
+  it("stale row index fallback의 템플릿 페이지도 행 소스에서 제외한다", () => {
+    const selector = createDatabaseRowSourcesSelector(["template"], [
+      {
+        pageId: "template",
+        workspaceId: "ws",
+        databaseId: "db",
+        title: "템플릿",
+        icon: null,
+        order: 1,
+        dbCells: { _qn_isTemplate: "1" },
+        updatedAt: 1,
+      },
+    ]);
+
+    expect(selector(state({}))).toEqual([]);
+  });
 });

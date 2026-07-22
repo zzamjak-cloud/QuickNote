@@ -33,6 +33,7 @@ import { shouldApplyRemoteSnapshot, resolveNextCacheWorkspaceId } from "./applyS
 import {
   collectRowPageIdsForDatabase,
   collectRowPageIdsForDatabases,
+  reconcileDatabaseRowOrders,
 } from "./rowOrder";
 
 function parseRemoteDatabaseSchema(
@@ -100,6 +101,32 @@ function parseRemoteDatabaseTemplates(raw: unknown): DatabaseTemplate[] | undefi
     });
   }
   return templates;
+}
+
+function databaseTemplatesEqual(
+  left: DatabaseTemplate[] | undefined,
+  right: DatabaseTemplate[] | undefined,
+): boolean {
+  return JSON.stringify(left ?? []) === JSON.stringify(right ?? []);
+}
+
+function remoteTemplatesUpdatedAt(db: GqlDatabase): number {
+  return isoToMs(db.templatesUpdatedAt ?? db.updatedAt) || isoToMs(db.updatedAt);
+}
+
+function localTemplatesUpdatedAt(local: DatabaseBundle | undefined): number {
+  return local?.meta.templatesUpdatedAt ?? local?.meta.updatedAt ?? 0;
+}
+
+function shouldApplyRemoteTemplates(
+  local: DatabaseBundle | undefined,
+  db: GqlDatabase,
+  templates: DatabaseTemplate[] | undefined,
+): boolean {
+  return (
+    templates !== undefined &&
+    (!local || remoteTemplatesUpdatedAt(db) >= localTemplatesUpdatedAt(local))
+  );
 }
 
 function mergeRemoteSchedulerMemberOrder(
@@ -201,6 +228,7 @@ export function applyRemoteDatabaseToStore(
         presets: normalizedDatabase.presets,
         panelState: normalizedDatabase.panelState,
         templates: normalizedDatabase.templates,
+        templatesUpdatedAt: normalizedDatabase.templatesUpdatedAt,
         createdAt: normalizedDatabase.createdAt,
         updatedAt: normalizedDatabase.updatedAt,
       });
@@ -242,6 +270,35 @@ export function applyRemoteDatabaseToStore(
   if (!schema) return;
 
   if (local && !isRemoteNewer(local.meta.updatedAt, db.updatedAt)) {
+    const applyRemoteTemplates = shouldApplyRemoteTemplates(local, db, schema.templates);
+    if (applyRemoteTemplates) {
+      const templatesUpdatedAt = remoteTemplatesUpdatedAt(db);
+      useDatabaseStore.setState((s) => {
+        const current = s.dbTemplates[db.id] ?? [];
+        const remoteTemplates = schema.templates ?? [];
+        const currentBundle = s.databases[db.id];
+        const templatesChanged = !databaseTemplatesEqual(current, remoteTemplates);
+        const versionChanged =
+          currentBundle?.meta.templatesUpdatedAt !== templatesUpdatedAt;
+        if (!templatesChanged && !versionChanged) return s;
+        return {
+          ...s,
+          databases: currentBundle
+            ? {
+                ...s.databases,
+                [db.id]: {
+                  ...currentBundle,
+                  meta: { ...currentBundle.meta, templatesUpdatedAt },
+                },
+              }
+            : s.databases,
+          dbTemplates: { ...s.dbTemplates, [db.id]: remoteTemplates },
+          cacheWorkspaceId: resolveNextCacheWorkspaceId(s.cacheWorkspaceId, db.workspaceId),
+        };
+      });
+      // page meta 구독이 먼저 도착해 일반 행으로 들어간 템플릿 pageId를 제거한다.
+      reconcileDatabaseRowOrders(new Set([db.id]));
+    }
     if (mergeRemoteSchedulerMemberOrderIntoLocalDatabase(db, local, schema)) return;
     useDatabaseStore.setState((s) =>
       s.cacheWorkspaceId === resolveNextCacheWorkspaceId(s.cacheWorkspaceId, db.workspaceId)
@@ -255,6 +312,12 @@ export function applyRemoteDatabaseToStore(
   const derivedRowOrder = collectRowPageIdsForDatabase(db.id);
   const rowPageOrder = mergeRowPageOrderWithDerived(local?.rowPageOrder, derivedRowOrder);
   const resolvedPanelState = resolvePanelStateWithLocalFallback(local?.panelState, panelState);
+  const applyRemoteTemplates = shouldApplyRemoteTemplates(local, db, templates);
+  const templatesUpdatedAt = applyRemoteTemplates
+    ? remoteTemplatesUpdatedAt(db)
+    : local
+      ? localTemplatesUpdatedAt(local)
+      : undefined;
 
   const bundle: DatabaseBundle = {
     meta: {
@@ -263,6 +326,7 @@ export function applyRemoteDatabaseToStore(
       title: db.title,
       createdAt: isoToMs(db.createdAt) || Date.now(),
       updatedAt: isoToMs(db.updatedAt) || Date.now(),
+      ...(templatesUpdatedAt !== undefined ? { templatesUpdatedAt } : {}),
     },
     columns,
     presets,
@@ -274,11 +338,12 @@ export function applyRemoteDatabaseToStore(
     ...s,
     databases: { ...s.databases, [db.id]: bundle },
     dbTemplates:
-      templates !== undefined
-        ? { ...s.dbTemplates, [db.id]: templates }
+      applyRemoteTemplates
+        ? { ...s.dbTemplates, [db.id]: templates ?? [] }
         : s.dbTemplates,
     cacheWorkspaceId: resolveNextCacheWorkspaceId(s.cacheWorkspaceId, db.workspaceId),
   }));
+  if (applyRemoteTemplates) reconcileDatabaseRowOrders(new Set([db.id]));
   repairDbHistoryBaselineIfNeeded(db.id, structuredClone(bundle));
 }
 
@@ -316,6 +381,7 @@ export function applyRemoteDatabasesToStore(
           columns: normalizedDatabase.columns,
           presets: normalizedDatabase.presets,
           templates: normalizedDatabase.templates,
+          templatesUpdatedAt: normalizedDatabase.templatesUpdatedAt,
           createdAt: normalizedDatabase.createdAt,
           updatedAt: normalizedDatabase.updatedAt,
         });
@@ -343,6 +409,7 @@ export function applyRemoteDatabasesToStore(
   const derivedByDbId = collectRowPageIdsForDatabases(candidateDatabaseIds);
   const repairedBundles: DatabaseBundle[] = [];
   const databaseDebugRows: Array<Record<string, unknown>> = [];
+  const templateDatabaseIdsToReconcile = new Set<string>();
 
   useDatabaseStore.setState((s) => {
     let databases = s.databases;
@@ -395,6 +462,25 @@ export function applyRemoteDatabasesToStore(
       }
       const local = databases[db.id];
       if (local && !isRemoteNewer(local.meta.updatedAt, db.updatedAt)) {
+        const applyRemoteTemplates = shouldApplyRemoteTemplates(local, db, schema.templates);
+        if (applyRemoteTemplates) {
+          const templatesUpdatedAt = remoteTemplatesUpdatedAt(db);
+          const currentTemplates = dbTemplates[db.id] ?? [];
+          if (
+            !databaseTemplatesEqual(currentTemplates, schema.templates) ||
+            local.meta.templatesUpdatedAt !== templatesUpdatedAt
+          ) {
+            ensureDatabasesCopy();
+            ensureTemplatesCopy();
+            databases[db.id] = {
+              ...local,
+              meta: { ...local.meta, templatesUpdatedAt },
+            };
+            dbTemplates[db.id] = schema.templates ?? [];
+            changed = true;
+          }
+          templateDatabaseIdsToReconcile.add(db.id);
+        }
         const derived = derivedByDbId.get(db.id) ?? [];
         const rowPageOrder = mergeRowPageOrderWithDerived(local.rowPageOrder, derived);
         const nextPanelState =
@@ -406,7 +492,8 @@ export function applyRemoteDatabasesToStore(
           nextPanelState !== local.panelState
         ) {
           ensureDatabasesCopy();
-          databases[db.id] = { ...local, panelState: nextPanelState, rowPageOrder };
+          const currentLocal = databases[db.id] ?? local;
+          databases[db.id] = { ...currentLocal, panelState: nextPanelState, rowPageOrder };
           changed = true;
           databaseDebugRows.push({
             databaseId: db.id,
@@ -439,6 +526,12 @@ export function applyRemoteDatabasesToStore(
       // 단건 경로(applyRemoteDatabaseToStore)와 동일하게 panelState 를 반영해야 한다.
       // (과거 누락으로 전체 페치/새로고침 시 스케줄러 DB 의 표시설정·구성원 순서가 사라졌다.)
       const resolvedPanelState = resolvePanelStateWithLocalFallback(local?.panelState, panelState);
+      const applyRemoteTemplates = shouldApplyRemoteTemplates(local, db, templates);
+      const templatesUpdatedAt = applyRemoteTemplates
+        ? remoteTemplatesUpdatedAt(db)
+        : local
+          ? localTemplatesUpdatedAt(local)
+          : undefined;
       const bundle: DatabaseBundle = {
         meta: {
           id: db.id,
@@ -446,6 +539,7 @@ export function applyRemoteDatabasesToStore(
           title: db.title,
           createdAt: isoToMs(db.createdAt) || Date.now(),
           updatedAt: isoToMs(db.updatedAt) || Date.now(),
+          ...(templatesUpdatedAt !== undefined ? { templatesUpdatedAt } : {}),
         },
         columns,
         presets,
@@ -455,9 +549,10 @@ export function applyRemoteDatabasesToStore(
 
       ensureDatabasesCopy();
       databases[db.id] = bundle;
-      if (templates !== undefined) {
+      if (applyRemoteTemplates) {
         ensureTemplatesCopy();
-        dbTemplates[db.id] = templates;
+        dbTemplates[db.id] = templates ?? [];
+        templateDatabaseIdsToReconcile.add(db.id);
       }
       repairedBundles.push(bundle);
       databaseDebugRows.push({
@@ -481,6 +576,10 @@ export function applyRemoteDatabasesToStore(
       cacheWorkspaceId: nextCacheWorkspaceId,
     };
   });
+
+  if (templateDatabaseIdsToReconcile.size > 0) {
+    reconcileDatabaseRowOrders(templateDatabaseIdsToReconcile);
+  }
 
   for (const bundle of repairedBundles) {
     repairDbHistoryBaselineIfNeeded(bundle.meta.id, structuredClone(bundle));

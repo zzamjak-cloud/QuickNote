@@ -34,6 +34,10 @@ const dbg = (reason: string) => console.log("[QN-DEBUG] marquee:mousedown", reas
 ```
 
 ## 변경 시 주의
+- **실제 스크롤 호스트 판정**: 메인 에디터의 `.qn-editor-body-scroll.overflow-y-auto`는 직접
+  스크롤하지만, 피크의 `bodyOnly` 에디터는 `.qn-editor-body-scroll`이 비스크롤 래퍼이고 바깥
+  `.overflow-y-auto`가 권위다. `resolveBoxSelectScrollHost`에서 이 둘을 구분해야 하며 내부 래퍼를
+  무조건 우선하면 가장자리 RAF가 `scrollTop`을 바꿔도 화면은 움직이지 않는다.
 - **선택 하이라이트는 스크롤 호스트에 absolute**(`overlayDom.ts getEditorMarqueeHost`) — body fixed
   + scroll 리페인트로 되돌리면 macOS 러버밴드(오버스크롤 텐션) 동안 scroll 이벤트가 없어 파란
   영역만 제자리에 남는다(2026-07-12). 마퀴 드래그 사각형만 body fixed 유지.
@@ -43,7 +47,7 @@ const dbg = (reason: string) => console.log("[QN-DEBUG] marquee:mousedown", reas
   (TopBar/TabBar `z-[350]` · AI 패널 `z-[400]` · 설정 모달 500). 높이면 스크롤 시 상단 바/사이드
   패널 위로 파란 영역이 떠오르는 회귀(2026-07-12 수정). 값은 `src/lib/boxSelectionVisual.ts`
   `BOX_SELECTION_Z_INDEX` 와 `src/index.css` `.qn-box-select-rect` 두 곳 동기 유지.
-- 에디터 컬럼 레이아웃 변경 시 `editor.view.dom.closest()` 가 올바른 host 잡는지 확인
+- 에디터 컬럼 레이아웃 변경 시 `resolveBoxSelectScrollHost()`가 실제 host를 잡는지 확인
 - 새 `absolute/fixed` 엘리먼트 추가 시 marquee overlay 를 가리지 않는지 확인
 - 새 mousedown capture listener 가 `stopImmediatePropagation` 하지 않는지 확인
 - PM dom padding 영역(`px-12 py-8`)에서도 marquee 시작 가능해야 함

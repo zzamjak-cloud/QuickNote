@@ -52,6 +52,7 @@ const DATABASE_HISTORY_FIELDS = [
   "presets",
   "panelState",
   "templates",
+  "templatesUpdatedAt",
   // 행 멤버십 순서. Database 테이블 레코드에는 저장하지 않고(업서트 전 strip),
   // 히스토리 스냅샷에만 포함시켜 행 추가/삭제를 DB 버전으로 기록한다.
   "rowPageOrder",
@@ -960,29 +961,73 @@ export async function restoreDatabaseVersion(args: {
   const existing = await args.doc.send(
     new GetCommand({ TableName: args.tables.Databases, Key: { id: args.input.databaseId } }),
   );
-  const before = (existing.Item as Record<string, unknown> | undefined) ?? null;
-  const now = new Date().toISOString();
-  const restored: Record<string, unknown> = {
-    ...snapshot,
-    id: args.input.databaseId,
-    workspaceId: args.input.workspaceId,
-    updatedAt: now,
-  };
-  delete restored["deletedAt"];
+  let before = (existing.Item as Record<string, unknown> | undefined) ?? null;
   // rowPageOrder 는 Database 레코드에 저장하지 않는다(upsertDatabase 와 동일 규칙) — strip.
   // (삭제 행 additive 복구는 협업 Y룸 충돌로 보류 — 삭제 복구는 휴지통 경로 사용.)
   const restoredRowPageOrder = Array.isArray(snapshot.rowPageOrder)
     ? (snapshot.rowPageOrder as unknown[]).filter((v): v is string => typeof v === "string")
     : [];
-  delete restored["rowPageOrder"];
-  await args.doc.send(
-    new PutCommand({
-      TableName: args.tables.Databases,
-      Item: restored,
-      ConditionExpression: "attribute_not_exists(workspaceId) OR workspaceId = :w",
-      ExpressionAttributeValues: { ":w": args.input.workspaceId },
-    }),
-  );
+  let restored: Record<string, unknown> | null = null;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const previousVersions = [before?.updatedAt, before?.templatesUpdatedAt]
+      .map((value) => (typeof value === "string" ? Date.parse(value) : Number.NaN))
+      .filter(Number.isFinite);
+    const restoreVersion = new Date(
+      Math.max(Date.now(), ...previousVersions) + 1,
+    ).toISOString();
+    restored = {
+      ...snapshot,
+      id: args.input.databaseId,
+      workspaceId: args.input.workspaceId,
+      updatedAt: restoreVersion,
+      // DB 구조와 templates를 함께 되돌리므로 두 LWW 버전을 같은 단조 증가값으로 올린다.
+      templatesUpdatedAt: restoreVersion,
+    };
+    delete restored["deletedAt"];
+    delete restored["rowPageOrder"];
+
+    const expressionAttributeValues: Record<string, unknown> = {};
+    let conditionExpression = "attribute_not_exists(id)";
+    if (before) {
+      conditionExpression = "workspaceId = :workspaceId";
+      expressionAttributeValues[":workspaceId"] = args.input.workspaceId;
+      if (typeof before.updatedAt === "string") {
+        conditionExpression += " AND updatedAt = :expectedUpdatedAt";
+        expressionAttributeValues[":expectedUpdatedAt"] = before.updatedAt;
+      } else {
+        conditionExpression += " AND attribute_not_exists(updatedAt)";
+      }
+      if (typeof before.templatesUpdatedAt === "string") {
+        conditionExpression += " AND templatesUpdatedAt = :expectedTemplatesUpdatedAt";
+        expressionAttributeValues[":expectedTemplatesUpdatedAt"] = before.templatesUpdatedAt;
+      } else {
+        conditionExpression += " AND attribute_not_exists(templatesUpdatedAt)";
+      }
+    }
+
+    try {
+      await args.doc.send(
+        new PutCommand({
+          TableName: args.tables.Databases,
+          Item: restored,
+          ConditionExpression: conditionExpression,
+          ...(Object.keys(expressionAttributeValues).length > 0
+            ? { ExpressionAttributeValues: expressionAttributeValues }
+            : {}),
+        }),
+      );
+      break;
+    } catch (err) {
+      if ((err as { name?: string })?.name !== "ConditionalCheckFailedException" || attempt > 0) {
+        throw err;
+      }
+      const latest = await args.doc.send(
+        new GetCommand({ TableName: args.tables.Databases, Key: { id: args.input.databaseId } }),
+      );
+      before = (latest.Item as Record<string, unknown> | undefined) ?? null;
+    }
+  }
+  if (!restored) throw new Error("DB 버전 복원 결과 생성 실패");
   try {
     await recordDatabaseHistory({
       doc: args.doc,

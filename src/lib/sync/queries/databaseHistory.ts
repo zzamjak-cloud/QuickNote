@@ -1,5 +1,5 @@
 const DATABASE_FIELDS = `
-  id workspaceId createdByMemberId title columns presets panelState templates createdAt updatedAt deletedAt
+  id workspaceId createdByMemberId title columns presets panelState templates templatesUpdatedAt createdAt updatedAt deletedAt
 `;
 
 // ⚠ 필드 추가 시 infra/lib/sync/schema.graphql 의 DatabaseHistoryEntry 와 동시 수정 + CDK 선배포

@@ -26,9 +26,10 @@ import {
   suppressScrollToSelectionForTableInteraction,
 } from "./editorHelpers";
 import type { insertImageFromFile } from "../../lib/editor/insertImageFromFile";
-import { TextSelection } from "@tiptap/pm/state";
+import { NodeSelection, TextSelection } from "@tiptap/pm/state";
 import { pasteMarkdownAsDocContent } from "../../lib/editor/pasteMarkdownAsDoc";
 import { isLikelyVerticalScrollbarInput } from "../../lib/navigation/pageScrollMemory";
+import { deleteListItemNodeSelection } from "../../lib/editor/blockHandleActions";
 
 
 type UseEditorPropsParams = {
@@ -376,6 +377,22 @@ export function useEditorProps({
         },
       },
       handleKeyDown(view: PmEditorView, event: KeyboardEvent) {
+        if (
+          (event.key === "Backspace" || event.key === "Delete") &&
+          !event.shiftKey &&
+          !event.metaKey &&
+          !event.ctrlKey &&
+          !event.altKey &&
+          view.state.selection instanceof NodeSelection &&
+          (view.state.selection.node.type.name === "listItem" ||
+            view.state.selection.node.type.name === "taskItem")
+        ) {
+          const ed = editorRef.current;
+          if (ed && deleteListItemNodeSelection(ed, view.state.selection.from)) {
+            event.preventDefault();
+            return true;
+          }
+        }
         if (handleBackspaceOnEmptyTaskItem(view, event)) return true;
         if (handleAtOpenMention(view, event)) return true;
         if (

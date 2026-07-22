@@ -121,6 +121,7 @@ export const GqlDatabaseSchema = z
     presets: z.unknown().nullish(),
     panelState: z.unknown().nullish(),
     templates: z.unknown().nullish(),
+    templatesUpdatedAt: z.string().nullish(),
     createdAt: z.string(),
     updatedAt: z.string(),
     deletedAt: z.string().nullish(),

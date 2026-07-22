@@ -4,6 +4,21 @@ import { useDatabaseStore } from "../../../store/databaseStore";
 import type { Page } from "../../../types/page";
 import { stringArrayEqual, mergeRowPageOrderWithDerived } from "./helpers";
 
+function collectTemplatePageIds(databaseId: string): Set<string> {
+  return new Set(
+    (useDatabaseStore.getState().dbTemplates[databaseId] ?? [])
+      .map((template) => template.pageId)
+      .filter((pageId): pageId is string => Boolean(pageId)),
+  );
+}
+
+function removeKnownTemplatePageIds(databaseId: string, pageIds: string[]): string[] {
+  const templatePageIds = collectTemplatePageIds(databaseId);
+  return templatePageIds.size === 0
+    ? pageIds
+    : pageIds.filter((pageId) => !templatePageIds.has(pageId));
+}
+
 /** AppSync Database 모델에는 rowPageOrder 가 없으므로, 페이지 스토어에서 역추적한다.
  *  _qn_isTemplate 마커가 있는 페이지는 템플릿이므로 행 목록에서 제외한다.
  *  필터/정렬 규칙을 배치 버전과 한곳에서 공유해 두 경로가 어긋나지 않게 한다
@@ -16,10 +31,14 @@ export function collectRowPageIdsForDatabases(databaseIds: Set<string>): Map<str
   const out = new Map<string, Page[]>();
   for (const id of databaseIds) out.set(id, []);
   if (out.size === 0) return new Map();
+  const templatePageIdsByDatabase = new Map(
+    [...databaseIds].map((databaseId) => [databaseId, collectTemplatePageIds(databaseId)]),
+  );
   const pages = usePageStore.getState().pages;
   for (const page of Object.values(pages)) {
     if (!page.databaseId || !databaseIds.has(page.databaseId)) continue;
     if (page.dbCells?.["_qn_isTemplate"] === "1") continue;
+    if (templatePageIdsByDatabase.get(page.databaseId)?.has(page.id)) continue;
     out.get(page.databaseId)?.push(page);
   }
   const sorted = new Map<string, string[]>();
@@ -44,7 +63,10 @@ export function reconcileDatabaseRowOrders(databaseIds: Set<string>): void {
       const db = databases[databaseId];
       if (!db) continue;
       const derived = derivedByDbId.get(databaseId) ?? [];
-      const rowPageOrder = mergeRowPageOrderWithDerived(db.rowPageOrder, derived);
+      const rowPageOrder = removeKnownTemplatePageIds(
+        databaseId,
+        mergeRowPageOrderWithDerived(db.rowPageOrder, derived),
+      );
       if (stringArrayEqual(db.rowPageOrder, rowPageOrder)) continue;
       if (!changed) databases = { ...s.databases };
       changed = true;
@@ -73,10 +95,16 @@ export function removePageIdFromDatabaseRowOrder(databaseId: string, pageId: str
 
 
 /** 구독 순서상 DB 스냅샷보다 행 페이지가 먼저 올 때 rowPageOrder 에 id 가 빠지지 않게 한다.
- *  템플릿 페이지(_qn_isTemplate)는 rowPageOrder 에 추가하지 않는다. */
+ *  템플릿 페이지(_qn_isTemplate)는 이미 들어간 stale 행 순서에서도 즉시 제거한다. */
 export function ensurePageInDatabaseRowOrder(databaseId: string, pageId: string): void {
   const page = usePageStore.getState().pages[pageId];
-  if (page?.dbCells?.["_qn_isTemplate"] === "1") return;
+  if (
+    page?.dbCells?.["_qn_isTemplate"] === "1" ||
+    collectTemplatePageIds(databaseId).has(pageId)
+  ) {
+    removePageIdFromDatabaseRowOrder(databaseId, pageId);
+    return;
+  }
   useDatabaseStore.setState((s) => {
     const db = s.databases[databaseId];
     if (!db || db.rowPageOrder.includes(pageId)) return s;

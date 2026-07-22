@@ -1229,7 +1229,7 @@ describe("page/database handlers", () => {
     expect(sendMock.mock.calls).toHaveLength(3); // memberTeams, workspaceAccess, get (put 없음)
   });
 
-  it("upsertDatabase: stale payload라도 templates는 기존값과 병합한다", async () => {
+  it("upsertDatabase: DB updatedAt이 stale이어도 최신 templatesUpdatedAt의 빈 배열은 전체 삭제를 반영한다", async () => {
     const existingItem = {
       id: "d1",
       workspaceId: "ws-1",
@@ -1239,8 +1239,9 @@ describe("page/database handlers", () => {
       templates: JSON.stringify([
         { id: "template-old", title: "기존 템플릿", cells: {}, pageId: "page-old" },
       ]),
+      templatesUpdatedAt: "2026-06-02T12:00:00.000Z",
       createdAt: "2026-01-01T00:00:00.000Z",
-      updatedAt: "2026-06-02T00:00:00.000Z",
+      updatedAt: "2026-06-03T00:00:00.000Z",
       createdByMemberId: "m1",
     };
     const doc = mockDoc(
@@ -1263,22 +1264,512 @@ describe("page/database handlers", () => {
         title: "D",
         columns: "[]",
         presets: "[]",
-        templates: JSON.stringify([
-          { id: "template-new", title: "새 템플릿", cells: {}, pageId: "page-new" },
-        ]),
+        templates: "[]",
+        templatesUpdatedAt: "2026-06-04T00:00:00.000Z",
         createdByMemberId: "m1",
       },
     });
 
-    expect(JSON.parse(result.templates as string)).toEqual([
-      { id: "template-old", title: "기존 템플릿", cells: {}, pageId: "page-old" },
-      { id: "template-new", title: "새 템플릿", cells: {}, pageId: "page-new" },
-    ]);
+    expect(JSON.parse(result.templates as string)).toEqual([]);
+    expect(result.templatesUpdatedAt).toBe("2026-06-04T00:00:00.000Z");
+    expect(result.updatedAt).toBe("2026-06-03T00:00:00.000Z");
     const sendMock = doc.send as unknown as ReturnType<typeof vi.fn>;
     const putCommand = sendMock.mock.calls.find((call) => call[0] instanceof PutCommand)?.[0] as
       | { input?: { Item?: Record<string, unknown> } }
       | undefined;
     expect(putCommand?.input?.Item?.templates).toBe(result.templates);
+  });
+
+  it("upsertDatabase: 동일 templatesUpdatedAt의 다른 배열도 원격 권위값으로 전체 교체한다", async () => {
+    const existingItem = {
+      id: "d1",
+      workspaceId: "ws-1",
+      title: "D",
+      columns: "[]",
+      templates: JSON.stringify([{ id: "template-1", title: "기존", cells: {} }]),
+      templatesUpdatedAt: "2026-06-02T12:00:00.000Z",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-06-03T00:00:00.000Z",
+      createdByMemberId: "m1",
+    };
+    const doc = mockDoc(
+      { Items: [] },
+      { Items: [{ subjectType: "member", subjectId: "m1", level: "edit" }] },
+      { Item: existingItem },
+      {},
+    );
+
+    const result = await upsertDatabase({
+      doc,
+      tables,
+      caller,
+      input: {
+        id: "d1",
+        workspaceId: "ws-1",
+        updatedAt: "2026-06-01T00:00:00.000Z",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        title: "D",
+        columns: "[]",
+        templates: "[]",
+        templatesUpdatedAt: "2026-06-02T12:00:00.000Z",
+      },
+    });
+
+    expect(JSON.parse(result.templates as string)).toEqual([]);
+    expect(result.templatesUpdatedAt).toBe("2026-06-02T12:00:00.000Z");
+  });
+
+  it("upsertDatabase: 오래된 templatesUpdatedAt은 최신 동일 ID 편집을 덮지 않는다", async () => {
+    const existingItem = {
+      id: "d1",
+      workspaceId: "ws-1",
+      title: "D",
+      columns: "[]",
+      templates: JSON.stringify([{ id: "template-1", title: "최신", cells: {} }]),
+      templatesUpdatedAt: "2026-06-04T00:00:00.000Z",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-06-03T00:00:00.000Z",
+      createdByMemberId: "m1",
+    };
+    const doc = mockDoc(
+      { Items: [] },
+      { Items: [{ subjectType: "member", subjectId: "m1", level: "edit" }] },
+      { Item: existingItem },
+    );
+
+    const result = await upsertDatabase({
+      doc,
+      tables,
+      caller,
+      input: {
+        id: "d1",
+        workspaceId: "ws-1",
+        updatedAt: "2026-06-01T00:00:00.000Z",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        title: "D",
+        columns: "[]",
+        templates: JSON.stringify([{ id: "template-1", title: "오래된 편집", cells: {} }]),
+        templatesUpdatedAt: "2026-06-02T00:00:00.000Z",
+      },
+    });
+
+    expect(result).toEqual(existingItem);
+    const sendMock = doc.send as unknown as ReturnType<typeof vi.fn>;
+    expect(sendMock.mock.calls.some((call) => call[0] instanceof PutCommand)).toBe(false);
+  });
+
+  it("upsertDatabase: 동일 templatesUpdatedAt과 동일 배열 재전송은 멱등이다", async () => {
+    const templates = JSON.stringify([{ id: "template-1", title: "동일", cells: {} }]);
+    const existingItem = {
+      id: "d1",
+      workspaceId: "ws-1",
+      title: "D",
+      columns: "[]",
+      templates,
+      templatesUpdatedAt: "2026-06-04T00:00:00.000Z",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-06-05T00:00:00.000Z",
+      createdByMemberId: "m1",
+    };
+    const doc = mockDoc(
+      { Items: [] },
+      { Items: [{ subjectType: "member", subjectId: "m1", level: "edit" }] },
+      { Item: existingItem },
+    );
+
+    const result = await upsertDatabase({
+      doc,
+      tables,
+      caller,
+      input: {
+        id: "d1",
+        workspaceId: "ws-1",
+        updatedAt: "2026-06-01T00:00:00.000Z",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        title: "D",
+        columns: "[]",
+        templates,
+        templatesUpdatedAt: "2026-06-04T00:00:00.000Z",
+      },
+    });
+
+    expect(result).toEqual(existingItem);
+    const sendMock = doc.send as unknown as ReturnType<typeof vi.fn>;
+    expect(sendMock.mock.calls.some((call) => call[0] instanceof PutCommand)).toBe(false);
+  });
+
+  it("upsertDatabase: 늦게 도착한 오래된 template 쓰기는 CAS 경합 후 최신값을 덮지 않는다", async () => {
+    const initialItem = {
+      id: "d1",
+      workspaceId: "ws-1",
+      title: "D",
+      columns: "[]",
+      templates: JSON.stringify([{ id: "template-1", title: "초기", cells: {} }]),
+      templatesUpdatedAt: "2026-06-02T00:00:00.000Z",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-06-10T00:00:00.000Z",
+      createdByMemberId: "m1",
+    };
+    const concurrentLatest = {
+      ...initialItem,
+      templates: JSON.stringify([{ id: "template-1", title: "동시 최신", cells: {} }]),
+      templatesUpdatedAt: "2026-06-04T00:00:00.000Z",
+    };
+    const conditionalError = Object.assign(new Error("template CAS failed"), {
+      name: "ConditionalCheckFailedException",
+    });
+    const send = vi
+      .fn()
+      .mockResolvedValueOnce({ Items: [] })
+      .mockResolvedValueOnce({ Items: [{ subjectType: "member", subjectId: "m1", level: "edit" }] })
+      .mockResolvedValueOnce({ Item: initialItem })
+      .mockRejectedValueOnce(conditionalError)
+      .mockResolvedValueOnce({ Item: concurrentLatest });
+    const doc = { send } as unknown as import("@aws-sdk/lib-dynamodb").DynamoDBDocumentClient;
+
+    const result = await upsertDatabase({
+      doc,
+      tables,
+      caller,
+      input: {
+        id: "d1",
+        workspaceId: "ws-1",
+        updatedAt: "2026-06-01T00:00:00.000Z",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        title: "D",
+        columns: "[]",
+        templates: JSON.stringify([{ id: "template-1", title: "늦은 오래된 값", cells: {} }]),
+        templatesUpdatedAt: "2026-06-03T00:00:00.000Z",
+      },
+    });
+
+    expect(result).toEqual(concurrentLatest);
+    const putCommands = send.mock.calls
+      .map((call) => call[0])
+      .filter((command) => command instanceof PutCommand) as PutCommand[];
+    expect(putCommands).toHaveLength(1);
+    expect(putCommands[0]?.input.ConditionExpression).toContain(
+      "templatesUpdatedAt = :expectedTemplatesUpdatedAt",
+    );
+    expect(putCommands[0]?.input.ExpressionAttributeValues?.[":expectedTemplatesUpdatedAt"]).toBe(
+      "2026-06-02T00:00:00.000Z",
+    );
+  });
+
+  it("upsertDatabase: 더 최신 template 쓰기는 CAS 경합 후 최신 레코드 위에서 재시도한다", async () => {
+    const initialItem = {
+      id: "d1",
+      workspaceId: "ws-1",
+      title: "D",
+      columns: "[]",
+      templates: JSON.stringify([{ id: "template-1", title: "초기", cells: {} }]),
+      templatesUpdatedAt: "2026-06-02T00:00:00.000Z",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-06-10T00:00:00.000Z",
+      createdByMemberId: "m1",
+    };
+    const concurrentMiddle = {
+      ...initialItem,
+      templates: JSON.stringify([{ id: "template-1", title: "동시 중간값", cells: {} }]),
+      templatesUpdatedAt: "2026-06-03T00:00:00.000Z",
+    };
+    const conditionalError = Object.assign(new Error("template CAS failed"), {
+      name: "ConditionalCheckFailedException",
+    });
+    const send = vi
+      .fn()
+      .mockResolvedValueOnce({ Items: [] })
+      .mockResolvedValueOnce({ Items: [{ subjectType: "member", subjectId: "m1", level: "edit" }] })
+      .mockResolvedValueOnce({ Item: initialItem })
+      .mockRejectedValueOnce(conditionalError)
+      .mockResolvedValueOnce({ Item: concurrentMiddle })
+      .mockResolvedValueOnce({});
+    const doc = { send } as unknown as import("@aws-sdk/lib-dynamodb").DynamoDBDocumentClient;
+
+    const result = await upsertDatabase({
+      doc,
+      tables,
+      caller,
+      input: {
+        id: "d1",
+        workspaceId: "ws-1",
+        updatedAt: "2026-06-01T00:00:00.000Z",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        title: "D",
+        columns: "[]",
+        templates: JSON.stringify([{ id: "template-1", title: "최종 최신", cells: {} }]),
+        templatesUpdatedAt: "2026-06-04T00:00:00.000Z",
+      },
+    });
+
+    expect(JSON.parse(result.templates as string)).toEqual([
+      { id: "template-1", title: "최종 최신", cells: {} },
+    ]);
+    expect(result.templatesUpdatedAt).toBe("2026-06-04T00:00:00.000Z");
+    const putCommands = send.mock.calls
+      .map((call) => call[0])
+      .filter((command) => command instanceof PutCommand) as PutCommand[];
+    expect(putCommands).toHaveLength(2);
+    expect(putCommands[1]?.input.ExpressionAttributeValues?.[":expectedTemplatesUpdatedAt"]).toBe(
+      "2026-06-03T00:00:00.000Z",
+    );
+  });
+
+  it("upsertDatabase: 두 번째 CAS 실패 후 incoming template가 여전히 최신이면 outbox 재시도를 위해 실패한다", async () => {
+    const initialItem = {
+      id: "d1",
+      workspaceId: "ws-1",
+      title: "D",
+      columns: "[]",
+      templates: JSON.stringify([{ id: "template-1", title: "초기", cells: {} }]),
+      templatesUpdatedAt: "2026-06-02T00:00:00.000Z",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-06-10T00:00:00.000Z",
+      createdByMemberId: "m1",
+    };
+    const concurrentMiddle = {
+      ...initialItem,
+      templates: JSON.stringify([{ id: "template-1", title: "동시 중간값", cells: {} }]),
+      templatesUpdatedAt: "2026-06-03T00:00:00.000Z",
+    };
+    const conditionalError = Object.assign(new Error("template CAS failed twice"), {
+      name: "ConditionalCheckFailedException",
+    });
+    const send = vi
+      .fn()
+      .mockResolvedValueOnce({ Items: [] })
+      .mockResolvedValueOnce({ Items: [{ subjectType: "member", subjectId: "m1", level: "edit" }] })
+      .mockResolvedValueOnce({ Item: initialItem })
+      .mockRejectedValueOnce(conditionalError)
+      .mockResolvedValueOnce({ Item: concurrentMiddle })
+      .mockRejectedValueOnce(conditionalError)
+      .mockResolvedValueOnce({ Item: concurrentMiddle });
+    const doc = { send } as unknown as import("@aws-sdk/lib-dynamodb").DynamoDBDocumentClient;
+
+    await expect(
+      upsertDatabase({
+        doc,
+        tables,
+        caller,
+        input: {
+          id: "d1",
+          workspaceId: "ws-1",
+          updatedAt: "2026-06-01T00:00:00.000Z",
+          createdAt: "2026-01-01T00:00:00.000Z",
+          title: "D",
+          columns: "[]",
+          templates: JSON.stringify([{ id: "template-1", title: "최종 최신", cells: {} }]),
+          templatesUpdatedAt: "2026-06-04T00:00:00.000Z",
+        },
+      }),
+    ).rejects.toMatchObject({ name: "ConditionalCheckFailedException" });
+
+    const putCount = send.mock.calls.filter((call) => call[0] instanceof PutCommand).length;
+    expect(putCount).toBe(2);
+  });
+
+  it("upsertDatabase: 두 번째 CAS 실패 후 서버 template가 더 최신이면 최신값을 정상 반환한다", async () => {
+    const initialItem = {
+      id: "d1",
+      workspaceId: "ws-1",
+      title: "D",
+      columns: "[]",
+      templates: JSON.stringify([{ id: "template-1", title: "초기", cells: {} }]),
+      templatesUpdatedAt: "2026-06-02T00:00:00.000Z",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-06-10T00:00:00.000Z",
+      createdByMemberId: "m1",
+    };
+    const concurrentMiddle = {
+      ...initialItem,
+      templates: JSON.stringify([{ id: "template-1", title: "동시 중간값", cells: {} }]),
+      templatesUpdatedAt: "2026-06-03T00:00:00.000Z",
+    };
+    const concurrentLatest = {
+      ...initialItem,
+      templates: JSON.stringify([{ id: "template-1", title: "서버 최종 최신", cells: {} }]),
+      templatesUpdatedAt: "2026-06-05T00:00:00.000Z",
+    };
+    const conditionalError = Object.assign(new Error("template CAS failed twice"), {
+      name: "ConditionalCheckFailedException",
+    });
+    const send = vi
+      .fn()
+      .mockResolvedValueOnce({ Items: [] })
+      .mockResolvedValueOnce({ Items: [{ subjectType: "member", subjectId: "m1", level: "edit" }] })
+      .mockResolvedValueOnce({ Item: initialItem })
+      .mockRejectedValueOnce(conditionalError)
+      .mockResolvedValueOnce({ Item: concurrentMiddle })
+      .mockRejectedValueOnce(conditionalError)
+      .mockResolvedValueOnce({ Item: concurrentLatest });
+    const doc = { send } as unknown as import("@aws-sdk/lib-dynamodb").DynamoDBDocumentClient;
+
+    const result = await upsertDatabase({
+      doc,
+      tables,
+      caller,
+      input: {
+        id: "d1",
+        workspaceId: "ws-1",
+        updatedAt: "2026-06-01T00:00:00.000Z",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        title: "D",
+        columns: "[]",
+        templates: JSON.stringify([{ id: "template-1", title: "클라이언트 최신", cells: {} }]),
+        templatesUpdatedAt: "2026-06-04T00:00:00.000Z",
+      },
+    });
+
+    expect(result).toEqual(concurrentLatest);
+    const putCount = send.mock.calls.filter((call) => call[0] instanceof PutCommand).length;
+    expect(putCount).toBe(2);
+  });
+
+  it("upsertDatabase: 전역 구조 Put은 CAS 경합 후 동시 최신 templates를 보존해 재시도한다", async () => {
+    const initialItem = {
+      id: "d1",
+      workspaceId: "ws-1",
+      title: "기존 DB",
+      columns: "[]",
+      templates: JSON.stringify([{ id: "template-1", title: "초기", cells: {} }]),
+      templatesUpdatedAt: "2026-06-02T00:00:00.000Z",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-06-03T00:00:00.000Z",
+      createdByMemberId: "m1",
+    };
+    const concurrentLatest = {
+      ...initialItem,
+      templates: JSON.stringify([{ id: "template-1", title: "동시 최신", cells: {} }]),
+      templatesUpdatedAt: "2026-06-05T00:00:00.000Z",
+    };
+    const conditionalError = Object.assign(new Error("template CAS failed"), {
+      name: "ConditionalCheckFailedException",
+    });
+    const send = vi
+      .fn()
+      .mockResolvedValueOnce({ Items: [] })
+      .mockResolvedValueOnce({ Items: [{ subjectType: "member", subjectId: "m1", level: "edit" }] })
+      .mockResolvedValueOnce({ Item: initialItem })
+      .mockRejectedValueOnce(conditionalError)
+      .mockResolvedValueOnce({ Item: concurrentLatest })
+      .mockResolvedValueOnce({});
+    const doc = { send } as unknown as import("@aws-sdk/lib-dynamodb").DynamoDBDocumentClient;
+
+    const result = await upsertDatabase({
+      doc,
+      tables,
+      caller,
+      input: {
+        id: "d1",
+        workspaceId: "ws-1",
+        updatedAt: "2026-06-06T00:00:00.000Z",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        title: "최신 DB 구조",
+        columns: "[]",
+        templates: JSON.stringify([{ id: "template-1", title: "구조 쓰기의 오래된 값", cells: {} }]),
+        templatesUpdatedAt: "2026-06-04T00:00:00.000Z",
+      },
+    });
+
+    expect(result.title).toBe("최신 DB 구조");
+    expect(JSON.parse(result.templates as string)).toEqual([
+      { id: "template-1", title: "동시 최신", cells: {} },
+    ]);
+    expect(result.templatesUpdatedAt).toBe("2026-06-05T00:00:00.000Z");
+    const putCommands = send.mock.calls
+      .map((call) => call[0])
+      .filter((command) => command instanceof PutCommand) as PutCommand[];
+    expect(putCommands).toHaveLength(2);
+    expect(putCommands[1]?.input.ExpressionAttributeValues?.[":expectedTemplatesUpdatedAt"]).toBe(
+      "2026-06-05T00:00:00.000Z",
+    );
+  });
+
+  it("upsertDatabase: 최신 전역 upsert의 오래된 templatesUpdatedAt은 기존 템플릿을 보존한다", async () => {
+    const latestTemplates = JSON.stringify([
+      { id: "template-1", title: "최신 템플릿", cells: {} },
+    ]);
+    const existingItem = {
+      id: "d1",
+      workspaceId: "ws-1",
+      title: "기존 DB",
+      columns: "[]",
+      templates: latestTemplates,
+      templatesUpdatedAt: "2026-06-05T00:00:00.000Z",
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-06-02T00:00:00.000Z",
+      createdByMemberId: "m1",
+    };
+    const doc = mockDoc(
+      { Items: [] },
+      { Items: [{ subjectType: "member", subjectId: "m1", level: "edit" }] },
+      { Item: existingItem },
+      {},
+    );
+
+    const result = await upsertDatabase({
+      doc,
+      tables,
+      caller,
+      input: {
+        id: "d1",
+        workspaceId: "ws-1",
+        updatedAt: "2026-06-06T00:00:00.000Z",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        title: "최신 DB",
+        columns: "[]",
+        templates: JSON.stringify([{ id: "template-1", title: "오래된 템플릿", cells: {} }]),
+        templatesUpdatedAt: "2026-06-04T00:00:00.000Z",
+      },
+    });
+
+    expect(result.title).toBe("최신 DB");
+    expect(result.updatedAt).toBe("2026-06-06T00:00:00.000Z");
+    expect(result.templates).toBe(latestTemplates);
+    expect(result.templatesUpdatedAt).toBe("2026-06-05T00:00:00.000Z");
+  });
+
+  it("upsertDatabase: 구형 payload는 updatedAt을 templates 버전으로 사용한다", async () => {
+    const existingItem = {
+      id: "d1",
+      workspaceId: "ws-1",
+      title: "D",
+      columns: "[]",
+      templates: JSON.stringify([{ id: "template-1", title: "기존", cells: {} }]),
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-06-02T00:00:00.000Z",
+      createdByMemberId: "m1",
+    };
+    const doc = mockDoc(
+      { Items: [] },
+      { Items: [{ subjectType: "member", subjectId: "m1", level: "edit" }] },
+      { Item: existingItem },
+      {},
+    );
+
+    const result = await upsertDatabase({
+      doc,
+      tables,
+      caller,
+      input: {
+        id: "d1",
+        workspaceId: "ws-1",
+        updatedAt: "2026-06-02T00:00:00.000Z",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        title: "D",
+        columns: "[]",
+        templates: "[]",
+      },
+    });
+
+    expect(JSON.parse(result.templates as string)).toEqual([]);
+    expect(result.templatesUpdatedAt).toBe("2026-06-02T00:00:00.000Z");
+    const putCommand = (doc.send as unknown as ReturnType<typeof vi.fn>).mock.calls
+      .map((call) => call[0])
+      .find((command) => command instanceof PutCommand) as PutCommand | undefined;
+    expect(putCommand?.input.ConditionExpression).toContain(
+      "attribute_not_exists(templatesUpdatedAt)",
+    );
   });
 
   it("upsertDatabase: LC 작업 DB 구성원 순서는 DB updatedAt 이 stale 이어도 field timestamp 가 최신이면 병합한다", async () => {

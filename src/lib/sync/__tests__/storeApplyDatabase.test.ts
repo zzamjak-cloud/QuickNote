@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { applyRemoteDatabaseToStore, applyRemoteDatabasesToStore } from "../storeApply";
 import { useDatabaseStore } from "../../../store/databaseStore";
+import { usePageStore } from "../../../store/pageStore";
 import type { GqlDatabase } from "../queries/database";
 import {
   LC_MILESTONE_DATABASE_ID,
@@ -70,6 +71,7 @@ describe("applyRemoteDatabaseToStore", () => {
       migrationQuarantine: [],
       dbTemplates: {},
     });
+    usePageStore.setState({ pages: {}, activePageId: null });
   });
 
   it("remote AWSJSON columns를 정규화해 advanced config를 보존한다", () => {
@@ -147,6 +149,247 @@ describe("applyRemoteDatabaseToStore", () => {
     });
 
     expect(useDatabaseStore.getState().dbTemplates["db-1"]).toEqual(templates);
+  });
+
+  it("동일 updatedAt의 remote templates를 단건·배치 경로에서 권위 배열로 교체한다", () => {
+    const applyCases = [
+      (database: GqlDatabase) => applyRemoteDatabaseToStore(database),
+      (database: GqlDatabase) => applyRemoteDatabasesToStore([database]),
+    ];
+
+    for (const apply of applyCases) {
+      useDatabaseStore.setState({
+        databases: {
+          "db-1": {
+            meta: {
+              id: "db-1",
+              workspaceId: "ws-1",
+              title: "로컬 DB",
+              createdAt: 1,
+              updatedAt: Date.parse(remoteDatabase().updatedAt),
+            },
+            columns: [{ id: "title", name: "Name", type: "title" }],
+            presets: [],
+            rowPageOrder: [],
+          },
+        },
+        dbTemplates: {
+          "db-1": [{ id: "template-local", title: "로컬", cells: {} }],
+        },
+        cacheWorkspaceId: "ws-1",
+      });
+
+      apply({
+        ...remoteDatabase(),
+        templates: JSON.stringify([
+          { id: "template-local", title: "로컬", cells: {} },
+          { id: "template-remote", title: "원격", cells: {}, pageId: "template-page" },
+        ]),
+      });
+
+      expect(useDatabaseStore.getState().dbTemplates["db-1"]).toEqual([
+        { id: "template-local", title: "로컬", cells: {} },
+        { id: "template-remote", title: "원격", cells: {}, pageId: "template-page" },
+      ]);
+    }
+  });
+
+  it("동일 updatedAt의 빈 remote templates는 로컬 템플릿 삭제를 반영한다", () => {
+    useDatabaseStore.setState({
+      databases: {
+        "db-1": {
+          meta: {
+            id: "db-1",
+            workspaceId: "ws-1",
+            title: "로컬 DB",
+            createdAt: 1,
+            updatedAt: Date.parse(remoteDatabase().updatedAt),
+          },
+          columns: [{ id: "title", name: "Name", type: "title" }],
+          presets: [],
+          rowPageOrder: [],
+        },
+      },
+      dbTemplates: {
+        "db-1": [{ id: "template-deleted", title: "삭제 예정", cells: {} }],
+      },
+      cacheWorkspaceId: "ws-1",
+    });
+
+    applyRemoteDatabaseToStore({
+      ...remoteDatabase(),
+      templates: "[]",
+    });
+
+    expect(useDatabaseStore.getState().dbTemplates["db-1"]).toEqual([]);
+  });
+
+  it("더 오래된 remote templates는 로컬 삭제 상태를 되살리지 않는다", () => {
+    useDatabaseStore.setState({
+      databases: {
+        "db-1": {
+          meta: {
+            id: "db-1",
+            workspaceId: "ws-1",
+            title: "로컬 DB",
+            createdAt: 1,
+            updatedAt: Date.parse("2027-01-01T00:00:00.000Z"),
+          },
+          columns: [{ id: "title", name: "Name", type: "title" }],
+          presets: [],
+          rowPageOrder: [],
+        },
+      },
+      dbTemplates: { "db-1": [] },
+      cacheWorkspaceId: "ws-1",
+    });
+
+    applyRemoteDatabaseToStore({
+      ...remoteDatabase(),
+      templates: JSON.stringify([
+        { id: "template-deleted", title: "삭제됨", cells: {} },
+      ]),
+    });
+
+    expect(useDatabaseStore.getState().dbTemplates["db-1"]).toEqual([]);
+  });
+
+  it("DB 구조 이벤트가 오래되어도 최신 templatesUpdatedAt의 빈 배열 삭제를 단건·배치에서 반영한다", () => {
+    const applyCases = [
+      (database: GqlDatabase) => applyRemoteDatabaseToStore(database),
+      (database: GqlDatabase) => applyRemoteDatabasesToStore([database]),
+    ];
+
+    for (const apply of applyCases) {
+      const localUpdatedAt = Date.parse("2027-01-01T00:00:00.000Z");
+      const remoteTemplatesUpdatedAt = "2028-01-01T00:00:00.000Z";
+      useDatabaseStore.setState({
+        databases: {
+          "db-1": {
+            meta: {
+              id: "db-1",
+              workspaceId: "ws-1",
+              title: "로컬 DB",
+              createdAt: 1,
+              updatedAt: localUpdatedAt,
+              templatesUpdatedAt: Date.parse("2026-06-01T00:00:00.000Z"),
+            },
+            columns: [{ id: "title", name: "Name", type: "title" }],
+            presets: [],
+            rowPageOrder: [],
+          },
+        },
+        dbTemplates: {
+          "db-1": [{ id: "template-deleted", title: "삭제 예정", cells: {} }],
+        },
+        cacheWorkspaceId: "ws-1",
+      });
+
+      apply({
+        ...remoteDatabase(),
+        templates: "[]",
+        templatesUpdatedAt: remoteTemplatesUpdatedAt,
+      });
+
+      const state = useDatabaseStore.getState();
+      expect(state.dbTemplates["db-1"]).toEqual([]);
+      expect(state.databases["db-1"]?.meta.title).toBe("로컬 DB");
+      expect(state.databases["db-1"]?.meta.updatedAt).toBe(localUpdatedAt);
+      expect(state.databases["db-1"]?.meta.templatesUpdatedAt).toBe(
+        Date.parse(remoteTemplatesUpdatedAt),
+      );
+    }
+  });
+
+  it("DB 구조 이벤트가 최신이어도 오래된 templatesUpdatedAt은 로컬 템플릿을 덮지 않는다", () => {
+    const applyCases = [
+      (database: GqlDatabase) => applyRemoteDatabaseToStore(database),
+      (database: GqlDatabase) => applyRemoteDatabasesToStore([database]),
+    ];
+
+    for (const apply of applyCases) {
+      const localTemplatesUpdatedAt = Date.parse("2028-01-01T00:00:00.000Z");
+      useDatabaseStore.setState({
+        databases: {
+          "db-1": {
+            meta: {
+              id: "db-1",
+              workspaceId: "ws-1",
+              title: "로컬 DB",
+              createdAt: 1,
+              updatedAt: Date.parse("2026-01-01T00:00:01.000Z"),
+              templatesUpdatedAt: localTemplatesUpdatedAt,
+            },
+            columns: [{ id: "title", name: "Name", type: "title" }],
+            presets: [],
+            rowPageOrder: [],
+          },
+        },
+        dbTemplates: {
+          "db-1": [{ id: "template-local", title: "최신 로컬", cells: {} }],
+        },
+        cacheWorkspaceId: "ws-1",
+      });
+
+      apply({
+        ...remoteDatabase(),
+        title: "최신 원격 구조",
+        updatedAt: "2029-01-01T00:00:00.000Z",
+        templates: JSON.stringify([
+          { id: "template-local", title: "오래된 원격", cells: {} },
+        ]),
+        templatesUpdatedAt: "2027-01-01T00:00:00.000Z",
+      });
+
+      const state = useDatabaseStore.getState();
+      expect(state.databases["db-1"]?.meta.title).toBe("최신 원격 구조");
+      expect(state.databases["db-1"]?.meta.templatesUpdatedAt).toBe(
+        localTemplatesUpdatedAt,
+      );
+      expect(state.dbTemplates["db-1"]).toEqual([
+        { id: "template-local", title: "최신 로컬", cells: {} },
+      ]);
+    }
+  });
+
+  it("DB templates 이벤트가 page meta보다 늦어도 템플릿 pageId를 행 목록에서 제거한다", () => {
+    applyRemoteDatabaseToStore(remoteDatabase());
+    usePageStore.setState({
+      pages: {
+        "template-page": {
+          id: "template-page",
+          workspaceId: "ws-1",
+          title: "템플릿",
+          icon: null,
+          doc: { type: "doc", content: [{ type: "paragraph" }] },
+          contentLoaded: false,
+          parentId: null,
+          order: 1,
+          databaseId: "db-1",
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      },
+    });
+    useDatabaseStore.setState((state) => ({
+      databases: {
+        ...state.databases,
+        "db-1": {
+          ...state.databases["db-1"]!,
+          rowPageOrder: ["template-page"],
+        },
+      },
+    }));
+
+    applyRemoteDatabaseToStore({
+      ...remoteDatabase(),
+      updatedAt: "2026-01-01T00:00:02.000Z",
+      templates: JSON.stringify([
+        { id: "template-1", title: "템플릿", cells: {}, pageId: "template-page" },
+      ]),
+    });
+
+    expect(useDatabaseStore.getState().databases["db-1"]?.rowPageOrder).toEqual([]);
   });
 
   it("remote panelState의 원본 DB 필터 프리셋 탭을 복원한다", () => {

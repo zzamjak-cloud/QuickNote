@@ -12,6 +12,7 @@ import {
 } from "./overlayDom";
 import { isGroupOverlayTarget } from "./hitTest";
 import { applyBoxMarqueeElementStyle } from "../../lib/boxSelectionVisual";
+import { resolveBoxSelectScrollHost } from "./scrollHost";
 
 type Args = {
   editor: Editor | null;
@@ -80,10 +81,7 @@ export function useBoxSelectMarquee({
       editor.view.dom.parentElement;
     const bodyScrollHost =
       editor.view.dom.closest<HTMLElement>(".qn-editor-body-scroll");
-    const editorHost =
-      bodyScrollHost ??
-      editor.view.dom.closest<HTMLElement>(".overflow-y-auto") ??
-      columnHost;
+    const editorHost = resolveBoxSelectScrollHost(editor.view.dom) ?? columnHost;
     const peekHost = editor.view.dom.closest<HTMLElement>("[data-qn-peek-editor='true']");
     const peekEditorHost = editor.view.dom.closest<HTMLElement>(".qn-peek-editor");
     // mx-auto 컬럼 바깥 좌·우 여백(스크롤 패널)에서도 마퀴가 시작되도록 스크롤 호스트까지 포함

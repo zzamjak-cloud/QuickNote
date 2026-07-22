@@ -60,6 +60,18 @@
 - `hover.node` 에 `updateAttributes(..., { blockTextColor })` — 글머리·번호·할 일은 **`listItem`/`taskItem` hover** 가 우선(`blockHandles/helpers.ts` `hoverFromListItemElement`).
 - `blockBackground` extension 은 `blockTextColor` 를 **`bulletList`/`orderedList`/`taskList` 에 부여하지 않음** — 중첩 목록에서 부모 항목까지 색이 번지는 회귀 방지 ([blocks/block-types.md](../blocks/block-types.md)).
 
+## 핸들 선택 키보드 액션
+
+- 핸들 클릭으로 메뉴가 열린 동안 `Ctrl/Cmd+B`를 누르면 `toggleBlockBold`가 텍스트 블록의
+  전체 content 범위를 선택해 굵게를 토글한다. 포커스가 그립/메뉴에 있어도 에디터 단축키와 같은
+  결과가 나와야 한다.
+- `Backspace`/`Delete`는 `deleteBlockFromHandle`을 사용한다. 단독 자식 `listItem`/`taskItem`만
+  지우면 ProseMirror의 `listItem+` 스키마 보정으로 빈 행이 다시 생기므로, 해당 항목이 목록의
+  유일한 자식이면 바로 위 목록 컨테이너까지 함께 제거한다. 실제 그립 드래그 뒤 남는
+  `NodeSelection`의 기본 Delete 경로도 `useEditorProps`에서 같은 목록 전용 삭제 규칙을 사용한다.
+  단, 목록 안 이미지·파일·구분선 등 자식 블록 핸들은 해당 블록만 삭제해야 하므로 목록 범위
+  확장은 선택 node 자체가 `listItem`/`taskItem`일 때만 허용한다.
+
 ## 박스 선택 감지
 `MutationObserver`로 `document.body.classList` 변화를 감시. `qn-box-select-tracking` / `qn-box-select-dragging` 클래스 유무로 `boxSelecting` 상태를 동기화한다.
 

@@ -288,7 +288,11 @@ export const useDatabaseStore = create<DatabaseStore>()(
         const handle = getDbCollab(databaseId);
         if (handle) handle.baseline = structure; // 다음 reconcile 삭제 판정 기준 갱신
         // 서버 영속(LWW 파생본). skipCollab 으로 reconcile 가로채기를 우회 → 루프 없음.
-        enqueueUpsertDatabase(nextBundle, undefined, { skipCollab: true });
+        // templates는 Y.Doc 구조에 없으므로 materialize 업서트가 같은 dedupe key의
+        // 템플릿 payload를 덮지 않도록 현재 목록을 항상 함께 싣는다.
+        enqueueUpsertDatabase(nextBundle, get().dbTemplates[databaseId], {
+          skipCollab: true,
+        });
         // slice B: Y rows → 각 행 dbCells materialize. slice C: 멤버 행에만 적용(비멤버=삭제됨).
         const rows = structure.rows ?? {};
         const changed: Page[] = [];
@@ -546,25 +550,14 @@ export const useDatabaseStore = create<DatabaseStore>()(
 
       addTemplate: (databaseId) => {
         const id = newId();
-        // 템플릿 전용 페이지 생성 — dbCells에 마커를 심어 행과 구분한다.
-        const pageId = createRowPage(databaseId, "새 템플릿");
-        const t = Date.now();
-        usePageStore.setState((s) => {
-          const page = s.pages[pageId];
-          if (!page) return s;
-          return {
-            pages: {
-              ...s.pages,
-              [pageId]: {
-                ...page,
-                dbCells: { ...(page.dbCells ?? {}), _qn_isTemplate: "1" },
-                updatedAt: t,
-              },
-            },
-          };
+        // 최초 page.create 업서트부터 템플릿 마커가 포함되도록 원자적으로 생성한다.
+        // 생성 후 패치하면 createPage가 캡처한 마커 없는 스냅샷이 뒤늦게 전송될 수 있다.
+        const pageId = createRowPage(databaseId, "새 템플릿", {
+          _qn_isTemplate: "1",
         });
+        const t = Date.now();
         const page = usePageStore.getState().pages[pageId];
-        if (page) enqueueUpsertPageRaw(page);
+        if (page) enqueueUpsertPageRaw(page, { includeCells: true });
         const tmpl: DatabaseTemplate = { id, title: "새 템플릿", cells: {}, pageId };
         set((state) => {
           const bundle = state.databases[databaseId];
@@ -575,7 +568,7 @@ export const useDatabaseStore = create<DatabaseStore>()(
                   ...state.databases,
                   [databaseId]: {
                     ...bundle,
-                    meta: { ...bundle.meta, updatedAt: t },
+                    meta: { ...bundle.meta, templatesUpdatedAt: t },
                   },
                 }
               : state.databases,
@@ -602,7 +595,7 @@ export const useDatabaseStore = create<DatabaseStore>()(
                   ...state.databases,
                   [databaseId]: {
                     ...bundle,
-                    meta: { ...bundle.meta, updatedAt: t },
+                    meta: { ...bundle.meta, templatesUpdatedAt: t },
                   },
                 }
               : state.databases,
@@ -635,7 +628,7 @@ export const useDatabaseStore = create<DatabaseStore>()(
                   ...state.databases,
                   [databaseId]: {
                     ...bundle,
-                    meta: { ...bundle.meta, updatedAt: t },
+                    meta: { ...bundle.meta, templatesUpdatedAt: t },
                   },
                 }
               : state.databases,

@@ -395,6 +395,8 @@ export function normalizeDatabaseBundle(value: unknown, now = Date.now()): Datab
 
   const createdAt = Number(value.meta.createdAt);
   const updatedAt = Number(value.meta.updatedAt);
+  const templatesUpdatedAt =
+    value.meta.templatesUpdatedAt == null ? Number.NaN : Number(value.meta.templatesUpdatedAt);
   if (
     typeof value.meta.id !== "string" ||
     typeof value.meta.title !== "string" ||
@@ -418,6 +420,7 @@ export function normalizeDatabaseBundle(value: unknown, now = Date.now()): Datab
       title: value.meta.title,
       createdAt,
       updatedAt,
+      ...(Number.isFinite(templatesUpdatedAt) ? { templatesUpdatedAt } : {}),
     },
     columns,
     presets,

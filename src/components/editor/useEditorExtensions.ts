@@ -11,7 +11,6 @@ import { Table } from "@tiptap/extension-table";
 import { TableRow } from "@tiptap/extension-table-row";
 import { TableCell } from "@tiptap/extension-table-cell";
 import { TableHeader } from "@tiptap/extension-table-header";
-import { TextStyle } from "@tiptap/extension-text-style";
 import { Color } from "@tiptap/extension-color";
 import { Highlight } from "@tiptap/extension-highlight";
 import { YoutubeBlock } from "../../lib/tiptapExtensions/youtubeBlock";
@@ -30,6 +29,7 @@ import { PageContext } from "../../lib/tiptapExtensions/pageContext";
 import { SlashCommand } from "../../lib/tiptapExtensions/slashCommand";
 import { MoveBlock } from "../../lib/tiptapExtensions/moveBlock";
 import { DeleteCurrentBlock } from "../../lib/tiptapExtensions/deleteCurrentBlock";
+import { TextStyleWithoutSplit } from "../../lib/tiptapExtensions/textStyleWithoutSplit";
 import { Callout } from "../../lib/tiptapExtensions/callout";
 import {
   Toggle,
@@ -173,7 +173,7 @@ export function useEditorExtensions({
       TableRow,
       TableHeader,
       TableCell,
-      TextStyle,
+      TextStyleWithoutSplit,
       Color,
       Highlight.configure({ multicolor: true }),
       YoutubeBlock.configure({ width: 560, height: 315, nocookie: true }),

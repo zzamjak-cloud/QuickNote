@@ -173,4 +173,21 @@ describe("normalizeDatabase schema", () => {
 
     expect(bundle).toBeNull();
   });
+
+  it("persisted database의 선택적 templatesUpdatedAt을 보존한다", () => {
+    const bundle = normalizeDatabaseBundle({
+      meta: {
+        id: "db-1",
+        title: "DB",
+        createdAt: 1,
+        updatedAt: 2,
+        templatesUpdatedAt: 3,
+      },
+      columns: [{ id: "title", name: "Name", type: "title" }],
+      rowPageOrder: [],
+      presets: [],
+    });
+
+    expect(bundle?.meta.templatesUpdatedAt).toBe(3);
+  });
 });

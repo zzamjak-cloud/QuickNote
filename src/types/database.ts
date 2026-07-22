@@ -267,6 +267,8 @@ export type DatabaseMeta = {
   title: string;
   createdAt: number;
   updatedAt: number;
+  /** 템플릿 배열 전용 LWW 버전. 구버전 데이터는 updatedAt으로 폴백한다. */
+  templatesUpdatedAt?: number;
 };
 
 export type FilterOperator =

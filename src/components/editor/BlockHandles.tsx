@@ -50,6 +50,10 @@ import { imageUrlCache } from "../../lib/images/registry";
 import { startGripNativeDrag } from "../../lib/startBlockNativeDrag";
 import { startBlockDragAutoScroll } from "../../lib/editor/blockDragAutoScroll";
 import {
+  deleteBlockFromHandle,
+  toggleBlockBold,
+} from "../../lib/editor/blockHandleActions";
+import {
   applyHeaderColToggle,
   applyHeaderRowToggle,
 } from "../../lib/editor/tableHeaders";
@@ -405,9 +409,10 @@ export function BlockHandles({
     };
   }, [menuOpen, hover]);
 
-  // 팝업 열림 상태에서 단축키(삭제·복제)
+  // 팝업 열림 상태에서 단축키(삭제·복제·굵게)
   const deleteBlockRef = useRef<() => void>(() => {});
   const duplicateBlockRef = useRef<() => void>(() => {});
+  const toggleBoldRef = useRef<() => void>(() => {});
 
   useEffect(() => {
     if (!menuOpen || boxSelectionActive) return;
@@ -422,6 +427,12 @@ export function BlockHandles({
         e.preventDefault();
         e.stopPropagation();
         duplicateBlockRef.current();
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "b") {
+        e.preventDefault();
+        e.stopPropagation();
+        toggleBoldRef.current();
       }
     };
     document.addEventListener("keydown", onKey, true);
@@ -848,18 +859,22 @@ export function BlockHandles({
 
   const deleteBlock = () => {
     if (!editor || !hover) return;
-    const { blockStart, node } = hover;
-    const tr = editor.state.tr.delete(blockStart, blockStart + node.nodeSize);
-    editor.view.dispatch(tr);
-    editor.view.focus();
+    deleteBlockFromHandle(editor, hover.blockStart);
     setMenuOpen(false);
     setHover(null);
+  };
+
+  const toggleBoldBlock = () => {
+    if (!editor || !hover) return;
+    if (!toggleBlockBold(editor, hover.blockStart)) return;
+    setMenuOpen(false);
   };
 
   // deleteBlock/duplicateBlock 선언 이후에 ref 동기화(선언 전 접근 방지).
   useEffect(() => {
     deleteBlockRef.current = deleteBlock;
     duplicateBlockRef.current = duplicateBlock;
+    toggleBoldRef.current = toggleBoldBlock;
   });
 
   const applyCalloutPreset = (preset: CalloutPresetId) => {

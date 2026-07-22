@@ -31,6 +31,7 @@ import { isLCSchedulerDatabaseId, isLCMilestoneDatabaseId, isLCFeatureDatabaseId
 import { LC_SCHEDULER_WORKSPACE_ID } from "../../lib/scheduler/scope";
 import { getDbCollab, isDbCollabActive } from "../../lib/collab/dbCollabRegistry";
 import { reconcileStructureIntoYDoc } from "../../lib/collab/dbStructureReconcile";
+import { readDbStructure } from "../../lib/collab/dbBundleYjs";
 import type { DbMap } from "./migrations";
 
 // v5 fallback: 아직 memberStore(me.memberId)와 완전 연동 전이라 auth sub 를 사용.
@@ -79,6 +80,9 @@ export function toGqlDatabase(
   }
   if (templates !== undefined) {
     payload.templates = JSON.stringify(templates);
+    payload.templatesUpdatedAt = new Date(
+      meta.templatesUpdatedAt ?? meta.updatedAt,
+    ).toISOString();
   }
   return payload;
 }
@@ -88,7 +92,9 @@ export function enqueueUpsertDatabase(
   templates?: DatabaseTemplate[],
   opts?: { skipCollab?: boolean },
 ): void {
-  // 협업 ON DB: LWW 대신 Y.Doc 에 구조 reconcile. 서버 영속은 materialize→applyCollabDbStructure(skipCollab) 가 담당.
+  let bundleForUpsert = bundle;
+  // 협업 ON DB: 구조는 Y.Doc에 reconcile하고 materialize가 서버 영속을 담당한다.
+  // templates는 DbStructure에 포함되지 않으므로 값이 전달된 경우에는 서버 업서트도 함께 보장한다.
   if (!opts?.skipCollab) {
     const collab = getDbCollab(bundle.meta.id);
     if (collab) {
@@ -100,24 +106,37 @@ export function enqueueUpsertDatabase(
         rows: {},
         rowMembers: bundle.rowPageOrder,
       }, collab.baseline);
-      return;
+      if (templates === undefined) return;
+      const structure = readDbStructure(collab.doc);
+      // 템플릿 direct upsert도 방금 reconcile한 Y.Doc 구조를 사용해야, 아직 store에
+      // materialize되지 않은 다른 사용자의 컬럼/프리셋 변경을 stale bundle로 덮지 않는다.
+      bundleForUpsert = {
+        ...bundle,
+        columns: structure.columns as ColumnDef[],
+        presets: structure.presets as DatabaseRowPreset[],
+        panelState: structure.panelState as DatabaseBundle["panelState"],
+        rowPageOrder: structure.rowPageOrder,
+      };
     }
   }
-  const workspaceId = bundle.meta.workspaceId ?? resolveWorkspaceIdByDatabaseId(bundle.meta.id);
+  const workspaceId =
+    bundleForUpsert.meta.workspaceId ?? resolveWorkspaceIdByDatabaseId(bundleForUpsert.meta.id);
   if (!workspaceId) {
-    console.warn("[sync] upsertDatabase skipped: workspaceId 미설정", { dbId: bundle.meta.id });
+    console.warn("[sync] upsertDatabase skipped: workspaceId 미설정", {
+      dbId: bundleForUpsert.meta.id,
+    });
     return;
   }
   const payload = toGqlDatabase(
-    bundle.meta,
-    bundle.columns,
+    bundleForUpsert.meta,
+    bundleForUpsert.columns,
     getCreatedByMemberId(),
-    bundle.presets,
-    bundle.panelState,
+    bundleForUpsert.presets,
+    bundleForUpsert.panelState,
     templates,
   );
   // rowPageOrder 는 서버가 DB 레코드에는 저장하지 않고 히스토리 스냅샷에만 사용한다(행 추가/삭제를 DB 버전으로 기록).
-  payload.rowPageOrder = bundle.rowPageOrder;
+  payload.rowPageOrder = bundleForUpsert.rowPageOrder;
   enqueueAsync(
     "upsertDatabase",
     payload as Record<string, unknown> & { id: string; updatedAt?: string },
@@ -312,8 +331,12 @@ export function allocateUniqueDatabaseTitle(
 }
 
 /** 행 페이지를 직접 생성하고 id를 반환 — `databaseRowPages`에서 pageStore 와 연결. */
-export function createRowPage(databaseId: string, title: string): string {
-  return createRowPageLinkedToDatabase(databaseId, title);
+export function createRowPage(
+  databaseId: string,
+  title: string,
+  dbCells: Record<string, CellValue> = {},
+): string {
+  return createRowPageLinkedToDatabase(databaseId, title, dbCells);
 }
 
 export function toDatabaseSnapshot(bundle: DatabaseBundle): DatabaseSnapshot {

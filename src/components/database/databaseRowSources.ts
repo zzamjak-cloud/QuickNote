@@ -45,7 +45,7 @@ export function createDatabaseRowSourcesSelector(
   return (state: PageStore): DatabaseRowSource[] => {
     const nextOutput: DatabaseRowSource[] = [];
     const nextCache = new Map<string, CachedRowSource>();
-    let changed = lastOutput.length !== rowPageOrder.length;
+    let changed = false;
 
     for (const pageId of rowPageOrder) {
       const page = state.pages[pageId];
@@ -55,6 +55,7 @@ export function createDatabaseRowSourcesSelector(
           changed = true;
           continue;
         }
+        if (fallback.dbCells?.["_qn_isTemplate"] === "1") continue;
         const cached = cachedById.get(pageId);
         const source = sameRowSource(
           cached,
@@ -82,6 +83,8 @@ export function createDatabaseRowSourcesSelector(
         nextOutput.push(source);
         continue;
       }
+      // 구독/row-index 순서가 엇갈려 rowPageOrder에 남아 있어도 템플릿은 행으로 렌더하지 않는다.
+      if (page.dbCells?.["_qn_isTemplate"] === "1") continue;
 
       const cached = cachedById.get(pageId);
       const databaseId = page.databaseId;
@@ -108,6 +111,7 @@ export function createDatabaseRowSourcesSelector(
       nextOutput.push(source);
     }
 
+    if (lastOutput.length !== nextOutput.length) changed = true;
     cachedById = nextCache;
     if (!changed) return lastOutput;
     lastOutput = nextOutput;

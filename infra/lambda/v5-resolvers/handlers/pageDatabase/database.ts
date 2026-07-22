@@ -191,51 +191,105 @@ function parseJsonArray(raw: unknown): unknown[] | null {
   }
 }
 
-function templateIdOf(value: unknown): string | null {
-  if (!value || typeof value !== "object") return null;
-  const id = (value as Record<string, unknown>).id;
-  return typeof id === "string" && id.length > 0 ? id : null;
+type DatabaseTemplatesLww = {
+  provided: boolean;
+  shouldApply: boolean;
+  changed: boolean;
+  templates?: string;
+  templatesUpdatedAt?: string;
+};
+
+function databaseTemplateTimestamp(raw: unknown, fallback: string): string {
+  return typeof raw === "string" && raw.length > 0 ? raw : fallback;
 }
 
-function mergeTemplateArrayById(existingRaw: unknown, incomingRaw: unknown): string | null {
-  const incoming = parseJsonArray(incomingRaw);
-  if (!incoming) return null;
-  const existing = parseJsonArray(existingRaw) ?? [];
-  const merged = [...existing];
-  const indexById = new Map<string, number>();
-  for (let index = 0; index < merged.length; index += 1) {
-    const id = templateIdOf(merged[index]);
-    if (id) indexById.set(id, index);
+function compareDatabaseTimestamps(left: string, right: string): number {
+  const leftMs = Date.parse(left);
+  const rightMs = Date.parse(right);
+  if (Number.isFinite(leftMs) && Number.isFinite(rightMs)) {
+    return leftMs === rightMs ? 0 : leftMs > rightMs ? 1 : -1;
   }
-  let changed = false;
-  for (const template of incoming) {
-    const id = templateIdOf(template);
-    if (!id) continue;
-    const existingIndex = indexById.get(id);
-    if (existingIndex == null) {
-      indexById.set(id, merged.length);
-      merged.push(template);
-      changed = true;
-      continue;
-    }
-    if (!jsonEqual(merged[existingIndex], template)) {
-      merged[existingIndex] = template;
-      changed = true;
-    }
-  }
-  return changed ? JSON.stringify(merged) : null;
+  return left === right ? 0 : left > right ? 1 : -1;
 }
 
-function mergeStaleDatabaseTemplates(
+function databasePutCondition(
+  existingItem: Record<string, unknown> | undefined,
+  incomingUpdatedAt: string,
+  staleGlobalWrite: boolean,
+): {
+  conditionExpression: string;
+  expressionAttributeValues: Record<string, unknown>;
+} {
+  const expressionAttributeValues: Record<string, unknown> = {};
+  let conditionExpression: string;
+  if (staleGlobalWrite && existingItem) {
+    conditionExpression = "updatedAt = :expectedUpdatedAt";
+    expressionAttributeValues[":expectedUpdatedAt"] = existingItem.updatedAt;
+  } else {
+    conditionExpression = "attribute_not_exists(updatedAt) OR updatedAt <= :incomingUpdatedAt";
+    expressionAttributeValues[":incomingUpdatedAt"] = incomingUpdatedAt;
+  }
+
+  const existingTemplatesUpdatedAt = existingItem?.templatesUpdatedAt;
+  if (typeof existingTemplatesUpdatedAt === "string" && existingTemplatesUpdatedAt.length > 0) {
+    conditionExpression = `(${conditionExpression}) AND templatesUpdatedAt = :expectedTemplatesUpdatedAt`;
+    expressionAttributeValues[":expectedTemplatesUpdatedAt"] = existingTemplatesUpdatedAt;
+  } else {
+    conditionExpression = `(${conditionExpression}) AND attribute_not_exists(templatesUpdatedAt)`;
+  }
+  return { conditionExpression, expressionAttributeValues };
+}
+
+/**
+ * templates는 배열 전체가 하나의 LWW 필드다. DB 구조 updatedAt과 독립된
+ * templatesUpdatedAt으로 비교하며, 구형 클라이언트는 DB updatedAt을 폴백으로 쓴다.
+ */
+function resolveDatabaseTemplatesLww(
   input: Record<string, unknown>,
-  existingItem: Record<string, unknown>,
-): Record<string, unknown> | null {
-  if (!("templates" in input)) return null;
-  const templates = mergeTemplateArrayById(existingItem.templates, input.templates);
-  if (!templates) return null;
+  existingItem: Record<string, unknown> | undefined,
+  incomingUpdatedAt: string,
+  existingUpdatedAt: string,
+): DatabaseTemplatesLww {
+  if (!("templates" in input)) {
+    return { provided: false, shouldApply: false, changed: false };
+  }
+
+  const incomingTemplates = parseJsonArray(input.templates);
+  if (!incomingTemplates) {
+    return { provided: true, shouldApply: false, changed: false };
+  }
+
+  const incomingTemplatesUpdatedAt = databaseTemplateTimestamp(
+    input.templatesUpdatedAt,
+    incomingUpdatedAt,
+  );
+  const existingTemplatesUpdatedAt = databaseTemplateTimestamp(
+    existingItem?.templatesUpdatedAt,
+    existingUpdatedAt,
+  );
+  const shouldApply =
+    !existingItem ||
+    !existingTemplatesUpdatedAt ||
+    !incomingTemplatesUpdatedAt ||
+    compareDatabaseTimestamps(incomingTemplatesUpdatedAt, existingTemplatesUpdatedAt) >= 0;
+  if (!shouldApply) {
+    return { provided: true, shouldApply: false, changed: false };
+  }
+
+  const existingTemplates = parseJsonArray(existingItem?.templates) ?? [];
+  const templates = JSON.stringify(incomingTemplates);
+  const changed =
+    !jsonEqual(existingTemplates, incomingTemplates) ||
+    (incomingTemplatesUpdatedAt.length > 0 &&
+      incomingTemplatesUpdatedAt !== existingItem?.templatesUpdatedAt);
   return {
-    ...existingItem,
+    provided: true,
+    shouldApply: true,
+    changed,
     templates,
+    ...(incomingTemplatesUpdatedAt
+      ? { templatesUpdatedAt: incomingTemplatesUpdatedAt }
+      : {}),
   };
 }
 
@@ -269,6 +323,32 @@ function mergeStaleSchedulerMemberOrderPanelState(
       schedulerMemberOrderUpdatedAt: incomingUpdatedAt,
     }),
   };
+}
+
+function incomingDatabaseFieldsStillWin(
+  databaseId: string,
+  input: Record<string, unknown>,
+  latestItem: Record<string, unknown>,
+  incomingUpdatedAt: string,
+): boolean {
+  const latestUpdatedAt =
+    typeof latestItem.updatedAt === "string" ? latestItem.updatedAt : "";
+  if (
+    incomingUpdatedAt &&
+    (!latestUpdatedAt || compareDatabaseTimestamps(incomingUpdatedAt, latestUpdatedAt) > 0)
+  ) {
+    return true;
+  }
+
+  const templatesLww = resolveDatabaseTemplatesLww(
+    input,
+    latestItem,
+    incomingUpdatedAt,
+    latestUpdatedAt,
+  );
+  if (templatesLww.shouldApply && templatesLww.changed) return true;
+
+  return mergeStaleSchedulerMemberOrderPanelState(databaseId, input, latestItem) !== null;
 }
 
 export async function upsertDatabase(args: {
@@ -320,165 +400,173 @@ export async function upsertDatabase(args: {
   const existing = await args.doc.send(
     new GetCommand({ TableName: tableName, Key: { id } }),
   );
-  const existingItem = existing.Item as Record<string, unknown> | undefined;
-  const existingUpdatedAt =
-    typeof existingItem?.updatedAt === "string" ? (existingItem.updatedAt as string) : "";
+  let existingItem = existing.Item as Record<string, unknown> | undefined;
 
-  // LWW: 들어온 변경이 서버 최신값보다 오래됐거나 같으면 무시하고 기존값을 반환한다.
-  // (ISO 8601 문자열은 사전식 비교 = 시간순 비교. 시드의 옛 타임스탬프·중복 echo 를 거른다.)
-  if (existingItem && existingUpdatedAt && incomingUpdatedAt && incomingUpdatedAt <= existingUpdatedAt) {
-    const schedulerOrderMerge = mergeStaleSchedulerMemberOrderPanelState(
-      id,
+  // templatesUpdatedAt CAS가 경합으로 실패하면 최신 레코드를 다시 읽어 한 번 재계산한다.
+  // 이 재시도로 늦게 도착한 낮은 template 버전은 버리고, 더 높은 버전은 최신 구조 위에 반영한다.
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const existingUpdatedAt =
+      typeof existingItem?.updatedAt === "string" ? (existingItem.updatedAt as string) : "";
+    const staleGlobalWrite = Boolean(
+      existingItem &&
+      existingUpdatedAt &&
+      incomingUpdatedAt &&
+      compareDatabaseTimestamps(incomingUpdatedAt, existingUpdatedAt) <= 0,
+    );
+    const templatesLww = resolveDatabaseTemplatesLww(
       args.input,
       existingItem,
-    );
-    if (schedulerOrderMerge) {
-      try {
-        await args.doc.send(
-          new PutCommand({
-            TableName: tableName,
-            Item: schedulerOrderMerge,
-            ConditionExpression: "updatedAt = :existingUpdatedAt",
-            ExpressionAttributeValues: { ":existingUpdatedAt": existingUpdatedAt },
-          }),
-        );
-        try {
-          await recordDatabaseHistory({
-            doc: args.doc,
-            tables: args.tables,
-            caller: args.caller,
-            before: existingItem,
-            after: schedulerOrderMerge,
-            kind: "database.update",
-          });
-        } catch (err) {
-          console.error("[upsertDatabase] DatabaseHistory 기록 실패 (무시)", err);
-        }
-        return schedulerOrderMerge;
-      } catch (err) {
-        if ((err as { name?: string })?.name === "ConditionalCheckFailedException") {
-          const latest = await args.doc.send(
-            new GetCommand({ TableName: tableName, Key: { id } }),
-          );
-          return (latest.Item ?? existingItem) as Record<string, unknown>;
-        }
-        throw err;
-      }
-    }
-    const templatesMerge = mergeStaleDatabaseTemplates(args.input, existingItem);
-    if (templatesMerge) {
-      console.warn("[QN_TEMPLATE_SYNC] lambda upsertDatabase:staleTemplatesMerge", {
-        databaseId: id,
-        workspaceId,
-        incomingUpdatedAt,
-        existingUpdatedAt,
-      });
-      try {
-        await args.doc.send(
-          new PutCommand({
-            TableName: tableName,
-            Item: templatesMerge,
-            ConditionExpression: "updatedAt = :existingUpdatedAt",
-            ExpressionAttributeValues: { ":existingUpdatedAt": existingUpdatedAt },
-          }),
-        );
-        try {
-          await recordDatabaseHistory({
-            doc: args.doc,
-            tables: args.tables,
-            caller: args.caller,
-            before: existingItem,
-            after: templatesMerge,
-            kind: "database.update",
-          });
-        } catch (err) {
-          console.error("[upsertDatabase] DatabaseHistory 기록 실패 (무시)", err);
-        }
-        await reconcileTemplateAutomationSchedules({
-          before: existingItem,
-          after: templatesMerge,
-        });
-        return templatesMerge;
-      } catch (err) {
-        if ((err as { name?: string })?.name === "ConditionalCheckFailedException") {
-          const latest = await args.doc.send(
-            new GetCommand({ TableName: tableName, Key: { id } }),
-          );
-          return (latest.Item ?? existingItem) as Record<string, unknown>;
-        }
-        throw err;
-      }
-    }
-    if ("templates" in args.input) {
-      await reconcileTemplateAutomationSchedules({
-        before: existingItem,
-        after: existingItem,
-      });
-    }
-    return existingItem;
-  }
-
-  // 부분 payload 가 기존 필드(panelState 등)를 지우지 않도록 기존값 위에 병합한다.
-  // 과거 blind PutItem 은 panelState 가 생략되면 서버 표시설정을 통째로 삭제했다.
-  const merged: Record<string, unknown> = {
-    ...(existingItem ?? {}),
-    ...args.input,
-    // 최초 생성 메타는 보존한다.
-    createdAt: existingItem?.createdAt ?? args.input.createdAt,
-    createdByMemberId:
-      (existingItem?.createdByMemberId as string | undefined) ||
-      (args.input.createdByMemberId as string | undefined) ||
-      args.caller.memberId,
-  };
-  if ("templates" in args.input) {
-    console.warn("[QN_TEMPLATE_SYNC] lambda upsertDatabase:put", {
-      databaseId: id,
-      workspaceId,
       incomingUpdatedAt,
-      existingUpdatedAt: existingUpdatedAt || null,
-      templatesType: typeof merged.templates,
-      templatesLength: typeof merged.templates === "string" ? merged.templates.length : null,
-    });
-  }
-
-  try {
-    await args.doc.send(
-      new PutCommand({
-        TableName: tableName,
-        Item: merged,
-        // 조회~쓰기 사이 경쟁 보호 — 그 사이 더 최신 쓰기가 들어왔으면 거부.
-        ConditionExpression: "attribute_not_exists(updatedAt) OR updatedAt <= :incoming",
-        ExpressionAttributeValues: { ":incoming": incomingUpdatedAt },
-      }),
+      existingUpdatedAt,
     );
-  } catch (err) {
-    if ((err as { name?: string })?.name === "ConditionalCheckFailedException") {
-      // 경쟁 중 더 최신 쓰기가 선반영됨 → 최신 서버값을 반환(이 쓰기는 stale 로 폐기).
+    let nextItem: Record<string, unknown>;
+    let shouldReconcileTemplates = false;
+
+    if (staleGlobalWrite && existingItem) {
+      const schedulerOrderMerge = mergeStaleSchedulerMemberOrderPanelState(
+        id,
+        args.input,
+        existingItem,
+      );
+      nextItem = schedulerOrderMerge ?? existingItem;
+      if (templatesLww.shouldApply && templatesLww.changed && templatesLww.templates !== undefined) {
+        nextItem = {
+          ...nextItem,
+          templates: templatesLww.templates,
+          ...(templatesLww.templatesUpdatedAt
+            ? { templatesUpdatedAt: templatesLww.templatesUpdatedAt }
+            : {}),
+        };
+        console.warn("[QN_TEMPLATE_SYNC] lambda upsertDatabase:staleTemplatesLww", {
+          databaseId: id,
+          workspaceId,
+          incomingUpdatedAt,
+          existingUpdatedAt,
+          incomingTemplatesUpdatedAt: templatesLww.templatesUpdatedAt ?? null,
+          existingTemplatesUpdatedAt:
+            databaseTemplateTimestamp(existingItem.templatesUpdatedAt, existingUpdatedAt) || null,
+        });
+      }
+      shouldReconcileTemplates = templatesLww.provided;
+      if (nextItem === existingItem) {
+        if (shouldReconcileTemplates) {
+          await reconcileTemplateAutomationSchedules({
+            before: existingItem,
+            after: existingItem,
+          });
+        }
+        return existingItem;
+      }
+    } else {
+      // 부분 payload가 기존 필드(panelState 등)를 지우지 않도록 기존값 위에 병합한다.
+      nextItem = {
+        ...(existingItem ?? {}),
+        ...args.input,
+        createdAt: existingItem?.createdAt ?? args.input.createdAt,
+        createdByMemberId:
+          (existingItem?.createdByMemberId as string | undefined) ||
+          (args.input.createdByMemberId as string | undefined) ||
+          args.caller.memberId,
+      };
+      if (templatesLww.provided) {
+        if (templatesLww.shouldApply && templatesLww.templates !== undefined) {
+          nextItem.templates = templatesLww.templates;
+          if (templatesLww.templatesUpdatedAt) {
+            nextItem.templatesUpdatedAt = templatesLww.templatesUpdatedAt;
+          } else {
+            delete nextItem.templatesUpdatedAt;
+          }
+        } else if (existingItem) {
+          nextItem.templates = existingItem.templates;
+          if (existingItem.templatesUpdatedAt !== undefined) {
+            nextItem.templatesUpdatedAt = existingItem.templatesUpdatedAt;
+          } else {
+            delete nextItem.templatesUpdatedAt;
+          }
+        } else {
+          delete nextItem.templates;
+          delete nextItem.templatesUpdatedAt;
+        }
+      } else if (existingItem) {
+        // templates 없이 전역 DB만 갱신할 때 orphan timestamp 입력이 기존 버전을 바꾸지 않게 한다.
+        if (existingItem.templatesUpdatedAt !== undefined) {
+          nextItem.templatesUpdatedAt = existingItem.templatesUpdatedAt;
+        } else {
+          delete nextItem.templatesUpdatedAt;
+        }
+      } else {
+        delete nextItem.templatesUpdatedAt;
+      }
+      shouldReconcileTemplates = true;
+      if ("templates" in args.input) {
+        console.warn("[QN_TEMPLATE_SYNC] lambda upsertDatabase:put", {
+          databaseId: id,
+          workspaceId,
+          incomingUpdatedAt,
+          existingUpdatedAt: existingUpdatedAt || null,
+          templatesType: typeof nextItem.templates,
+          templatesLength:
+            typeof nextItem.templates === "string" ? nextItem.templates.length : null,
+        });
+      }
+    }
+
+    const putCondition = databasePutCondition(existingItem, incomingUpdatedAt, staleGlobalWrite);
+    try {
+      await args.doc.send(
+        new PutCommand({
+          TableName: tableName,
+          Item: nextItem,
+          ConditionExpression: putCondition.conditionExpression,
+          ExpressionAttributeValues: putCondition.expressionAttributeValues,
+        }),
+      );
+    } catch (err) {
+      if ((err as { name?: string })?.name !== "ConditionalCheckFailedException") throw err;
       const latest = await args.doc.send(
         new GetCommand({ TableName: tableName, Key: { id } }),
       );
-      return (latest.Item ?? existingItem ?? merged) as Record<string, unknown>;
+      const latestItem = latest.Item as Record<string, unknown> | undefined;
+      if (attempt === 0 && latestItem) {
+        existingItem = latestItem;
+        continue;
+      }
+      // 두 번째 CAS 실패도 성공으로 반환하면 bridge가 outbox를 삭제한다. 최신 서버값 기준으로
+      // 입력이 여전히 이겨야 하는 변경이면 조건 실패를 다시 던져 다음 flush에서 재시도한다.
+      if (
+        !latestItem ||
+        incomingDatabaseFieldsStillWin(id, args.input, latestItem, incomingUpdatedAt)
+      ) {
+        throw err;
+      }
+      return latestItem;
     }
-    throw err;
+
+    try {
+      await recordDatabaseHistory({
+        doc: args.doc,
+        tables: args.tables,
+        caller: args.caller,
+        before: existingItem ?? null,
+        after:
+          !staleGlobalWrite && incomingRowPageOrder
+            ? { ...nextItem, rowPageOrder: incomingRowPageOrder }
+            : nextItem,
+        kind: existingItem ? "database.update" : "database.create",
+      });
+    } catch (err) {
+      console.error("[upsertDatabase] DatabaseHistory 기록 실패 (무시)", err);
+    }
+    if (shouldReconcileTemplates) {
+      await reconcileTemplateAutomationSchedules({
+        before: existingItem ?? null,
+        after: nextItem,
+      });
+    }
+    return nextItem;
   }
-  try {
-    await recordDatabaseHistory({
-      doc: args.doc,
-      tables: args.tables,
-      caller: args.caller,
-      before: existingItem ?? null,
-      // rowPageOrder 는 레코드(merged)에는 없고 히스토리 스냅샷에만 포함시킨다.
-      after: incomingRowPageOrder ? { ...merged, rowPageOrder: incomingRowPageOrder } : merged,
-      kind: existingItem ? "database.update" : "database.create",
-    });
-  } catch (err) {
-    console.error("[upsertDatabase] DatabaseHistory 기록 실패 (무시)", err);
-  }
-  await reconcileTemplateAutomationSchedules({
-    before: existingItem ?? null,
-    after: merged,
-  });
-  return merged;
+
+  return existingItem ?? args.input;
 }
 
 export async function softDeleteDatabase(args: {

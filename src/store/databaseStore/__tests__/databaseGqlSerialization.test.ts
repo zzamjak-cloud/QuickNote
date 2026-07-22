@@ -168,6 +168,7 @@ describe("databaseStore GraphQL serialization", () => {
       title: "DB",
       createdAt: Date.parse("2026-01-01T00:00:00.000Z"),
       updatedAt: Date.parse("2026-01-01T00:00:01.000Z"),
+      templatesUpdatedAt: Date.parse("2026-01-01T00:00:00.500Z"),
     };
     const templates: DatabaseTemplate[] = [
       {
@@ -198,6 +199,7 @@ describe("databaseStore GraphQL serialization", () => {
     );
 
     expect(payload.templates).toEqual(expect.any(String));
+    expect(payload.templatesUpdatedAt).toBe("2026-01-01T00:00:00.500Z");
     const parsedTemplates = JSON.parse(payload.templates as string) as DatabaseTemplate[];
     expect(parsedTemplates[0]?.automation).toEqual(templates[0]?.automation);
   });
