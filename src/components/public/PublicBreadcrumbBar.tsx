@@ -5,31 +5,10 @@ import { useMemo, type ReactNode } from "react";
 import { ArrowLeft, ChevronRight } from "lucide-react";
 import type { PublicPageMeta, PublicSite } from "../../lib/publicView/api";
 import type { PublicDocContext } from "../../lib/publicView/transformPublicDoc";
+import { buildPublicBreadcrumb } from "./publicBreadcrumb";
 
-// parentId 체인 상한 — 순환/비정상 데이터에서 무한 루프 방지(서버 BFS visited 가드와 동일 취지).
-const BREADCRUMB_MAX_DEPTH = 100;
 // 이 길이를 넘으면 가운데를 "…" 로 접는다(루트/현재 주변 맥락만 유지).
 const BREADCRUMB_COLLAPSE_AT = 4;
-
-/** 게시 루트 → 현재 페이지 경로. 트리 밖/순환이면 도달 가능한 구간까지만 반환한다. */
-export function buildPublicBreadcrumb(
-  site: PublicSite,
-  pageId: string,
-): PublicPageMeta[] {
-  const byId = new Map(site.pages.map((p) => [p.id, p]));
-  const path: PublicPageMeta[] = [];
-  const visited = new Set<string>();
-  let cur: string | null = pageId;
-  while (cur && !visited.has(cur) && path.length < BREADCRUMB_MAX_DEPTH) {
-    visited.add(cur);
-    const meta = byId.get(cur);
-    if (!meta) break;
-    path.push(meta);
-    if (cur === site.rootId) break;
-    cur = meta.parentId;
-  }
-  return path.reverse();
-}
 
 type CrumbEntry = PublicPageMeta | { id: "__ellipsis__" };
 

@@ -15,6 +15,7 @@ jobs:
   deploy-dev:
     name: dev 스택 CDK 배포
     runs-on: ubuntu-latest
+    timeout-minutes: 90
     permissions:
       id-token: write  # GitHub OIDC 토큰 발급
       contents: read
@@ -41,7 +42,7 @@ jobs:
           aws-region: ap-northeast-2
 
       - name: infra 패키지 설치
-        run: npm ci --prefix infra
+        run: npm ci --prefix infra --prefer-offline --no-audit --no-fund
 
       - name: CDK dev 스택 배포
         working-directory: infra

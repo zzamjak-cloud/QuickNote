@@ -2,12 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Palette, Search, UserCog, ChevronRight } from "lucide-react";
 import { COLOR_PRESETS, DEFAULT_SCHEDULE_COLOR } from "../../lib/scheduler/colors";
 import type { Member } from "../../store/memberStore";
-
-export const SCHEDULER_CONTEXT_MENU_OPEN_EVENT = "quicknote:scheduler-context-menu-open";
-
-export function announceSchedulerContextMenuOpen() {
-  window.dispatchEvent(new Event(SCHEDULER_CONTEXT_MENU_OPEN_EVENT));
-}
+import { SCHEDULER_CONTEXT_MENU_OPEN_EVENT } from "./contextMenuEvents";
 
 type Props = {
   x: number;

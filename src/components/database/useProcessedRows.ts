@@ -125,7 +125,11 @@ export function useProcessedRows(
       (panelState.filterPresets ?? []).find(
         (preset) => preset.id === panelState.activePresetId,
       ) ?? null;
-    const effectiveFilterRules = resolveActiveFilterRules(panelState);
+    const effectiveFilterRules = resolveActiveFilterRules({
+      activePresetId: panelState.activePresetId,
+      filterPresets: panelState.filterPresets,
+      filterRules: panelState.filterRules,
+    });
     const effectiveSortRules =
       activePreset?.sortRules && activePreset.sortRules.length > 0
         ? activePreset.sortRules

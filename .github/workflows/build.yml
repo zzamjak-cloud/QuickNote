@@ -9,6 +9,7 @@ jobs:
   publish:
     permissions:
       contents: write
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -57,7 +58,7 @@ jobs:
           workspaces: './src-tauri -> target'
 
       - name: install frontend dependencies
-        run: npm ci
+        run: npm ci --prefer-offline --no-audit --no-fund
 
       # Vite 는 빌드 시점에 import.meta.env.VITE_* 를 번들에 박는다.
       # 시크릿이 없으면 프로덕션 앱에서 로그인 버튼이 무응답처럼 보이거나
@@ -143,12 +144,14 @@ jobs:
           name: updater-fragment-${{ matrix.platform }}
           path: updater-fragment-${{ matrix.platform }}.json
           if-no-files-found: error
+          retention-days: 1
 
   merge-updater-json:
     name: Merge latest.json (Windows + macOS)
     needs: publish
     if: success()
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: write
     steps:

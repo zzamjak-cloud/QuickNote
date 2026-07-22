@@ -21,7 +21,8 @@ import {
   GLOBAL_EVENT_COLOR,
   pickTextColor,
 } from "../../lib/scheduler/colors";
-import { ContextMenu, announceSchedulerContextMenuOpen } from "./ContextMenu";
+import { ContextMenu } from "./ContextMenu";
+import { announceSchedulerContextMenuOpen } from "./contextMenuEvents";
 import {
   getScheduleCardContentOffset,
   getScheduleScopeName,

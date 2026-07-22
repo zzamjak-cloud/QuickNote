@@ -1,7 +1,8 @@
 import { createElement } from "react";
 import { render } from "@testing-library/react";
 import { describe, it, expect } from "vitest";
-import { PublicBreadcrumbBar, buildPublicBreadcrumb } from "../PublicBreadcrumbBar";
+import { PublicBreadcrumbBar } from "../PublicBreadcrumbBar";
+import { buildPublicBreadcrumb } from "../publicBreadcrumb";
 import type { PublicSite, PublicPageMeta } from "../../../lib/publicView/api";
 
 function meta(id: string, parentId: string | null, title = id): PublicPageMeta {

@@ -164,6 +164,24 @@ CDK 미배포 → 뮤테이션 실패 → 데이터 로컬에만 쌓임 → loca
 - 부가: jsdom 테스트는 `src/__tests__/setup.ts` 의 `fake-indexeddb/auto` 로 `indexedDB is not defined`
   에러 폭주를 제거함.
 
+## GitHub Actions 사용량 최적화
+
+- `.github/workflows/ci.yml`은 `lint`, `typecheck`, `test`, `build`를 하나의 `verify` job에서 순서대로
+  실행한다. 각 검증을 별도 job으로 다시 분리하면 checkout·Node 설정·`npm ci`가 반복되어 비공개
+  저장소의 Actions 분 사용량이 증가한다.
+- root와 `infra/` lockfile을 함께 npm 캐시 키에 포함하고, 의존성 설치에는
+  `--prefer-offline --no-audit --no-fund`를 사용한다.
+- CI는 30분, dev CDK 배포는 90분, 데스크톱 릴리스는 60분, updater JSON 병합은 10분을 상한으로
+  둔다. 정상 실행이 상한에 근접하면 임의로 제한을 제거하지 말고 최근 정상 실행시간을 확인해 조정한다.
+- dev CDK 배포는 GitHub job이 중단되어도 CloudFormation 작업이 계속될 수 있으므로 일반 CI처럼 짧은
+  timeout을 적용하지 않는다. `cancel-in-progress: false`도 유지해 배포 중첩을 막는다.
+- updater fragment는 플랫폼 병합 뒤 재사용하지 않으므로 Actions artifact 보존 기간을 1일로 둔다.
+  GitHub Release에 업로드된 설치 파일과 최종 `latest.json`의 보존 정책은 변경하지 않는다.
+- 릴리스는 태그 하나마다 macOS·Windows 네이티브 빌드를 모두 실행한다. 작은 수정은 dev·로컬 설치
+  검증에서 모은 뒤 릴리스 태그를 만들며, 실패 재시도는 새 태그보다 실패 job 재실행을 우선한다.
+- `main`, `develop`, pull request 트리거와 `latest.json` 플랫폼 병합 job은 배포·업데이터 계약이므로
+  사용량 절감만을 이유로 제거하지 않는다.
+
 ## 관련 위키
 - [version-sync.md](version-sync.md)
 - [data-safety.md](data-safety.md)

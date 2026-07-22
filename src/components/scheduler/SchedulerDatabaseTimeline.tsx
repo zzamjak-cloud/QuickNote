@@ -67,7 +67,8 @@ import { TimelineCardText } from "../database/TimelineCardText";
 import { applyTimelineCardStickyOffset } from "../database/timelineCardStickyOffset";
 import { getScheduleCardContentOffset } from "./scheduleCardDisplay";
 import { ScheduleCardDetailRows } from "../database/ScheduleCardDetailRows";
-import { ContextMenu, announceSchedulerContextMenuOpen } from "./ContextMenu";
+import { ContextMenu } from "./ContextMenu";
+import { announceSchedulerContextMenuOpen } from "./contextMenuEvents";
 import { useDoubleTapByKey } from "../../hooks/useDoubleTap";
 import {
   makeTimelineCardColorOverrides,

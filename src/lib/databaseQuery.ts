@@ -14,7 +14,10 @@ import { stringifyJsonValue } from "./database/jsonCell";
  * 활성 프리셋이 있으면 그 규칙을, 없으면 전역 filterRules를 사용한다.
  */
 export function resolveActiveFilterRules(
-  panelState: DatabasePanelState,
+  panelState: Pick<
+    DatabasePanelState,
+    "activePresetId" | "filterPresets" | "filterRules"
+  >,
 ): FilterRule[] {
   const activePreset =
     (panelState.filterPresets ?? []).find(
