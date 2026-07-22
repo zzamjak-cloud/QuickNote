@@ -72,6 +72,16 @@
   단, 목록 안 이미지·파일·구분선 등 자식 블록 핸들은 해당 블록만 삭제해야 하므로 목록 범위
   확장은 선택 node 자체가 `listItem`/`taskItem`일 때만 허용한다.
 
+## 글머리 자식 항목 드래그
+
+- `startGripNativeDrag`는 중첩 `listItem`/`taskItem`도 `QUICKNOTE_BLOCK_DRAG_MIME` payload로
+  넘기고, 실제 이동은 `src/lib/editor/editorHandleDrop.ts`가 처리한다.
+- 자식 글머리의 왼쪽 핸들/여백 근처에 드롭하면 `view.posAtCoords`가 실제 자식 `li`가 아니라
+  부모 `li`를 반환할 수 있다. 그래서 listItem 형제 재정렬은 `document.elementsFromPoint()`에서
+  에디터 내부의 가장 깊은 `li`를 먼저 해석하고, 실패할 때만 기존 `posAtCoords` 경로로 폴백한다.
+- 회귀 테스트: `src/lib/editor/__tests__/editorHandleDrop.test.ts`는 `posAtCoords`가 부모 텍스트를
+  가리키는 상황에서도 자식 `B`가 형제 `C` 뒤로 이동하는지 검증한다.
+
 ## 박스 선택 감지
 `MutationObserver`로 `document.body.classList` 변화를 감시. `qn-box-select-tracking` / `qn-box-select-dragging` 클래스 유무로 `boxSelecting` 상태를 동기화한다.
 

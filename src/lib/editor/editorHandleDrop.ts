@@ -43,6 +43,13 @@ const LIST_WRAPPER_BY_ITEM: Record<string, string[]> = {
   taskItem: ["taskList"],
 };
 
+type ListItemDropTarget = {
+  itemStart: number;
+  node: PMNode;
+  rect: DOMRect | null;
+  depth: number;
+};
+
 function countProtectedMediaInDoc(doc: import("@tiptap/pm/model").Node): number {
   let count = 0;
   doc.descendants((node) => {
@@ -113,11 +120,13 @@ function draggedBlockShape(
 
   const wrappers = LIST_WRAPPER_BY_ITEM[node.type.name] ?? [];
   try {
-    const $pos = view.state.doc.resolve(pos);
-    for (let d = $pos.depth - 1; d >= 1; d--) {
-      const parent = $pos.node(d);
+    const $inside = view.state.doc.resolve(
+      Math.min(pos + 1, view.state.doc.content.size),
+    );
+    for (let d = $inside.depth; d >= 1; d--) {
+      const parent = $inside.node(d);
       if (!wrappers.includes(parent.type.name)) continue;
-      const parentStart = $pos.before(d);
+      const parentStart = $inside.before(d);
       const deleteWholeParentList = parent.childCount <= 1;
       return {
         insertNode: parent.type.create(
@@ -182,12 +191,104 @@ function listItemInteriorDropPos(
   return null;
 }
 
+function elementFromNodeDom(dom: Node | null): HTMLElement | null {
+  if (dom instanceof HTMLElement) return dom;
+  return dom?.parentElement ?? null;
+}
+
+function resolveListItemDropTargetFromElement(
+  view: EditorView,
+  element: Element,
+  shape: DraggedBlockShape,
+): ListItemDropTarget | null {
+  if (!shape.listItemNode || !shape.sourceListTypeName) return null;
+  let best: ListItemDropTarget | null = null;
+  view.state.doc.descendants((node, pos, parent) => {
+    if (node.type.name !== shape.listItemNode?.type.name) return true;
+    if (parent?.type.name !== shape.sourceListTypeName) return true;
+    let nodeEl: HTMLElement | null = null;
+    try {
+      nodeEl = elementFromNodeDom(view.nodeDOM(pos));
+    } catch {
+      nodeEl = null;
+    }
+    if (
+      !nodeEl ||
+      !(nodeEl === element || nodeEl.contains(element) || element.contains(nodeEl))
+    ) {
+      return true;
+    }
+    let depth = 0;
+    try {
+      depth = view.state.doc.resolve(pos).depth;
+    } catch {
+      depth = 0;
+    }
+    const candidate: ListItemDropTarget = {
+      itemStart: pos,
+      node,
+      rect: nodeEl.getBoundingClientRect?.() ?? null,
+      depth,
+    };
+    if (!best || candidate.depth > best.depth) {
+      best = candidate;
+    }
+    return true;
+  });
+  return best;
+}
+
+function listItemDropTargetFromPoint(
+  view: EditorView,
+  event: DragEvent,
+  shape: DraggedBlockShape,
+): ListItemDropTarget | null {
+  if (!shape.listItemNode || !shape.sourceListTypeName) return null;
+  const hits =
+    typeof document.elementsFromPoint === "function"
+      ? document.elementsFromPoint(event.clientX, event.clientY)
+      : [document.elementFromPoint(event.clientX, event.clientY)].filter(
+          (el): el is Element => el instanceof Element,
+        );
+  const seen = new Set<Element>();
+  let best: ListItemDropTarget | null = null;
+  for (const hit of hits) {
+    if (!(hit instanceof Element)) continue;
+    for (
+      let el: Element | null = hit;
+      el && view.dom.contains(el);
+      el = el.parentElement
+    ) {
+      if (seen.has(el)) continue;
+      seen.add(el);
+      if (el.tagName.toLowerCase() !== "li") continue;
+      const candidate = resolveListItemDropTargetFromElement(view, el, shape);
+      if (!candidate) continue;
+      if (!best || candidate.depth > best.depth) {
+        best = candidate;
+      }
+    }
+  }
+  return best;
+}
+
 function listItemInsertionPosFromDrop(
   view: EditorView,
   event: DragEvent,
   shape: DraggedBlockShape,
 ): number | null {
   if (!shape.listItemNode || !shape.sourceListTypeName) return null;
+  const domTarget = listItemDropTargetFromPoint(view, event, shape);
+  if (domTarget) {
+    const rect = domTarget.rect;
+    const after = rect
+      ? event.clientY > rect.top + rect.height / 2
+      : false;
+    return after
+      ? domTarget.itemStart + domTarget.node.nodeSize
+      : domTarget.itemStart;
+  }
+
   const coords = view.posAtCoords({ left: event.clientX, top: event.clientY });
   if (!coords) return null;
   let $pos;
