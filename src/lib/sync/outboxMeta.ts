@@ -30,8 +30,8 @@ export function buildOutboxEntryMeta(
 
   if (spec.warnIfMissingWorkspace && !workspaceFromPayload) {
     console.warn(
-      "[sync] upsertComment outbox: workspaceId 누락 — 이 항목은 flush 범위에서 벗어날 수 있습니다.",
-      { commentId: id },
+      "[sync] comment outbox: workspaceId 누락 — 이 항목은 flush 범위에서 벗어날 수 있습니다.",
+      { op, commentId: id },
     );
   }
 

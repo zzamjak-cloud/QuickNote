@@ -1,5 +1,9 @@
 import { useEffect, useState } from "react";
 import { ArrowUp } from "lucide-react";
+import {
+  markProgrammaticScroll,
+  suppressScrollRestoreFor,
+} from "../../lib/navigation/pageScrollMemory";
 
 interface ScrollToTopButtonProps {
   /** 스크롤 컨테이너 ref — 없으면 window 스크롤을 대상으로 삼는다. */
@@ -71,7 +75,9 @@ export function ScrollToTopButton({
       type="button"
       onClick={() => {
         const host = scrollRef?.current;
+        markProgrammaticScroll();
         if (host) {
+          suppressScrollRestoreFor(host);
           host.scrollTo({ top: 0, behavior: "smooth" });
         } else {
           window.scrollTo({ top: 0, behavior: "smooth" });

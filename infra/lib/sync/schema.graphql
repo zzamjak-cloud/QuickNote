@@ -188,6 +188,7 @@ type Comment {
   authorMemberId: ID!
   bodyText: String!
   mentionMemberIds: AWSJSON!
+  reactions: AWSJSON
   parentId: ID
   createdAt: AWSDateTime!
   updatedAt: AWSDateTime!
@@ -443,6 +444,7 @@ input CommentInput {
   authorMemberId: ID!
   bodyText: String!
   mentionMemberIds: AWSJSON!
+  reactions: AWSJSON
   parentId: ID
   createdAt: AWSDateTime!
   updatedAt: AWSDateTime!
@@ -451,6 +453,15 @@ input CommentInput {
   작성자로 사용하고, 그 외에는 스푸핑 방지로 호출자를 강제한다. 일반 댓글 작성 시에는 전송하지 않는다.
   """
   importedAuthorMemberId: ID
+}
+
+input CommentReactionInput {
+  id: ID!
+  workspaceId: ID!
+  reactionKind: String!
+  reactionValue: String!
+  reacted: Boolean!
+  updatedAt: AWSDateTime!
 }
 
 input ImageUploadInput {
@@ -697,6 +708,7 @@ type Mutation {
   restoreWorkspace(workspaceId: ID!): Workspace!
 
   upsertComment(input: CommentInput!): Comment!
+  toggleCommentReaction(input: CommentReactionInput!): Comment!
   softDeleteComment(id: ID!, workspaceId: ID!, updatedAt: AWSDateTime!): Comment!
 
   upsertPage(input: PageInput!): Page!
@@ -778,7 +790,7 @@ type Mutation {
 # ========== Subscription ==========
 type Subscription {
   onCommentChanged(workspaceId: ID!): Comment
-    @aws_subscribe(mutations: ["upsertComment", "softDeleteComment"])
+    @aws_subscribe(mutations: ["upsertComment", "toggleCommentReaction", "softDeleteComment"])
   onPageChanged(workspaceId: ID!): Page
     @aws_subscribe(mutations: ["upsertPage", "publishPageChanged", "softDeletePage", "restorePage"])
   onDatabaseChanged(workspaceId: ID!): Database

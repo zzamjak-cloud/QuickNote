@@ -27,6 +27,9 @@ function makeGql(): GqlBridge & { calls: Call[] } {
     upsertComment: async (i) => {
       calls.push(["upsertComment", i]);
     },
+    toggleCommentReaction: async (i) => {
+      calls.push(["toggleCommentReaction", i]);
+    },
     softDeleteComment: async (id, workspaceId, u) => {
       calls.push(["softDeleteComment", id, workspaceId, u]);
     },
@@ -81,6 +84,44 @@ describe("SyncEngine", () => {
     expect(gql.calls.length).toBe(1);
     const first = gql.calls[0]!;
     expect((first[1] as { updatedAt: string }).updatedAt).toBe("t2");
+  });
+
+  it("dedupeId 가 있으면 같은 댓글의 서로 다른 반응 토글을 별도 보존한다", async () => {
+    const outbox = new MemoryOutboxAdapter();
+    const gql = makeGql();
+    const engine = new SyncEngine(outbox, gql);
+    await engine.enqueue("toggleCommentReaction", {
+      id: "c-1",
+      dedupeId: "c-1:emoji:✅:m-1",
+      workspaceId: "ws-1",
+      reactionKind: "emoji",
+      reactionValue: "✅",
+      reacted: true,
+    });
+    await engine.enqueue("toggleCommentReaction", {
+      id: "c-1",
+      dedupeId: "c-1:emoji:👍:m-1",
+      workspaceId: "ws-1",
+      reactionKind: "emoji",
+      reactionValue: "👍",
+      reacted: true,
+    });
+    await engine.enqueue("toggleCommentReaction", {
+      id: "c-1",
+      dedupeId: "c-1:emoji:✅:m-1",
+      workspaceId: "ws-1",
+      reactionKind: "emoji",
+      reactionValue: "✅",
+      reacted: false,
+    });
+
+    const list = await outbox.list(10);
+    expect(list).toHaveLength(2);
+    await engine.flush();
+    expect(gql.calls).toEqual([
+      ["toggleCommentReaction", expect.objectContaining({ reactionValue: "👍", reacted: true })],
+      ["toggleCommentReaction", expect.objectContaining({ reactionValue: "✅", reacted: false })],
+    ]);
   });
 
   it("삭제 enqueue 시 같은 id 의 대기 중인 upsertPage 를 제거한다", async () => {

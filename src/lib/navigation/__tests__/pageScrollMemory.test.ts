@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   installPageScrollCapture,
   isLikelyVerticalScrollbarInput,
+  markProgrammaticScroll,
   restorePageScrollPosition,
   savePageScrollPosition,
 } from "../pageScrollMemory";
@@ -157,5 +158,49 @@ describe("page scroll memory", () => {
     await nextFrame();
     expect(scroller.scrollTop).toBe(700);
     cleanupRestore?.();
+  });
+
+  it("keeps the user's scroll when media activation suddenly resets to top", async () => {
+    const uninstall = installPageScrollCapture();
+    const scroller = makeScroller();
+    scroller.scrollTop = 360;
+    savePageScrollPosition("page-scroll-test", scroller, "main", { force: true });
+
+    scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: 120, bubbles: true }));
+    scroller.scrollTop = 420;
+    scroller.dispatchEvent(new Event("scroll", { bubbles: true }));
+
+    scroller.scrollTop = 0;
+    scroller.dispatchEvent(new Event("scroll", { bubbles: true }));
+    await nextFrame();
+
+    expect(scroller.scrollTop).toBe(420);
+    uninstall?.();
+  });
+
+  it("allows an explicit user scroll back to the top", () => {
+    const uninstall = installPageScrollCapture();
+    const scroller = makeScroller();
+    scroller.scrollTop = 420;
+    savePageScrollPosition("page-scroll-test", scroller, "main", { force: true });
+
+    scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: -120, bubbles: true }));
+    scroller.scrollTop = 0;
+    scroller.dispatchEvent(new Event("scroll", { bubbles: true }));
+
+    expect(scroller.scrollTop).toBe(0);
+    uninstall?.();
+  });
+
+  it("allows an explicit programmatic scroll back to the top", () => {
+    const scroller = makeScroller();
+    scroller.scrollTop = 420;
+    savePageScrollPosition("page-scroll-test", scroller, "main", { force: true });
+
+    markProgrammaticScroll();
+    scroller.scrollTop = 0;
+    scroller.dispatchEvent(new Event("scroll", { bubbles: true }));
+
+    expect(scroller.scrollTop).toBe(0);
   });
 });

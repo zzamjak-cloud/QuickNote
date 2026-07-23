@@ -4,6 +4,7 @@ type ScrollSnapshot = {
 };
 
 export type PageScrollScope = "main" | "db-row" | "peek";
+type ScrollInputDirection = "up" | "down" | "top" | "bottom" | "unknown";
 
 const STORAGE_KEY = "quicknote.pageScrollMemory.v1";
 const DEFAULT_SCOPE: PageScrollScope = "main";
@@ -15,17 +16,27 @@ const restoringByScroller = new WeakMap<
 >();
 let captureInstalled = false;
 let lastUserScrollInputAt = 0;
+let lastUserScrollInput:
+  | { at: number; direction: ScrollInputDirection; scroller: HTMLElement | null }
+  | null = null;
 const USER_SCROLL_INPUT_WINDOW_MS = 900;
 const SCROLLBAR_HIT_SLOP_PX = 48;
 const RESTORE_SCROLL_EPSILON_PX = 2;
+const TOP_RESET_EPSILON_PX = 2;
+const TOP_RESET_GUARD_FRAMES = 4;
 
 const clamp = (value: number, min: number, max: number): number =>
   Math.max(min, Math.min(value, max));
 
 const makeKey = (scope: PageScrollScope, pageId: string): string => `${scope}:${pageId}`;
 
-const markUserScrollInput = (): void => {
-  lastUserScrollInputAt = window.performance.now();
+const markUserScrollInput = (
+  direction: ScrollInputDirection = "unknown",
+  scroller: HTMLElement | null = null,
+): void => {
+  const at = window.performance.now();
+  lastUserScrollInputAt = at;
+  lastUserScrollInput = { at, direction, scroller };
 };
 
 export function isLikelyVerticalScrollbarInput(
@@ -56,7 +67,8 @@ function scrollContainerFromEventTarget(target: EventTarget | null): HTMLElement
  * "사용자가 스크롤을 가로챘다"와 동일하게 취급해 복원 루프를 종료시킨다.
  */
 export const markProgrammaticScroll = (): void => {
-  lastUserScrollInputAt = window.performance.now();
+  // 블록 링크/검색 이동처럼 앱이 의도적으로 스크롤하는 경우는 top 이동도 사용자의 명시 동작으로 취급한다.
+  markUserScrollInput("top", null);
 };
 
 // 특정 스크롤러에 대해 위치 복원을 일정 시간 억제한다(블록 링크 이동 등).
@@ -79,6 +91,54 @@ const isScrollRestoreSuppressedFor = (scroller: HTMLElement): boolean =>
 
 const hasRecentUserScrollInput = (): boolean =>
   window.performance.now() - lastUserScrollInputAt < USER_SCROLL_INPUT_WINDOW_MS;
+
+const hasRecentTopScrollIntent = (scroller: HTMLElement): boolean => {
+  if (!hasRecentUserScrollInput() || !lastUserScrollInput) return false;
+  if (lastUserScrollInput.scroller && lastUserScrollInput.scroller !== scroller) {
+    return false;
+  }
+  return (
+    lastUserScrollInput.direction === "up" ||
+    lastUserScrollInput.direction === "top" ||
+    lastUserScrollInput.direction === "unknown"
+  );
+};
+
+const shouldRestoreSuspiciousTopReset = (
+  scroller: HTMLElement,
+  existingTop: number,
+  nextTop: number,
+): boolean => {
+  if (existingTop <= TOP_RESET_EPSILON_PX || nextTop > TOP_RESET_EPSILON_PX) return false;
+  if (hasRecentTopScrollIntent(scroller) || isScrollRestoreSuppressedFor(scroller)) return false;
+  return scroller.scrollHeight - scroller.clientHeight > TOP_RESET_EPSILON_PX;
+};
+
+const restoreSuspiciousTopReset = (
+  scroller: HTMLElement,
+  snapshot: ScrollSnapshot,
+): void => {
+  const startedAt = window.performance.now();
+  let frame = 0;
+  const apply = (): void => {
+    if (lastUserScrollInputAt > startedAt || hasRecentTopScrollIntent(scroller)) return;
+    if (isScrollRestoreSuppressedFor(scroller)) return;
+    const maxTop = Math.max(0, scroller.scrollHeight - scroller.clientHeight);
+    const targetTop = clamp(snapshot.top, 0, maxTop);
+    if (targetTop <= TOP_RESET_EPSILON_PX) return;
+    if (scroller.scrollTop <= TOP_RESET_EPSILON_PX) {
+      scroller.scrollTop = targetTop;
+      scroller.scrollLeft = clamp(
+        snapshot.left,
+        0,
+        Math.max(0, scroller.scrollWidth - scroller.clientWidth),
+      );
+    }
+    frame += 1;
+    if (frame < TOP_RESET_GUARD_FRAMES) window.requestAnimationFrame(apply);
+  };
+  apply();
+};
 
 const readDatasetScope = (value: string | undefined): PageScrollScope =>
   value === "db-row" || value === "peek" ? value : DEFAULT_SCOPE;
@@ -128,6 +188,14 @@ export function savePageScrollPosition(
   if (
     !options.force &&
     existing &&
+    shouldRestoreSuspiciousTopReset(scroller, existing.top, nextTop)
+  ) {
+    restoreSuspiciousTopReset(scroller, existing);
+    return;
+  }
+  if (
+    !options.force &&
+    existing &&
     existing.top > 1 &&
     nextTop <= 1 &&
     !hasRecentUserScrollInput()
@@ -166,26 +234,48 @@ export function flushPageScrollMemory(): void {
 export function installPageScrollCapture(): (() => void) | undefined {
   if (captureInstalled || typeof document === "undefined") return undefined;
   captureInstalled = true;
-  const onWheel = () => markUserScrollInput();
-  const onTouchMove = () => markUserScrollInput();
+  let lastTouchY: number | null = null;
+  const onWheel = (event: WheelEvent) => {
+    const direction =
+      event.deltaY > 0 ? "down" : event.deltaY < 0 ? "up" : "unknown";
+    markUserScrollInput(direction, scrollContainerFromEventTarget(event.target));
+  };
+  const onTouchStart = (event: TouchEvent) => {
+    lastTouchY = event.touches[0]?.clientY ?? null;
+  };
+  const onTouchMove = (event: TouchEvent) => {
+    const currentY = event.touches[0]?.clientY ?? null;
+    const direction =
+      currentY == null || lastTouchY == null
+        ? "unknown"
+        : currentY < lastTouchY
+          ? "down"
+          : currentY > lastTouchY
+            ? "up"
+            : "unknown";
+    lastTouchY = currentY;
+    markUserScrollInput(direction, scrollContainerFromEventTarget(event.target));
+  };
   const onPotentialScrollbarInput = (event: MouseEvent | PointerEvent) => {
     if (event.button !== 0) return;
     const container = scrollContainerFromEventTarget(event.target);
     if (!container || !isLikelyVerticalScrollbarInput(event, container)) return;
-    markUserScrollInput();
+    markUserScrollInput("unknown", container);
     suppressScrollRestoreFor(container);
   };
   const onKeyDown = (event: KeyboardEvent) => {
-    if (
-      event.key === "ArrowDown" ||
-      event.key === "ArrowUp" ||
-      event.key === "PageDown" ||
-      event.key === "PageUp" ||
-      event.key === "Home" ||
-      event.key === "End" ||
-      event.key === " "
-    ) {
-      markUserScrollInput();
+    const direction: ScrollInputDirection | null =
+      event.key === "ArrowDown" || event.key === "PageDown" || event.key === " "
+        ? "down"
+        : event.key === "ArrowUp" || event.key === "PageUp"
+          ? "up"
+          : event.key === "Home"
+            ? "top"
+            : event.key === "End"
+              ? "bottom"
+              : null;
+    if (direction) {
+      markUserScrollInput(direction, scrollContainerFromEventTarget(event.target));
     }
   };
   const onScroll = (event: Event) => {
@@ -200,6 +290,7 @@ export function installPageScrollCapture(): (() => void) | undefined {
     );
   };
   document.addEventListener("wheel", onWheel, true);
+  document.addEventListener("touchstart", onTouchStart, true);
   document.addEventListener("touchmove", onTouchMove, true);
   document.addEventListener("pointerdown", onPotentialScrollbarInput, true);
   document.addEventListener("mousedown", onPotentialScrollbarInput, true);
@@ -207,6 +298,7 @@ export function installPageScrollCapture(): (() => void) | undefined {
   document.addEventListener("scroll", onScroll, true);
   return () => {
     document.removeEventListener("wheel", onWheel, true);
+    document.removeEventListener("touchstart", onTouchStart, true);
     document.removeEventListener("touchmove", onTouchMove, true);
     document.removeEventListener("pointerdown", onPotentialScrollbarInput, true);
     document.removeEventListener("mousedown", onPotentialScrollbarInput, true);

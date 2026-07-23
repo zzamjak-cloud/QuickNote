@@ -12,6 +12,12 @@ import { useWorkspaceStore } from "./workspaceStore";
 import { useNotificationStore } from "./notificationStore";
 import { usePageStore } from "./pageStore";
 import { normalizeMentionMemberIds } from "../lib/comments/mentionMemberIds";
+import {
+  normalizeCommentReactions,
+  reactionKey,
+  toggleCommentReaction,
+  type CommentReactionTarget,
+} from "../lib/comments/commentReactions";
 import { enqueueAsync } from "../lib/sync/runtime";
 
 export type { BlockCommentMsg } from "../types/blockComment";
@@ -51,6 +57,7 @@ function enqueueUpsertComment(msg: BlockCommentMsg): void {
     authorMemberId: msg.authorMemberId,
     bodyText: msg.bodyText,
     mentionMemberIds: JSON.stringify(msg.mentionMemberIds),
+    reactions: JSON.stringify(normalizeCommentReactions(msg.reactions ?? [])),
     parentId: msg.parentId,
     createdAt: msToIso(msg.createdAt),
     updatedAt: msToIso(Date.now()),
@@ -58,6 +65,24 @@ function enqueueUpsertComment(msg: BlockCommentMsg): void {
     ...(msg.importedAuthorMemberId
       ? { importedAuthorMemberId: msg.importedAuthorMemberId }
       : {}),
+  });
+}
+
+function enqueueToggleCommentReaction(args: {
+  commentId: string;
+  workspaceId: string;
+  reaction: CommentReactionTarget;
+  memberId: string;
+  reacted: boolean;
+}): void {
+  enqueueAsync("toggleCommentReaction", {
+    id: args.commentId,
+    dedupeId: `${args.commentId}:${reactionKey(args.reaction)}:${args.memberId}`,
+    workspaceId: args.workspaceId,
+    reactionKind: args.reaction.kind,
+    reactionValue: args.reaction.value,
+    reacted: args.reacted,
+    updatedAt: msToIso(Date.now()),
   });
 }
 
@@ -115,6 +140,11 @@ type BlockCommentActions = {
     id: string,
     patch: { bodyText: string; mentionMemberIds: string[] },
   ) => boolean;
+  toggleReaction: (
+    id: string,
+    reaction: CommentReactionTarget,
+    memberId: string,
+  ) => boolean;
   deleteMessage: (id: string) => void;
   messagesForBlock: (pageId: string, blockId: string) => BlockCommentMsg[];
   participantIdsForBlock: (pageId: string, blockId: string) => string[];
@@ -149,6 +179,7 @@ export const useBlockCommentStore = create<BlockCommentState & BlockCommentActio
           authorMemberId: input.authorMemberId,
           bodyText: input.bodyText,
           mentionMemberIds: normalizeMentionMemberIds(input.mentionMemberIds),
+          reactions: normalizeCommentReactions(input.reactions ?? []),
           parentId: input.parentId,
           createdAt: Date.now(),
           ...(input.importedAuthorMemberId
@@ -177,6 +208,37 @@ export const useBlockCommentStore = create<BlockCommentState & BlockCommentActio
         }));
         notifyCommentMentions(existing, updated);
         enqueueUpsertComment(updated);
+        return true;
+      },
+
+      toggleReaction: (id, reaction, memberId) => {
+        const existing = get().messages.find((m) => m.id === id);
+        if (!existing) return false;
+        const nextReaction = {
+          kind: reaction.kind,
+          value: reaction.value.trim(),
+        };
+        if (!nextReaction.value || !memberId.trim()) return false;
+
+        const { reactions, reacted } = toggleCommentReaction(
+          existing.reactions ?? [],
+          nextReaction,
+          memberId,
+        );
+        const updated: BlockCommentMsg = {
+          ...existing,
+          reactions,
+        };
+        set((s) => ({
+          messages: s.messages.map((m) => (m.id === id ? updated : m)),
+        }));
+        enqueueToggleCommentReaction({
+          commentId: id,
+          workspaceId: existing.workspaceId ?? getCurrentWorkspaceId() ?? "",
+          reaction: nextReaction,
+          memberId,
+          reacted,
+        });
         return true;
       },
 

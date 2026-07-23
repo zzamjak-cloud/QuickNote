@@ -13,6 +13,7 @@ export interface GqlBridge {
   /** 멤버 본인 clientPrefs(즐겨찾기 등) 동기화. */
   updateMyClientPrefs(clientPrefsJson: string): Promise<void>;
   upsertComment(input: unknown): Promise<void>;
+  toggleCommentReaction(input: unknown): Promise<void>;
   softDeleteComment(id: string, workspaceId: string, updatedAt: string): Promise<void>;
 }
 
@@ -22,6 +23,8 @@ export type EnqueuePayload = {
   updatedAt?: string;
   /** updateMyClientPrefs 전용(JSON 문자열) */
   clientPrefs?: string;
+  /** 같은 entity id 안에서 더 좁은 단위로 dedupe 해야 할 때 사용한다. */
+  dedupeId?: string;
 };
 
 function normalizeClientPrefsJsonForServer(json: string): string {
@@ -109,6 +112,16 @@ export const SYNC_OP_REGISTRY: Record<OutboxOp, SyncOpSpec> = {
     // workspaceId 없는 comment 는 워크스페이스 전환 시 영영 flush 안 될 수 있으므로 경고.
     warnIfMissingWorkspace: true,
     execute: (gql, p) => gql.upsertComment(p),
+  },
+  toggleCommentReaction: {
+    entityType: "comment",
+    isDelete: false,
+    supersededUpsertOp: null,
+    tombstoneEntity: null,
+    workspaceScoped: true,
+    capturesBaseVersion: false,
+    warnIfMissingWorkspace: true,
+    execute: (gql, p) => gql.toggleCommentReaction(p),
   },
   softDeleteComment: {
     // comment 는 별도 tombstone 가드 시스템이 없으므로 tombstoneEntity 는 null.

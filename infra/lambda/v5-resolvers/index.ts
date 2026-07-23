@@ -93,6 +93,7 @@ import {
 import {
   listComments,
   upsertComment,
+  toggleCommentReaction,
   softDeleteComment,
 } from "./handlers/commentDatabase";
 import { listMyNotifications, markNotificationRead, deleteMyNotification } from "./handlers/notification";
@@ -694,6 +695,8 @@ const RESOLVERS: Record<
     }),
   upsertComment: async (event, base) =>
     await upsertComment({ ...base, input: event.arguments.input as Record<string, unknown> }),
+  toggleCommentReaction: async (event, base) =>
+    await toggleCommentReaction({ ...base, input: event.arguments.input as Record<string, unknown> }),
   softDeleteComment: async (event, base) =>
     await softDeleteComment({
       ...base,

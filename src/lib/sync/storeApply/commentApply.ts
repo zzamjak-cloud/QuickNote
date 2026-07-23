@@ -6,6 +6,7 @@ import type { BlockCommentMsg } from "../../../types/blockComment";
 import { useBlockCommentStore } from "../../../store/blockCommentStore";
 import { isoToMs, parseAwsJson } from "./helpers";
 import { shouldApplyRemoteSnapshot } from "../storeApply";
+import { normalizeCommentReactions } from "../../comments/commentReactions";
 
 // 페이지 댓글 sentinel (PageCommentBar 와 동일 값 유지)
 const PAGE_COMMENT_SENTINEL = "__page__";
@@ -33,6 +34,7 @@ export function applyRemoteCommentToStore(
   }
 
   const mentionMemberIds = parseAwsJson<string[]>(c.mentionMemberIds, []);
+  const reactions = normalizeCommentReactions(parseAwsJson<unknown>(c.reactions, []));
 
   if (c.deletedAt) {
     useBlockCommentStore.getState().removeMessage(c.id);
@@ -47,6 +49,7 @@ export function applyRemoteCommentToStore(
     authorMemberId: c.authorMemberId,
     bodyText: c.bodyText,
     mentionMemberIds,
+    reactions,
     parentId: c.parentId ?? null,
     createdAt: isoToMs(c.createdAt) || Date.now(),
   };
@@ -84,6 +87,7 @@ export function applyRemoteCommentsToStore(
       authorMemberId: c.authorMemberId,
       bodyText: c.bodyText,
       mentionMemberIds: parseAwsJson<string[]>(c.mentionMemberIds, []),
+      reactions: normalizeCommentReactions(parseAwsJson<unknown>(c.reactions, [])),
       parentId: c.parentId ?? null,
       createdAt: isoToMs(c.createdAt) || Date.now(),
     });

@@ -8,6 +8,7 @@ export type OutboxOp =
   | "softDeleteDatabase"
   | "updateMyClientPrefs"
   | "upsertComment"
+  | "toggleCommentReaction"
   | "softDeleteComment";
 
 /** outbox 엔트리에 붙는 엔티티 분류(플러시·관측용). */

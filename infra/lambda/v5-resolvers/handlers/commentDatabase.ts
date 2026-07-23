@@ -11,6 +11,91 @@ import type { Tables } from "./member";
 import { generateNotificationsForComment } from "./notification";
 
 type Connection<T> = { items: T[]; nextToken?: string | null };
+type CommentReactionKind = "emoji" | "custom";
+type CommentReaction = {
+  kind: CommentReactionKind;
+  value: string;
+  memberIds: string[];
+};
+
+const MAX_REACTION_UPDATE_ATTEMPTS = 5;
+
+function parseJsonArray(value: unknown): unknown[] {
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value) as unknown;
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+  return Array.isArray(value) ? value : [];
+}
+
+function normalizeReactionKind(value: unknown): CommentReactionKind | null {
+  return value === "emoji" || value === "custom" ? value : null;
+}
+
+function normalizeReactions(value: unknown): CommentReaction[] {
+  const byKey = new Map<string, CommentReaction>();
+  for (const raw of parseJsonArray(value)) {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) continue;
+    const record = raw as Record<string, unknown>;
+    const kind = normalizeReactionKind(record.kind);
+    const reactionValue = typeof record.value === "string" ? record.value.trim() : "";
+    if (!kind || !reactionValue) continue;
+    const memberIds = Array.from(
+      new Set(
+        (Array.isArray(record.memberIds) ? record.memberIds : [])
+          .filter((memberId): memberId is string => typeof memberId === "string")
+          .map((memberId) => memberId.trim())
+          .filter(Boolean),
+      ),
+    );
+    if (memberIds.length === 0) continue;
+    const key = `${kind}:${reactionValue}`;
+    const previous = byKey.get(key);
+    byKey.set(key, {
+      kind,
+      value: reactionValue,
+      memberIds: previous
+        ? Array.from(new Set([...previous.memberIds, ...memberIds]))
+        : memberIds,
+    });
+  }
+  return Array.from(byKey.values()).sort((a, b) => {
+    const kindOrder = a.kind.localeCompare(b.kind);
+    return kindOrder || a.value.localeCompare(b.value);
+  });
+}
+
+function applyReactionIntent(args: {
+  reactions: unknown;
+  kind: CommentReactionKind;
+  value: string;
+  memberId: string;
+  reacted: boolean;
+}): CommentReaction[] {
+  const next = normalizeReactions(args.reactions);
+  const key = `${args.kind}:${args.value}`;
+  const index = next.findIndex((reaction) => `${reaction.kind}:${reaction.value}` === key);
+  if (index === -1) {
+    return args.reacted
+      ? [...next, { kind: args.kind, value: args.value, memberIds: [args.memberId] }]
+      : next;
+  }
+
+  const current = next[index];
+  const memberIds = args.reacted
+    ? Array.from(new Set([...current.memberIds, args.memberId]))
+    : current.memberIds.filter((memberId) => memberId !== args.memberId);
+  if (memberIds.length === 0) {
+    next.splice(index, 1);
+  } else {
+    next[index] = { ...current, memberIds };
+  }
+  return next;
+}
 
 export async function listComments(args: {
   doc: DynamoDBDocumentClient;
@@ -81,6 +166,7 @@ export async function upsertComment(args: {
     typeof input.mentionMemberIds === "string"
       ? input.mentionMemberIds
       : JSON.stringify(input.mentionMemberIds ?? []);
+  const reactions = JSON.stringify(normalizeReactions(input.reactions ?? []));
   // 작성자 스푸핑 방지: 기본은 항상 호출자로 강제한다.
   // 단, 가져오기(노션 등)로 원본 작성자를 보존하려는 경우(importedAuthorMemberId 지정)에 한해,
   // 그 id 가 실제로 존재하는(removed 아님) 구성원일 때만 작성자로 허용한다. 존재하지 않으면 호출자 강제.
@@ -108,6 +194,7 @@ export async function upsertComment(args: {
     authorMemberId,
     bodyText: input.bodyText,
     mentionMemberIds,
+    reactions,
     parentId: input.parentId ?? null,
     createdAt: (input.createdAt as string | undefined) ?? now,
     updatedAt: (input.updatedAt as string | undefined) ?? now,
@@ -151,6 +238,92 @@ export async function upsertComment(args: {
   }
 
   return item;
+}
+
+export async function toggleCommentReaction(args: {
+  doc: DynamoDBDocumentClient;
+  tables: Tables;
+  caller: Member;
+  input: Record<string, unknown>;
+}): Promise<Record<string, unknown>> {
+  if (!args.tables.Comments) badRequest("Comments table 미설정");
+  const input = args.input;
+  const id = typeof input.id === "string" ? input.id : "";
+  const workspaceId = typeof input.workspaceId === "string" ? input.workspaceId : "";
+  const kind = normalizeReactionKind(input.reactionKind);
+  const reactionValue = typeof input.reactionValue === "string" ? input.reactionValue.trim() : "";
+  const reacted = input.reacted === true;
+  if (!id || !workspaceId || !kind || !reactionValue) {
+    badRequest("댓글 반응 입력값이 올바르지 않습니다");
+  }
+
+  await requireWorkspaceAccess({
+    doc: args.doc,
+    memberTeamsTableName: args.tables.MemberTeams,
+    workspaceAccessTableName: args.tables.WorkspaceAccess,
+    caller: args.caller,
+    workspaceId,
+    required: "view",
+  });
+
+  for (let attempt = 0; attempt < MAX_REACTION_UPDATE_ATTEMPTS; attempt += 1) {
+    const existing = await args.doc.send(
+      new GetCommand({
+        TableName: args.tables.Comments,
+        Key: { id },
+      }),
+    );
+    const item = existing.Item as Record<string, unknown> | undefined;
+    if (!item) badRequest("댓글을 찾을 수 없습니다");
+    if (item.workspaceId !== workspaceId) {
+      forbidden("다른 워크스페이스의 댓글 반응은 수정할 수 없습니다");
+    }
+    if (item.deletedAt) badRequest("삭제된 댓글에는 반응할 수 없습니다");
+
+    const previousUpdatedAt =
+      typeof item.updatedAt === "string" ? item.updatedAt : new Date(0).toISOString();
+    const updatedAt =
+      attempt === 0 && typeof input.updatedAt === "string"
+        ? input.updatedAt
+        : new Date().toISOString();
+    const reactions = JSON.stringify(
+      applyReactionIntent({
+        reactions: item.reactions,
+        kind,
+        value: reactionValue,
+        memberId: args.caller.memberId,
+        reacted,
+      }),
+    );
+
+    try {
+      const updated = await args.doc.send(
+        new UpdateCommand({
+          TableName: args.tables.Comments,
+          Key: { id },
+          UpdateExpression: "SET reactions = :r, updatedAt = :u",
+          ConditionExpression:
+            "workspaceId = :w AND updatedAt = :prev AND attribute_not_exists(deletedAt)",
+          ExpressionAttributeValues: {
+            ":r": reactions,
+            ":u": updatedAt,
+            ":w": workspaceId,
+            ":prev": previousUpdatedAt,
+          },
+          ReturnValues: "ALL_NEW",
+        }),
+      );
+      return (updated.Attributes ?? { ...item, reactions, updatedAt }) as Record<string, unknown>;
+    } catch (err) {
+      if ((err as { name?: string })?.name === "ConditionalCheckFailedException") {
+        if (attempt < MAX_REACTION_UPDATE_ATTEMPTS - 1) continue;
+        badRequest("댓글 반응 갱신 충돌이 반복되었습니다. 잠시 후 다시 시도해 주세요");
+      }
+      throw err;
+    }
+  }
+
+  badRequest("댓글 반응 갱신에 실패했습니다");
 }
 
 export async function softDeleteComment(args: {

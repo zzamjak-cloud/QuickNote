@@ -21,8 +21,10 @@ import {
   type BlockCommentMsg,
 } from "../../store/blockCommentStore";
 import { CommentComposer } from "./CommentComposer";
+import { CommentReactionBar } from "./CommentReactionBar";
 import { findBlockStartById } from "../../lib/comments/ensureBlockId";
 import { computeFloatingPanelPosition } from "../../lib/ui/clampFloatingPanel";
+import type { CommentReactionTarget } from "../../lib/comments/commentReactions";
 import {
   getEditorForPage,
   subscribeEditorRegistry,
@@ -57,6 +59,7 @@ export function BlockCommentThreadPanel({ editor }: Props) {
   const myMemberId = useMemberStore((s) => s.me?.memberId);
   const addMessage = useBlockCommentStore((s) => s.addMessage);
   const updateMessage = useBlockCommentStore((s) => s.updateMessage);
+  const toggleReaction = useBlockCommentStore((s) => s.toggleReaction);
   const deleteMessage = useBlockCommentStore((s) => s.deleteMessage);
   const markThreadVisited = useBlockCommentStore((s) => s.markThreadVisited);
 
@@ -309,6 +312,7 @@ export function BlockCommentThreadPanel({ editor }: Props) {
                 onReply={() => setReplyParentId(m.id)}
                 isReply={m.parentId !== null}
                 onUpdateMessage={updateMessage}
+                onToggleReaction={toggleReaction}
                 onDeleteMessage={deleteMessage}
               />
             ))
@@ -354,6 +358,7 @@ function CommentBubble({
   onReply,
   isReply,
   onUpdateMessage,
+  onToggleReaction,
   onDeleteMessage,
 }: {
   msg: BlockCommentMsg;
@@ -364,6 +369,11 @@ function CommentBubble({
   onUpdateMessage: (
     id: string,
     patch: { bodyText: string; mentionMemberIds: string[] },
+  ) => void;
+  onToggleReaction: (
+    id: string,
+    reaction: CommentReactionTarget,
+    memberId: string,
   ) => void;
   onDeleteMessage: (id: string) => void;
 }) {
@@ -429,6 +439,12 @@ function CommentBubble({
       <p className="mt-0.5 whitespace-pre-wrap text-sm text-zinc-700 dark:text-zinc-300">
         {msg.bodyText}
       </p>
+      <CommentReactionBar
+        msg={msg}
+        members={members}
+        myMemberId={myMemberId}
+        onToggleReaction={onToggleReaction}
+      />
       <div className="mt-1 flex flex-wrap items-center gap-2">
         {isOwn ? (
           <>

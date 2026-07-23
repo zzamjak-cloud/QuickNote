@@ -70,6 +70,24 @@ describe("commentApply 특성화", () => {
     expect(messages()[0].mentionMemberIds).toEqual(["m-2", "m-3"]);
   });
 
+  it("reactions AWSJSON 을 댓글 스토어 반응으로 정규화한다", () => {
+    applyRemoteCommentsToStore([
+      gqlComment({
+        id: "c-reaction",
+        reactions: JSON.stringify([
+          { kind: "emoji", value: "✅", memberIds: ["m-2", "m-2"] },
+          { kind: "custom", value: "quicknote-image://asset-1", memberIds: ["m-3"] },
+          { kind: "emoji", value: "", memberIds: ["bad"] },
+        ]),
+      }),
+    ]);
+
+    expect(messages()[0].reactions).toEqual([
+      { kind: "custom", value: "quicknote-image://asset-1", memberIds: ["m-3"] },
+      { kind: "emoji", value: "✅", memberIds: ["m-2"] },
+    ]);
+  });
+
   it("다른 워크스페이스 댓글은 무시", () => {
     useWorkspaceStore.setState({ currentWorkspaceId: "ws-other" });
     applyRemoteCommentsToStore([gqlComment({ id: "c-1", workspaceId: "ws-1" })]);

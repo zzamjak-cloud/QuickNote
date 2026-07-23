@@ -7,7 +7,11 @@ import {
   SOFT_DELETE_DATABASE,
 } from "./operations";
 import { UPDATE_MY_CLIENT_PREFS } from "../queries/member";
-import { UPSERT_COMMENT, SOFT_DELETE_COMMENT } from "../queries/comment";
+import {
+  UPSERT_COMMENT,
+  SOFT_DELETE_COMMENT,
+  TOGGLE_COMMENT_REACTION,
+} from "../queries/comment";
 import type { GqlBridge } from "../engine";
 import { LC_SCHEDULER_WORKSPACE_ID } from "../../scheduler/scope";
 
@@ -20,7 +24,7 @@ const META_ONLY_PAGE_UPSERT_FLAG = "__metaOnly";
 function normalizeAwsJsonFields(input: unknown): unknown {
   if (!input || typeof input !== "object") return input;
   const i = { ...(input as Record<string, unknown>) };
-  for (const key of ["doc", "dbCells", "columns", "presets", "blockComments", "mentionMemberIds"] as const) {
+  for (const key of ["doc", "dbCells", "columns", "presets", "blockComments", "mentionMemberIds", "reactions"] as const) {
     const v = i[key];
     if (v != null && typeof v !== "string") {
       i[key] = JSON.stringify(v);
@@ -236,6 +240,12 @@ export const realGqlBridge: GqlBridge = {
     await appsyncClient().graphql({
       query: UPSERT_COMMENT,
       variables: { input: normalizeAwsJsonFields(input) },
+    });
+  },
+  toggleCommentReaction: async (input) => {
+    await appsyncClient().graphql({
+      query: TOGGLE_COMMENT_REACTION,
+      variables: { input },
     });
   },
   softDeleteComment: async (id, workspaceId, updatedAt) => {

@@ -1,6 +1,6 @@
 const COMMENT_FIELDS = `
   id workspaceId pageId blockId authorMemberId bodyText mentionMemberIds parentId
-  createdAt updatedAt deletedAt
+  reactions createdAt updatedAt deletedAt
 `;
 
 export const LIST_COMMENTS = `
@@ -24,6 +24,12 @@ export const SOFT_DELETE_COMMENT = `
   }
 `;
 
+export const TOGGLE_COMMENT_REACTION = `
+  mutation ToggleCommentReaction($input: CommentReactionInput!) {
+    toggleCommentReaction(input: $input) { ${COMMENT_FIELDS} }
+  }
+`;
+
 export const ON_COMMENT_CHANGED = `
   subscription OnCommentChanged($workspaceId: ID!) {
     onCommentChanged(workspaceId: $workspaceId) { ${COMMENT_FIELDS} }
@@ -39,6 +45,7 @@ export type GqlComment = {
   bodyText: string;
   /** AWSJSON — Amplify 가 자동 parse 해주기도 하므로 string | string[] 둘 다 가능 */
   mentionMemberIds: unknown;
+  reactions?: unknown | null;
   parentId?: string | null;
   createdAt: string;
   updatedAt: string;

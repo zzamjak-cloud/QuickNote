@@ -213,7 +213,7 @@ export class SyncEngine {
       payload,
       enqueuedAt: this.clock(),
       attempts: 0,
-      dedupeKey: `${op}:${payload.id}`,
+      dedupeKey: `${op}:${payload.dedupeId ?? payload.id}`,
       workspaceId: meta.workspaceId,
       entityType: meta.entityType,
       entityId: meta.entityId,

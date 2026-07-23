@@ -1389,6 +1389,10 @@ export function response(ctx) {
       typeName: "Mutation",
       fieldName: "upsertComment",
     });
+    v5Ds.createResolver("MutationtoggleCommentReaction", {
+      typeName: "Mutation",
+      fieldName: "toggleCommentReaction",
+    });
     v5Ds.createResolver("MutationsoftDeleteComment", {
       typeName: "Mutation",
       fieldName: "softDeleteComment",

@@ -1,4 +1,5 @@
 import type { BlockCommentMsg, PageBlockCommentsSnapshot } from "../../types/blockComment";
+import { normalizeCommentReactions } from "./commentReactions";
 import { normalizeMentionMemberIds } from "./mentionMemberIds";
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -25,6 +26,7 @@ export function migrateBlockCommentMsg(value: unknown): BlockCommentMsg | null {
     authorMemberId: msg.authorMemberId,
     bodyText: typeof msg.bodyText === "string" ? msg.bodyText : "",
     mentionMemberIds: normalizeMentionMemberIds(msg.mentionMemberIds ?? []),
+    reactions: normalizeCommentReactions(msg.reactions ?? []),
     parentId: typeof msg.parentId === "string" ? msg.parentId : null,
     createdAt: typeof msg.createdAt === "number" ? msg.createdAt : Date.now(),
   };

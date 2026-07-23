@@ -42,3 +42,31 @@ describe("realGqlBridge.upsertPage", () => {
     }));
   });
 });
+
+describe("realGqlBridge.toggleCommentReaction", () => {
+  beforeEach(() => {
+    mocks.graphql.mockClear();
+  });
+
+  it("댓글 반응 토글 mutation과 input을 전달한다", async () => {
+    await realGqlBridge.toggleCommentReaction({
+      id: "c-1",
+      workspaceId: "ws-1",
+      reactionKind: "emoji",
+      reactionValue: "✅",
+      reacted: true,
+      updatedAt: "2026-07-23T00:00:00.000Z",
+    });
+
+    expect(mocks.graphql).toHaveBeenCalledTimes(1);
+    const args = mocks.graphql.mock.calls[0]?.[0];
+    expect(args.query).toContain("mutation ToggleCommentReaction");
+    expect(args.variables.input).toMatchObject({
+      id: "c-1",
+      workspaceId: "ws-1",
+      reactionKind: "emoji",
+      reactionValue: "✅",
+      reacted: true,
+    });
+  });
+});

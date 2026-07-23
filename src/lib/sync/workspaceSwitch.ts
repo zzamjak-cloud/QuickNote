@@ -14,6 +14,7 @@ import { LC_SCHEDULER_WORKSPACE_ID } from "../scheduler/scope";
 import { isProtectedDatabaseId } from "../scheduler/database";
 import { createLocalDeleteGuardChecker } from "./localDeleteGuards";
 import { isRecord } from "../util/typeGuards";
+import { normalizeCommentReactions } from "../comments/commentReactions";
 
 type WorkspaceSnapshot = {
   pages: ReturnType<typeof usePageStore.getState>["pages"];
@@ -301,11 +302,12 @@ function sanitizeWorkspaceComments(
       pageId: comment.pageId as string,
       blockId: comment.blockId as string,
       authorMemberId: comment.authorMemberId as string,
-      bodyText: comment.bodyText as string,
-      mentionMemberIds: Array.isArray(comment.mentionMemberIds)
-        ? comment.mentionMemberIds.filter((memberId): memberId is string => typeof memberId === "string")
-        : [],
-      parentId: (comment.parentId as string | null) ?? null,
+        bodyText: comment.bodyText as string,
+        mentionMemberIds: Array.isArray(comment.mentionMemberIds)
+          ? comment.mentionMemberIds.filter((memberId): memberId is string => typeof memberId === "string")
+          : [],
+        reactions: normalizeCommentReactions(comment.reactions),
+        parentId: (comment.parentId as string | null) ?? null,
       createdAt: toFiniteNumber(comment.createdAt, Date.now()),
     }));
 }

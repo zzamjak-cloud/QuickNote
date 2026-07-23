@@ -139,6 +139,7 @@ export const GqlCommentSchema = z
     authorMemberId: z.string(),
     bodyText: z.string(),
     mentionMemberIds: z.unknown(),
+    reactions: z.unknown().nullish(),
     parentId: z.string().nullish(),
     createdAt: z.string(),
     updatedAt: z.string(),

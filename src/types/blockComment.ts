@@ -1,3 +1,13 @@
+export type BlockCommentReactionKind = "emoji" | "custom";
+
+export type BlockCommentReaction = {
+  kind: BlockCommentReactionKind;
+  /** emoji 는 유니코드 문자, custom 은 quicknote-image:// 또는 이미지 URL. */
+  value: string;
+  /** 이 반응을 누른 workspace memberId 목록. */
+  memberIds: string[];
+};
+
 /** 블록 스레드 내 단일 댓글 — 페이지 `blockComments` JSON에 직렬화된다. */
 export type BlockCommentMsg = {
   id: string;
@@ -7,6 +17,7 @@ export type BlockCommentMsg = {
   authorMemberId: string;
   bodyText: string;
   mentionMemberIds: string[];
+  reactions?: BlockCommentReaction[];
   parentId: string | null;
   createdAt: number;
   /**

@@ -8,6 +8,8 @@ import { useMemberStore } from "../../store/memberStore";
 import type { BlockCommentMsg } from "../../types/blockComment";
 import type { JSONContent } from "@tiptap/react";
 import { CommentComposer } from "./CommentComposer";
+import { CommentReactionBar } from "./CommentReactionBar";
+import type { CommentReactionTarget } from "../../lib/comments/commentReactions";
 
 /** 페이지 댓글임을 나타내는 sentinel — blockId 자리에 사용 */
 export const PAGE_COMMENT_SENTINEL = "__page__";
@@ -30,6 +32,7 @@ function formatTime(ms: number): string {
 export function PageCommentBar({ pageId, openComposerSignal }: Props) {
   const addMessage = useBlockCommentStore((s) => s.addMessage);
   const updateMessage = useBlockCommentStore((s) => s.updateMessage);
+  const toggleReaction = useBlockCommentStore((s) => s.toggleReaction);
   const deleteMessage = useBlockCommentStore((s) => s.deleteMessage);
   // 페이지 댓글만 필터링 — blockId === PAGE_COMMENT_SENTINEL
   const messages = useBlockCommentStore((s) =>
@@ -134,11 +137,14 @@ export function PageCommentBar({ pageId, openComposerSignal }: Props) {
             <CommentRow
               key={msg.id}
               msg={msg}
+              members={members}
+              myMemberId={myMemberId}
               authorName={memberName(msg.authorMemberId)}
               isOwn={!!myMemberId && msg.authorMemberId === myMemberId}
               onUpdate={(text, mentionIds) =>
                 updateMessage(msg.id, { bodyText: text, mentionMemberIds: mentionIds })
               }
+              onToggleReaction={toggleReaction}
               onDelete={() => deleteMessage(msg.id)}
             />
           ))}
@@ -150,15 +156,25 @@ export function PageCommentBar({ pageId, openComposerSignal }: Props) {
 
 function CommentRow({
   msg,
+  members,
+  myMemberId,
   authorName,
   isOwn,
   onUpdate,
+  onToggleReaction,
   onDelete,
 }: {
   msg: BlockCommentMsg;
+  members: { memberId: string; name: string }[];
+  myMemberId: string | undefined;
   authorName: string;
   isOwn: boolean;
   onUpdate: (text: string, mentionIds: string[]) => void;
+  onToggleReaction: (
+    id: string,
+    reaction: CommentReactionTarget,
+    memberId: string,
+  ) => void;
   onDelete: () => void;
 }) {
   const [editing, setEditing] = useState(false);
@@ -205,9 +221,17 @@ function CommentRow({
       <span className="shrink-0 pt-0.5 text-sm font-semibold text-zinc-700 dark:text-zinc-200">
         {authorName}
       </span>
-      <p className="min-w-0 flex-1 whitespace-pre-wrap pt-0.5 text-sm text-zinc-700 dark:text-zinc-300">
-        {msg.bodyText}
-      </p>
+      <div className="min-w-0 flex-1">
+        <p className="whitespace-pre-wrap pt-0.5 text-sm text-zinc-700 dark:text-zinc-300">
+          {msg.bodyText}
+        </p>
+        <CommentReactionBar
+          msg={msg}
+          members={members}
+          myMemberId={myMemberId}
+          onToggleReaction={onToggleReaction}
+        />
+      </div>
       <span className="shrink-0 pt-0.5 text-xs text-zinc-400">
         {formatTime(msg.createdAt)}
       </span>
