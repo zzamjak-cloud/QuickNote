@@ -36,6 +36,9 @@ import {
   reconcileDatabaseRowOrders,
 } from "./rowOrder";
 import { reconcileTemplatePageMarkers } from "../../database/templatePageTitleSync";
+import { getDbCollab } from "../../collab/dbCollabRegistry";
+import { readDbStructure, type DbStructure } from "../../collab/dbBundleYjs";
+import { reconcileStructureIntoYDoc } from "../../collab/dbStructureReconcile";
 
 function parseRemoteDatabaseSchema(
   db: GqlDatabase,
@@ -133,6 +136,27 @@ function shouldApplyRemoteTemplates(
   // 양쪽 모두 독립 버전이 없는 구버전 조합에서만 기존 updatedAt 폴백을 유지한다.
   if (isoToMs(db.templatesUpdatedAt) > 0) return true;
   return remoteTemplatesUpdatedAt(db) >= local.meta.updatedAt;
+}
+
+function syncActiveCollabDocFromRemoteSnapshot(
+  databaseId: string,
+  bundle: DatabaseBundle,
+): void {
+  const handle = getDbCollab(databaseId);
+  if (!handle) return;
+  const remoteStructure: DbStructure = {
+    columns: bundle.columns,
+    presets: bundle.presets ?? [],
+    panelState: bundle.panelState ?? {},
+    rowPageOrder: bundle.rowPageOrder,
+    rows: {},
+    rowMembers: bundle.rowPageOrder,
+  };
+  reconcileStructureIntoYDoc(handle.doc, remoteStructure, handle.baseline);
+  // 원격 DB snapshot을 store에 반영했으면 활성 Y.Doc도 같은 기준선으로 끌어올린다.
+  // 그렇지 않으면 오래된 Y.Doc materialize가 updatedAt=now로 다시 서버에 올라가
+  // 방금 받은 속성 타입/컬럼 구조를 되돌릴 수 있다.
+  handle.baseline = readDbStructure(handle.doc);
 }
 
 function mergeRemoteSchedulerMemberOrder(
@@ -348,6 +372,7 @@ export function applyRemoteDatabaseToStore(
         : s.dbTemplates,
     cacheWorkspaceId: resolveNextCacheWorkspaceId(s.cacheWorkspaceId, db.workspaceId),
   }));
+  syncActiveCollabDocFromRemoteSnapshot(db.id, bundle);
   if (applyRemoteTemplates) reconcileDatabaseRowOrders(new Set([db.id]));
   reconcileTemplatePageMarkers(db.id);
   repairDbHistoryBaselineIfNeeded(db.id, structuredClone(bundle));
@@ -589,6 +614,7 @@ export function applyRemoteDatabasesToStore(
   }
 
   for (const bundle of repairedBundles) {
+    syncActiveCollabDocFromRemoteSnapshot(bundle.meta.id, bundle);
     repairDbHistoryBaselineIfNeeded(bundle.meta.id, structuredClone(bundle));
   }
 }

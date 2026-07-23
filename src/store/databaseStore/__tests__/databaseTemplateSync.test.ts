@@ -7,6 +7,7 @@ import { readDbStructure, seedDbStructure } from "../../../lib/collab/dbBundleYj
 import { ensurePageInDatabaseRowOrder } from "../../../lib/sync/storeApply/rowOrder";
 import {
   applyRemoteDatabaseToStore,
+  applyRemoteDatabasesToStore,
   applyRemotePageMetasToStore,
   applyRemotePagesToStore,
   applyRemotePageToStore,
@@ -443,5 +444,121 @@ describe("데이터베이스 템플릿 즉시 동기화", () => {
     expect(JSON.parse(String(materializedPayload?.templates))).toEqual([
       expect.objectContaining({ title: "새 템플릿" }),
     ]);
+  });
+
+  it("최신 원격 속성 타입 snapshot을 활성 협업 Y.Doc에도 반영한다", () => {
+    const staleColumns: DatabaseBundle["columns"] = [
+      ...database.columns,
+      { id: "status", name: "상태", type: "text" },
+    ];
+    const remoteColumns: DatabaseBundle["columns"] = [
+      ...database.columns,
+      {
+        id: "status",
+        name: "상태",
+        type: "select",
+        config: { options: [{ id: "todo", label: "대기", color: "gray" }] },
+      },
+    ];
+    const doc = new Y.Doc();
+    seedDbStructure(doc, {
+      columns: staleColumns,
+      presets: [],
+      panelState: {},
+      rowPageOrder: [],
+      rows: {},
+      rowMembers: [],
+    });
+    registerDbCollab("db-1", {
+      doc,
+      baseline: readDbStructure(doc),
+    });
+    useDatabaseStore.setState({
+      databases: {
+        "db-1": {
+          ...structuredClone(database),
+          columns: staleColumns,
+        },
+      },
+      dbTemplates: {},
+      cacheWorkspaceId: "ws-1",
+    });
+
+    applyRemoteDatabaseToStore({
+      ...remoteDatabaseSnapshot(),
+      columns: JSON.stringify(remoteColumns),
+      updatedAt: "2026-01-01T00:00:03.000Z",
+    });
+
+    expect(useDatabaseStore.getState().databases["db-1"]?.columns).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: "status", type: "select" })]),
+    );
+    expect(readDbStructure(doc).columns).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: "status", type: "select" })]),
+    );
+
+    useDatabaseStore.getState().applyCollabDbStructure("db-1", readDbStructure(doc));
+
+    expect(useDatabaseStore.getState().databases["db-1"]?.columns).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: "status", type: "select" })]),
+    );
+    const materializedPayload = enqueueAsync.mock.calls
+      .filter(([kind]) => kind === "upsertDatabase")
+      .at(-1)?.[1] as Record<string, unknown> | undefined;
+    expect(JSON.parse(String(materializedPayload?.columns))).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: "status", type: "select" })]),
+    );
+  });
+
+  it("배치 원격 snapshot 적용도 활성 협업 Y.Doc의 속성 타입을 최신화한다", () => {
+    const staleColumns: DatabaseBundle["columns"] = [
+      ...database.columns,
+      { id: "status", name: "상태", type: "text" },
+    ];
+    const remoteColumns: DatabaseBundle["columns"] = [
+      ...database.columns,
+      { id: "status", name: "상태", type: "status" },
+    ];
+    const doc = new Y.Doc();
+    seedDbStructure(doc, {
+      columns: staleColumns,
+      presets: [],
+      panelState: {},
+      rowPageOrder: [],
+      rows: {},
+      rowMembers: [],
+    });
+    registerDbCollab("db-1", {
+      doc,
+      baseline: readDbStructure(doc),
+    });
+    useDatabaseStore.setState({
+      databases: {
+        "db-1": {
+          ...structuredClone(database),
+          columns: staleColumns,
+        },
+      },
+      dbTemplates: {},
+      cacheWorkspaceId: "ws-1",
+    });
+
+    applyRemoteDatabasesToStore([
+      {
+        ...remoteDatabaseSnapshot(),
+        columns: JSON.stringify(remoteColumns),
+        updatedAt: "2026-01-01T00:00:03.000Z",
+      },
+    ]);
+
+    expect(readDbStructure(doc).columns).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: "status", type: "status" })]),
+    );
+
+    useDatabaseStore.getState().applyCollabDbStructure("db-1", readDbStructure(doc));
+
+    expect(useDatabaseStore.getState().databases["db-1"]?.columns).toEqual(
+      expect.arrayContaining([expect.objectContaining({ id: "status", type: "status" })]),
+    );
   });
 });

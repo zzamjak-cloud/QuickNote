@@ -218,6 +218,11 @@ SW(vite-plugin-pwa)는 **정적 셸·해시 청크만 precache** 한다. **API/C
 레이어다 — 시드·바인딩 순서, epoch 격리, materialize 방어선은
 [collab/overview.md](../collab/overview.md) 가 권위 문서.
 
+DB 원격 snapshot(`applyRemoteDatabaseToStore`/`applyRemoteDatabasesToStore`)이 최신
+컬럼·프리셋·패널 구조를 store에 반영할 때, 같은 DB의 협업 Y.Doc이 활성 상태라면 반드시
+동일 구조를 Y.Doc에도 reconcile해야 한다. store만 최신화하면 기존 탭/PC에 남아 있던 오래된
+Y.Doc materialize가 `updatedAt=now`로 다시 서버에 올라가 속성 타입 변경을 되돌릴 수 있다.
+
 ## 관련 위키
 - [collab/overview.md](../collab/overview.md) — 실시간 협업 구조·안전장치·운영
 - [incremental-sync.md](incremental-sync.md) — delta/watermark 상세
