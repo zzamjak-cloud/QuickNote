@@ -84,6 +84,7 @@ const YoutubeEmbedView = memo(function YoutubeEmbedView(props: NodeViewProps) {
   const activation = useLazyNodeViewActivation<HTMLDivElement>({
     selected: props.selected,
     initialActive: srcKey ? activatedVideoSrcs.has(srcKey) : false,
+    preserveScrollOnActivate: true,
   });
   // 활성화된 src 를 기록 — 다음 마운트(재진입)부터 즉시 active.
   useEffect(() => {
@@ -136,6 +137,7 @@ const YoutubeEmbedView = memo(function YoutubeEmbedView(props: NodeViewProps) {
           {...({ credentialless: "" } as object)}
           allow={opts.autoplay ? YOUTUBE_IFRAME_ALLOW_WITH_AUTOPLAY : YOUTUBE_IFRAME_ALLOW}
           className="max-w-full rounded-lg border border-zinc-200 dark:border-zinc-700"
+          onLoad={activation.preserveScroll}
         />
       ) : !activation.active ? (
         <div
