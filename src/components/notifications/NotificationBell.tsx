@@ -1,6 +1,6 @@
 // 사이드바 헤더용 알림 벨 + 드롭다운 (fixed + 뷰포트 클램프)
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Bell, Trash2 } from "lucide-react";
 import { useNotificationStore } from "../../store/notificationStore";
@@ -16,7 +16,9 @@ import {
 import { computeDropdownBelowAnchor } from "../../lib/ui/clampFloatingPanel";
 import { waitForPageDeepLink } from "../../lib/navigation/waitForPageDeepLink";
 import {
+  fetchMyNotificationsApi,
   markNotificationReadApi,
+  markNotificationsReadApi,
   deleteMyNotificationApi,
 } from "../../lib/sync/notificationApi";
 
@@ -57,6 +59,7 @@ export function NotificationBell() {
   const notificationItems = useNotificationStore((s) => s.items);
   const markRead = useNotificationStore((s) => s.markRead);
   const removeNotification = useNotificationStore((s) => s.removeNotification);
+  const setNotifications = useNotificationStore((s) => s.setNotifications);
   const markAllReadForMember = useNotificationStore((s) => s.markAllReadForMember);
   const clearAllForMember = useNotificationStore((s) => s.clearAllForMember);
 
@@ -78,11 +81,19 @@ export function NotificationBell() {
   const [isThisAnchor, setIsThisAnchor] = useState(false);
 
   const memberId = me?.memberId;
-  const items = memberId
-    ? notificationItems
-        .filter((x) => x.recipientMemberId === memberId || x.recipientMemberId === `m:${memberId}`)
-        .sort((a, b) => b.createdAt - a.createdAt)
-    : [];
+  const items = useMemo(
+    () =>
+      memberId
+        ? notificationItems
+            .filter(
+              (x) =>
+                x.recipientMemberId === memberId ||
+                x.recipientMemberId === `m:${memberId}`,
+            )
+            .sort((a, b) => b.createdAt - a.createdAt)
+        : [],
+    [memberId, notificationItems],
+  );
   const unread = items.filter((x) => !x.read).length;
 
   const reposition = useCallback((): void => {
@@ -141,6 +152,30 @@ export function NotificationBell() {
     document.addEventListener("mousedown", onDoc);
     return () => document.removeEventListener("mousedown", onDoc);
   }, [open, closeNotificationCenter]);
+
+  const refreshNotificationsFromServer = useCallback((): void => {
+    void fetchMyNotificationsApi()
+      .then(setNotifications)
+      .catch(() => {});
+  }, [setNotifications]);
+
+  const onMarkAllRead = useCallback((): void => {
+    if (!memberId) return;
+    const unreadIds = items.filter((n) => !n.read).map((n) => n.id);
+    if (unreadIds.length === 0) return;
+
+    markAllReadForMember(memberId);
+    void markNotificationsReadApi(unreadIds).catch(() => {
+      showToast("알림 읽음 상태를 서버와 동기화하지 못했습니다.", { kind: "error" });
+      refreshNotificationsFromServer();
+    });
+  }, [
+    items,
+    markAllReadForMember,
+    memberId,
+    refreshNotificationsFromServer,
+    showToast,
+  ]);
 
   if (!memberId) return null;
 
@@ -266,7 +301,7 @@ export function NotificationBell() {
                 <button
                   type="button"
                   className="text-xs text-emerald-600 hover:underline dark:text-emerald-400"
-                  onClick={() => markAllReadForMember(memberId)}
+                  onClick={onMarkAllRead}
                 >
                   모두 읽음
                 </button>

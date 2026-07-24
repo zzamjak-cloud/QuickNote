@@ -73,6 +73,20 @@ export async function markNotificationReadApi(notificationId: string): Promise<v
   }) as Promise<MarkNotificationReadResponse>);
 }
 
+/** 여러 알림을 읽음으로 표시한다. */
+export async function markNotificationsReadApi(notificationIds: string[]): Promise<void> {
+  const uniqueIds = [...new Set(notificationIds.filter(Boolean))];
+  if (uniqueIds.length === 0) return;
+
+  const results = await Promise.allSettled(
+    uniqueIds.map((notificationId) => markNotificationReadApi(notificationId)),
+  );
+  const failedCount = results.filter((result) => result.status === "rejected").length;
+  if (failedCount > 0) {
+    throw new Error(`알림 ${failedCount}개 읽음 처리에 실패했습니다.`);
+  }
+}
+
 /** 내 알림을 삭제한다. */
 export async function deleteMyNotificationApi(notificationId: string): Promise<void> {
   await (appsyncClient().graphql({

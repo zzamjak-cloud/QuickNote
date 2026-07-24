@@ -29,6 +29,7 @@ import {
   getEditorForPage,
   subscribeEditorRegistry,
 } from "../../lib/editor/editorByPageRegistry";
+import { getMountedEditorView } from "../../lib/editor/safeEditorView";
 
 type Props = {
   /** null 이면 payload.pageId 로 레지스트리에서 에디터를 찾는다(App 단일 패널). */
@@ -153,13 +154,15 @@ export function BlockCommentThreadPanel({ editor }: Props) {
       };
       const blockRect = (): DOMRect | null => {
         if (!liveEditor || liveEditor.isDestroyed) return null;
+        const view = getMountedEditorView(liveEditor);
+        if (!view) return null;
         // open 시점에 캡처한 절대 blockStart 는 원격 편집으로 position 이 밀리면
         // 다른 블록을 가리킨다 — blockId 해석을 우선하고 blockStart 는 폴백으로만 쓴다.
         const start =
           findBlockStartById(liveEditor, payload.blockId) ??
           (payload.blockStart > 0 ? payload.blockStart : null);
         if (start === null) return null;
-        const dom = liveEditor.view.nodeDOM(start);
+        const dom = view.nodeDOM(start);
         const el = dom instanceof HTMLElement ? dom : dom?.parentElement;
         return el ? el.getBoundingClientRect() : null;
       };
@@ -204,7 +207,7 @@ export function BlockCommentThreadPanel({ editor }: Props) {
     if (!payload) return;
     const onResize = () => updateAnchorPosition();
     window.addEventListener("resize", onResize);
-    const scroller = liveEditor?.view.dom.closest(".overflow-y-auto");
+    const scroller = getMountedEditorView(liveEditor)?.dom.closest(".overflow-y-auto");
     scroller?.addEventListener("scroll", onResize, { passive: true });
     window.addEventListener("scroll", onResize, true);
     return () => {

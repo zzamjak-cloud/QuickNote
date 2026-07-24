@@ -75,6 +75,7 @@ import {
   type ColumnDropState,
 } from "../../lib/editor/editorHandleDrop";
 import { insertImageFromFile } from "../../lib/editor/insertImageFromFile";
+import { focusBodyStartWithEmptyBlock } from "../../lib/editor/focusBodyStartWithEmptyBlock";
 import { SimpleAlertDialog } from "../ui/SimpleAlertDialog";
 import { PageCoverImage } from "./PageCoverImage";
 import { ScrollToTopButton } from "../common/ScrollToTopButton";
@@ -1467,7 +1468,12 @@ function EditorInner({
                   }
                 }}
                 onTitleKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === "ArrowDown") {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    focusBodyStartWithEmptyBlock(editor);
+                    return;
+                  }
+                  if (e.key === "ArrowDown") {
                     e.preventDefault();
                     editor?.chain().focus().run();
                   }

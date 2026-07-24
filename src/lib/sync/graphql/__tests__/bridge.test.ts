@@ -51,11 +51,13 @@ describe("realGqlBridge.toggleCommentReaction", () => {
   it("댓글 반응 토글 mutation과 input을 전달한다", async () => {
     await realGqlBridge.toggleCommentReaction({
       id: "c-1",
+      dedupeId: "c-1:emoji:member-1",
       workspaceId: "ws-1",
       reactionKind: "emoji",
       reactionValue: "✅",
       reacted: true,
       updatedAt: "2026-07-23T00:00:00.000Z",
+      localOnly: true,
     });
 
     expect(mocks.graphql).toHaveBeenCalledTimes(1);
@@ -68,5 +70,7 @@ describe("realGqlBridge.toggleCommentReaction", () => {
       reactionValue: "✅",
       reacted: true,
     });
+    expect(args.variables.input).not.toHaveProperty("dedupeId");
+    expect(args.variables.input).not.toHaveProperty("localOnly");
   });
 });

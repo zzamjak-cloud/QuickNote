@@ -60,6 +60,23 @@ function normalizePageInput(input: unknown): unknown {
   return out;
 }
 
+function normalizeCommentReactionInput(input: unknown): unknown {
+  if (!input || typeof input !== "object") return input;
+  const i = input as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const key of [
+    "id",
+    "workspaceId",
+    "reactionKind",
+    "reactionValue",
+    "reacted",
+    "updatedAt",
+  ]) {
+    if (key in i) out[key] = i[key];
+  }
+  return out;
+}
+
 function isMetaOnlyPageInput(input: unknown): boolean {
   return Boolean(
     input &&
@@ -245,7 +262,7 @@ export const realGqlBridge: GqlBridge = {
   toggleCommentReaction: async (input) => {
     await appsyncClient().graphql({
       query: TOGGLE_COMMENT_REACTION,
-      variables: { input },
+      variables: { input: normalizeCommentReactionInput(input) },
     });
   },
   softDeleteComment: async (id, workspaceId, updatedAt) => {
