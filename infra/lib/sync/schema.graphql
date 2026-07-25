@@ -717,7 +717,7 @@ type Mutation {
   """웹 게시 해제 — 토큰 무효화(재게시 시 새 토큰). edit 권한 필요."""
   unpublishPage(pageId: ID!): PagePublishStatus!
   publishPageChanged(input: PageInput!): Page! @aws_iam
-  softDeletePage(id: ID!, workspaceId: ID!, updatedAt: AWSDateTime!): Page!
+  softDeletePage(id: ID!, workspaceId: ID!, updatedAt: AWSDateTime!, title: String, icon: String, databaseId: ID): Page!
   """휴지통 페이지 복원(deletedAt 제거)"""
   restorePage(id: ID!, workspaceId: ID!): Page!
   restorePageVersion(input: RestorePageVersionInput!): Page!

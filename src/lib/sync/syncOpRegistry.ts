@@ -8,7 +8,12 @@ import type { OutboxEntityType, OutboxOp } from "./outbox/types";
 export interface GqlBridge {
   upsertPage(input: unknown): Promise<void>;
   upsertDatabase(input: unknown): Promise<void>;
-  softDeletePage(id: string, workspaceId: string, updatedAt: string): Promise<void>;
+  softDeletePage(
+    id: string,
+    workspaceId: string,
+    updatedAt: string,
+    metadata?: SoftDeletePageMetadata,
+  ): Promise<void>;
   softDeleteDatabase(id: string, workspaceId: string, updatedAt: string): Promise<void>;
   /** 멤버 본인 clientPrefs(즐겨찾기 등) 동기화. */
   updateMyClientPrefs(clientPrefsJson: string): Promise<void>;
@@ -21,11 +26,31 @@ export type EnqueuePayload = {
   id: string;
   workspaceId?: string;
   updatedAt?: string;
+  /** softDeletePage 전용: 휴지통 목록 표시용 삭제 직전 메타. */
+  title?: string;
+  icon?: string | null;
+  databaseId?: string | null;
   /** updateMyClientPrefs 전용(JSON 문자열) */
   clientPrefs?: string;
   /** 같은 entity id 안에서 더 좁은 단위로 dedupe 해야 할 때 사용한다. */
   dedupeId?: string;
 };
+
+export type SoftDeletePageMetadata = {
+  title?: string;
+  icon?: string | null;
+  databaseId?: string | null;
+};
+
+function softDeletePageMetadataFromPayload(p: EnqueuePayload): SoftDeletePageMetadata | undefined {
+  const meta: SoftDeletePageMetadata = {};
+  if (typeof p.title === "string") meta.title = p.title;
+  if (typeof p.icon === "string" || p.icon === null) meta.icon = p.icon;
+  if (typeof p.databaseId === "string" || p.databaseId === null) {
+    meta.databaseId = p.databaseId;
+  }
+  return Object.keys(meta).length > 0 ? meta : undefined;
+}
 
 function normalizeClientPrefsJsonForServer(json: string): string {
   try {
@@ -87,7 +112,13 @@ export const SYNC_OP_REGISTRY: Record<OutboxOp, SyncOpSpec> = {
     workspaceScoped: true,
     capturesBaseVersion: false,
     warnIfMissingWorkspace: false,
-    execute: (gql, p) => gql.softDeletePage(p.id, p.workspaceId ?? "", p.updatedAt ?? ""),
+    execute: (gql, p) =>
+      gql.softDeletePage(
+        p.id,
+        p.workspaceId ?? "",
+        p.updatedAt ?? "",
+        softDeletePageMetadataFromPayload(p),
+      ),
   },
   softDeleteDatabase: {
     entityType: "database",

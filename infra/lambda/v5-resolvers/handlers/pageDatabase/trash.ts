@@ -17,7 +17,7 @@ import {
 } from "../_auth";
 import type { Tables } from "../member";
 import { cascadeDeletePageAssetUsage } from "../asset";
-import { type Connection } from "./_shared";
+import { isPlainObject, parseJsonLike, type Connection } from "./_shared";
 import {
   listDatabaseHistoryAsc,
   recordDatabaseHistory,
@@ -51,6 +51,103 @@ function decodeTrashCursor(s: string | null | undefined): TrashListCursor | null
   } catch {
     return null;
   }
+}
+
+function normalizedDisplayString(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function looksLikeOpaquePageId(value: string): boolean {
+  return (
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+    || /^[0-9A-HJKMNP-TV-Z]{26}$/i.test(value)
+  );
+}
+
+function shouldRepairTrashedPageTitle(page: Record<string, unknown>): boolean {
+  const title = normalizedDisplayString(page.title);
+  const id = normalizedDisplayString(page.id);
+  if (!title) return true;
+  if (id && title === id) return true;
+  return looksLikeOpaquePageId(title);
+}
+
+function pageHistorySnapshotMeta(
+  historyItem: Record<string, unknown>,
+  pageId: string,
+): Record<string, unknown> | null {
+  const raw = historyItem.snapshot ?? historyItem.anchor;
+  const snapshot = parseJsonLike(raw);
+  if (!isPlainObject(snapshot)) return null;
+  const title = normalizedDisplayString(snapshot.title);
+  if (!title || title === pageId || looksLikeOpaquePageId(title)) return null;
+  const meta: Record<string, unknown> = { title };
+  if (typeof snapshot.icon === "string" || snapshot.icon === null) meta.icon = snapshot.icon;
+  if (typeof snapshot.databaseId === "string" && snapshot.databaseId) {
+    meta.databaseId = snapshot.databaseId;
+  }
+  return meta;
+}
+
+async function latestPageHistoryDisplayMeta(args: {
+  doc: DynamoDBDocumentClient;
+  tableName: string;
+  pageId: string;
+  workspaceId: string;
+}): Promise<Record<string, unknown> | null> {
+  let startKey: Record<string, unknown> | undefined;
+  let scanned = 0;
+  do {
+    const res = await args.doc.send(
+      new QueryCommand({
+        TableName: args.tableName,
+        KeyConditionExpression: "pageId = :p",
+        ExpressionAttributeValues: { ":p": args.pageId },
+        ScanIndexForward: false,
+        Limit: 20,
+        ExclusiveStartKey: startKey,
+      }),
+    );
+    for (const item of (res.Items ?? []) as Array<Record<string, unknown>>) {
+      scanned += 1;
+      if (item.workspaceId !== args.workspaceId) continue;
+      const meta = pageHistorySnapshotMeta(item, args.pageId);
+      if (meta) return meta;
+    }
+    startKey = res.LastEvaluatedKey as Record<string, unknown> | undefined;
+  } while (startKey && scanned < 100);
+  return null;
+}
+
+async function finalizeTrashedPages(args: {
+  doc: DynamoDBDocumentClient;
+  tables: Tables;
+  workspaceId: string;
+  items: Record<string, unknown>[];
+  nextToken: string | null;
+}): Promise<Connection<Record<string, unknown>>> {
+  const sorted = [...args.items].sort((a, b) =>
+    String(b["deletedAt"] ?? "").localeCompare(String(a["deletedAt"] ?? "")),
+  );
+  if (!args.tables.PageHistory) return { items: sorted, nextToken: args.nextToken };
+  const repaired: Record<string, unknown>[] = [];
+  for (const item of sorted) {
+    const pageId = normalizedDisplayString(item.id);
+    if (!pageId || !shouldRepairTrashedPageTitle(item)) {
+      repaired.push(item);
+      continue;
+    }
+    const meta = await latestPageHistoryDisplayMeta({
+      doc: args.doc,
+      tableName: args.tables.PageHistory,
+      pageId,
+      workspaceId: args.workspaceId,
+    });
+    repaired.push(meta ? { ...item, ...meta } : item);
+  }
+  return { items: repaired, nextToken: args.nextToken };
 }
 
 export async function permanentlyDeleteDatabase(args: {
@@ -415,9 +512,6 @@ export async function listTrashedPages(args: {
       collected.push(batch[i]!);
     }
     if (collected.length >= pageSize) {
-      collected.sort((a, b) =>
-        String(b["deletedAt"] ?? "").localeCompare(String(a["deletedAt"] ?? "")),
-      );
       let nextTok: string | null = null;
       if (i < batch.length) {
         nextTok = encodeTrashCursor({ ek: queryStartKey, skip: i });
@@ -427,20 +521,32 @@ export async function listTrashedPages(args: {
           skip: 0,
         });
       }
-      return { items: collected, nextToken: nextTok };
+      return await finalizeTrashedPages({
+        doc: args.doc,
+        tables: args.tables,
+        workspaceId: args.workspaceId,
+        items: collected,
+        nextToken: nextTok,
+      });
     }
     if (!r.LastEvaluatedKey) {
-      collected.sort((a, b) =>
-        String(b["deletedAt"] ?? "").localeCompare(String(a["deletedAt"] ?? "")),
-      );
-      return { items: collected, nextToken: null };
+      return await finalizeTrashedPages({
+        doc: args.doc,
+        tables: args.tables,
+        workspaceId: args.workspaceId,
+        items: collected,
+        nextToken: null,
+      });
     }
     exclusiveStartKey = r.LastEvaluatedKey as Record<string, unknown>;
   }
-  collected.sort((a, b) =>
-    String(b["deletedAt"] ?? "").localeCompare(String(a["deletedAt"] ?? "")),
-  );
-  return { items: collected, nextToken: null };
+  return await finalizeTrashedPages({
+    doc: args.doc,
+    tables: args.tables,
+    workspaceId: args.workspaceId,
+    items: collected,
+    nextToken: null,
+  });
 }
 
 export async function restorePage(args: {

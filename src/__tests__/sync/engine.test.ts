@@ -15,8 +15,12 @@ function makeGql(): GqlBridge & { calls: Call[] } {
     upsertDatabase: async (i) => {
       calls.push(["upsertDatabase", i]);
     },
-    softDeletePage: async (id, workspaceId, u) => {
-      calls.push(["softDeletePage", id, workspaceId, u]);
+    softDeletePage: async (id, workspaceId, u, metadata) => {
+      calls.push(
+        metadata === undefined
+          ? ["softDeletePage", id, workspaceId, u]
+          : ["softDeletePage", id, workspaceId, u, metadata],
+      );
     },
     softDeleteDatabase: async (id, workspaceId, u) => {
       calls.push(["softDeleteDatabase", id, workspaceId, u]);
@@ -144,6 +148,30 @@ describe("SyncEngine", () => {
     await engine.flush();
     expect(gql.calls).toEqual([
       ["softDeletePage", "p-1", "ws-1", "2026-05-21T00:00:01.000Z"],
+    ]);
+  });
+
+  it("페이지 삭제 enqueue 의 표시 메타를 전송한다", async () => {
+    const outbox = new MemoryOutboxAdapter();
+    const gql = makeGql();
+    const engine = new SyncEngine(outbox, gql);
+    await engine.enqueue("softDeletePage", {
+      id: "p-1",
+      workspaceId: "ws-1",
+      updatedAt: "2026-05-21T00:00:01.000Z",
+      title: "페이지 제목",
+      icon: null,
+      databaseId: "db-1",
+    });
+    await engine.flush();
+    expect(gql.calls).toEqual([
+      [
+        "softDeletePage",
+        "p-1",
+        "ws-1",
+        "2026-05-21T00:00:01.000Z",
+        { title: "페이지 제목", icon: null, databaseId: "db-1" },
+      ],
     ]);
   });
 

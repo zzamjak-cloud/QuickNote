@@ -429,7 +429,14 @@ export const usePageStore = create<PageStore>()(
             ? resolveDeletedPageWorkspaceId(removedPage, removedPageById)
             : getCurrentWorkspaceId();
           markLocallyDeletedEntity("page", removedId, workspaceId, Date.parse(nowIso) || Date.now());
-          enqueueAsync("softDeletePage", { id: removedId, workspaceId, updatedAt: nowIso });
+          enqueueAsync("softDeletePage", {
+            id: removedId,
+            workspaceId,
+            updatedAt: nowIso,
+            title: removedPage?.title ?? "",
+            icon: removedPage?.icon ?? null,
+            databaseId: removedPage?.databaseId ?? null,
+          });
         }
         if (removedIds.length > 0) {
           useSettingsStore.getState().removeFavoritesForPages(removedIds);

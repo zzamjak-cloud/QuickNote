@@ -4,6 +4,7 @@ import {
   UPSERT_PAGE_META,
   UPSERT_DATABASE,
   SOFT_DELETE_PAGE,
+  SOFT_DELETE_PAGE_LEGACY,
   SOFT_DELETE_DATABASE,
 } from "./operations";
 import { UPDATE_MY_CLIENT_PREFS } from "../queries/member";
@@ -13,6 +14,7 @@ import {
   TOGGLE_COMMENT_REACTION,
 } from "../queries/comment";
 import type { GqlBridge } from "../engine";
+import type { SoftDeletePageMetadata } from "../syncOpRegistry";
 import { LC_SCHEDULER_WORKSPACE_ID } from "../../scheduler/scope";
 
 const FORCE_DELETE_UPDATED_AT = "9999-12-31T23:59:59.999Z";
@@ -137,16 +139,71 @@ function isResourceGoneError(message: string): boolean {
   );
 }
 
-async function softDeletePageRequest(id: string, workspaceId: string, updatedAt: string): Promise<void> {
+function isSoftDeletePageMetadataSchemaError(message: string): boolean {
+  return (
+    message.includes("Unknown argument")
+    || message.includes("UnknownArgument")
+    || message.includes("Cannot query field")
+    || message.includes("FieldUndefined")
+  );
+}
+
+function softDeletePageVariables(
+  id: string,
+  workspaceId: string,
+  updatedAt: string,
+  metadata?: SoftDeletePageMetadata,
+): Record<string, unknown> {
+  const variables: Record<string, unknown> = { id, workspaceId, updatedAt };
+  if (typeof metadata?.title === "string") variables.title = metadata.title;
+  if (typeof metadata?.icon === "string" || metadata?.icon === null) variables.icon = metadata.icon;
+  if (typeof metadata?.databaseId === "string" || metadata?.databaseId === null) {
+    variables.databaseId = metadata.databaseId;
+  }
+  return variables;
+}
+
+async function softDeletePageLegacyRequest(
+  id: string,
+  workspaceId: string,
+  updatedAt: string,
+): Promise<void> {
   await appsyncClient().graphql({
-    query: SOFT_DELETE_PAGE,
+    query: SOFT_DELETE_PAGE_LEGACY,
     variables: { id, workspaceId, updatedAt },
   });
 }
 
-async function softDeletePageWithForceRetry(id: string, workspaceId: string, updatedAt: string): Promise<void> {
+async function softDeletePageRequest(
+  id: string,
+  workspaceId: string,
+  updatedAt: string,
+  metadata?: SoftDeletePageMetadata,
+): Promise<void> {
+  if (!metadata) {
+    await softDeletePageLegacyRequest(id, workspaceId, updatedAt);
+    return;
+  }
   try {
-    await softDeletePageRequest(id, workspaceId, updatedAt);
+    await appsyncClient().graphql({
+      query: SOFT_DELETE_PAGE,
+      variables: softDeletePageVariables(id, workspaceId, updatedAt, metadata),
+    });
+  } catch (error) {
+    const message = getGraphQLErrorMessage(error);
+    if (!isSoftDeletePageMetadataSchemaError(message)) throw error;
+    await softDeletePageLegacyRequest(id, workspaceId, updatedAt);
+  }
+}
+
+async function softDeletePageWithForceRetry(
+  id: string,
+  workspaceId: string,
+  updatedAt: string,
+  metadata?: SoftDeletePageMetadata,
+): Promise<void> {
+  try {
+    await softDeletePageRequest(id, workspaceId, updatedAt, metadata);
   } catch (error) {
     const message = getGraphQLErrorMessage(error);
     if (isResourceGoneError(message)) return;
@@ -154,7 +211,7 @@ async function softDeletePageWithForceRetry(id: string, workspaceId: string, upd
       throw error;
     }
     try {
-      await softDeletePageRequest(id, workspaceId, FORCE_DELETE_UPDATED_AT);
+      await softDeletePageRequest(id, workspaceId, FORCE_DELETE_UPDATED_AT, metadata);
     } catch (retryError) {
       const retryMessage = getGraphQLErrorMessage(retryError);
       if (isResourceGoneError(retryMessage) || retryMessage.includes("The conditional request failed")) {
@@ -213,9 +270,9 @@ export const realGqlBridge: GqlBridge = {
       variables: { input: normalizedInput },
     });
   },
-  softDeletePage: async (id, workspaceId, updatedAt) => {
+  softDeletePage: async (id, workspaceId, updatedAt, metadata) => {
     try {
-      await softDeletePageWithForceRetry(id, workspaceId, updatedAt);
+      await softDeletePageWithForceRetry(id, workspaceId, updatedAt, metadata);
     } catch (error) {
       const message = getGraphQLErrorMessage(error);
       if (isResourceGoneError(message)) return;
@@ -223,7 +280,7 @@ export const realGqlBridge: GqlBridge = {
         workspaceId !== LC_SCHEDULER_WORKSPACE_ID &&
         message.includes("The conditional request failed")
       ) {
-        await softDeletePageWithForceRetry(id, LC_SCHEDULER_WORKSPACE_ID, updatedAt);
+        await softDeletePageWithForceRetry(id, LC_SCHEDULER_WORKSPACE_ID, updatedAt, metadata);
         return;
       }
       throw error;

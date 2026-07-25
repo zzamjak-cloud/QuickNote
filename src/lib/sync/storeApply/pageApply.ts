@@ -49,6 +49,9 @@ function normalizeLCSchedulerPageWorkspace(p: GqlPage): GqlPage {
           id: p.id,
           workspaceId: p.workspaceId,
           updatedAt: new Date().toISOString(),
+          title: p.title,
+          icon: p.icon ?? null,
+          databaseId: p.databaseId ?? null,
         });
       });
     }

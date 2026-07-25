@@ -253,10 +253,14 @@ export function createRowActions(
       if (!pageBefore) {
         const indexState = useDatabaseRowIndexStore.getState();
         let rowWorkspaceId: string | null = null;
+        let rowTitle = "";
+        let rowIcon: string | null = null;
         for (const snap of Object.values(indexState.snapshotsByKey)) {
           const hit = snap.rows.find((r) => r.pageId === pageId);
           if (hit) {
             rowWorkspaceId = hit.workspaceId;
+            rowTitle = hit.title;
+            rowIcon = hit.icon;
             break;
           }
         }
@@ -270,6 +274,9 @@ export function createRowActions(
           id: pageId,
           workspaceId: ws,
           updatedAt: new Date().toISOString(),
+          title: rowTitle,
+          icon: rowIcon,
+          databaseId,
         });
       }
       const bundleAfter = get().databases[databaseId];

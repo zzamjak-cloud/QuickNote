@@ -871,6 +871,49 @@ describe("page/database handlers", () => {
     expect(result.id).toBe("p1");
   });
 
+  it("softDeletePage: 제목이 ID처럼 저장된 경우 삭제 스냅샷 제목으로 보강", async () => {
+    const pageId = "505c6f7e-a38b-4517-93c8-d46f6bc59bdb";
+    const doc = mockDoc(
+      { Items: [] }, // memberTeams
+      { Items: [{ subjectType: "member", subjectId: "m1", level: "edit" }] }, // workspaceAccess
+      { Item: { id: pageId, workspaceId: "ws-1", title: pageId } }, // get
+      {
+        Attributes: {
+          id: pageId,
+          workspaceId: "ws-1",
+          title: pageId,
+          deletedAt: "now",
+        },
+      }, // soft delete update
+      {
+        Attributes: {
+          id: pageId,
+          workspaceId: "ws-1",
+          title: "페이지 제목",
+          icon: "P",
+          databaseId: "db-1",
+          deletedAt: "now",
+        },
+      }, // display metadata repair
+    );
+    const result = await softDeletePage({
+      doc,
+      tables,
+      caller,
+      id: pageId,
+      workspaceId: "ws-1",
+      updatedAt: "old",
+      title: "페이지 제목",
+      icon: "P",
+      databaseId: "db-1",
+    });
+    expect(result.title).toBe("페이지 제목");
+    const sendMock = doc.send as unknown as ReturnType<typeof vi.fn>;
+    const repairUpdate = sendMock.mock.calls.at(-1)?.[0].input;
+    expect(repairUpdate.UpdateExpression).toContain("#title = :title");
+    expect(repairUpdate.ExpressionAttributeValues[":title"]).toBe("페이지 제목");
+  });
+
   it("listDatabases: view 권한이면 조회", async () => {
     const doc = mockDoc(
       { Items: [] }, // memberTeams
@@ -1884,6 +1927,51 @@ describe("page/database handlers", () => {
     const result = await listTrashedPages({ doc, tables, caller, workspaceId: "ws-1" });
     expect(result.items).toHaveLength(1);
     expect(result.items[0]!.id).toBe("p-trash");
+  });
+
+  it("listTrashedPages: ID처럼 보이는 제목은 히스토리 스냅샷 제목으로 보정", async () => {
+    const pageId = "505c6f7e-a38b-4517-93c8-d46f6bc59bdb";
+    const recent = new Date().toISOString();
+    const doc = mockDoc(
+      { Items: [] },
+      { Items: [{ subjectType: "everyone", subjectId: null, level: "view" }] },
+      {
+        Items: [
+          {
+            id: pageId,
+            workspaceId: "ws-1",
+            deletedAt: recent,
+            updatedAt: recent,
+            title: pageId,
+          },
+        ],
+      },
+      {
+        Items: [
+          {
+            pageId,
+            workspaceId: "ws-1",
+            snapshot: {
+              id: pageId,
+              workspaceId: "ws-1",
+              title: "페이지 제목",
+              icon: "P",
+              databaseId: "db-1",
+            },
+          },
+        ],
+      },
+    );
+    const result = await listTrashedPages({
+      doc,
+      tables: { ...tables, PageHistory: "PH" },
+      caller,
+      workspaceId: "ws-1",
+    });
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0]!.title).toBe("페이지 제목");
+    expect(result.items[0]!.icon).toBe("P");
+    expect(result.items[0]!.databaseId).toBe("db-1");
   });
 
   it("restorePage: 삭제 항목이면 복원", async () => {

@@ -2,6 +2,7 @@ import {
   DynamoDBDocumentClient,
   GetCommand,
   QueryCommand,
+  UpdateCommand,
 } from "@aws-sdk/lib-dynamodb";
 import {
   badRequest,
@@ -37,6 +38,78 @@ import { preserveExistingDbCellsForNullInput } from "./database";
 import { TRASH_RETENTION_MS } from "./trash";
 
 const PAGE_META_INTERNAL_QUERY_MAX = 50;
+
+function trimmedString(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function looksLikeOpaqueId(value: string): boolean {
+  return (
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)
+    || /^[0-9A-HJKMNP-TV-Z]{26}$/i.test(value)
+  );
+}
+
+function shouldUseDeleteTitleFallback(
+  page: Record<string, unknown>,
+  fallbackTitle: string | null,
+): boolean {
+  if (!fallbackTitle) return false;
+  const currentTitle = trimmedString(page.title);
+  const id = typeof page.id === "string" ? page.id : "";
+  if (!currentTitle) return true;
+  if (id && currentTitle === id && fallbackTitle !== id) return true;
+  return looksLikeOpaqueId(currentTitle) && currentTitle !== fallbackTitle && !looksLikeOpaqueId(fallbackTitle);
+}
+
+async function enrichSoftDeletedPageMetadata(args: {
+  doc: DynamoDBDocumentClient;
+  tables: Tables;
+  deleted: Record<string, unknown>;
+  title?: string | null;
+  icon?: string | null;
+  databaseId?: string | null;
+}): Promise<Record<string, unknown>> {
+  if (!args.tables.Pages) return args.deleted;
+  const setParts: string[] = [];
+  const values: Record<string, unknown> = { ":w": args.deleted.workspaceId };
+  const names: Record<string, string> = {};
+  const fallbackTitle = trimmedString(args.title);
+  if (shouldUseDeleteTitleFallback(args.deleted, fallbackTitle)) {
+    names["#title"] = "title";
+    values[":title"] = fallbackTitle;
+    setParts.push("#title = :title");
+  }
+  if (
+    !trimmedString(args.deleted.icon)
+    && (typeof args.icon === "string" || args.icon === null)
+  ) {
+    names["#icon"] = "icon";
+    values[":icon"] = args.icon;
+    setParts.push("#icon = :icon");
+  }
+  const fallbackDatabaseId = trimmedString(args.databaseId);
+  if (!trimmedString(args.deleted.databaseId) && fallbackDatabaseId) {
+    names["#databaseId"] = "databaseId";
+    values[":databaseId"] = fallbackDatabaseId;
+    setParts.push("#databaseId = :databaseId");
+  }
+  if (setParts.length === 0 || typeof args.deleted.id !== "string") return args.deleted;
+  const r = await args.doc.send(
+    new UpdateCommand({
+      TableName: args.tables.Pages,
+      Key: { id: args.deleted.id },
+      UpdateExpression: `SET ${setParts.join(", ")}`,
+      ExpressionAttributeNames: names,
+      ExpressionAttributeValues: values,
+      ConditionExpression: "workspaceId = :w",
+      ReturnValues: "ALL_NEW",
+    }),
+  );
+  return (r.Attributes ?? args.deleted) as Record<string, unknown>;
+}
 
 function isEmptyParagraphNode(node: unknown): boolean {
   if (!isPlainObject(node)) return false;
@@ -453,14 +526,25 @@ export async function softDeletePage(args: {
   id: string;
   workspaceId: string;
   updatedAt: string;
+  title?: string | null;
+  icon?: string | null;
+  databaseId?: string | null;
 }): Promise<Record<string, unknown>> {
   if (!args.tables.Pages) badRequest("Pages table 미설정");
   // 휴지통 보관 만료 시각(epoch seconds)을 purgeAt 으로 기록 → DynamoDB TTL 자동 삭제(#1).
   // trash-purge Lambda 의 일일 풀스캔/개별 DeleteCommand 를 대체한다.
-  const deleted = await softDeleteRecord({
+  const deletedRaw = await softDeleteRecord({
     ...args,
     tableName: args.tables.Pages,
     ttlSeconds: Math.floor((Date.now() + TRASH_RETENTION_MS) / 1000),
+  });
+  const deleted = await enrichSoftDeletedPageMetadata({
+    doc: args.doc,
+    tables: args.tables,
+    deleted: deletedRaw,
+    title: args.title,
+    icon: args.icon,
+    databaseId: args.databaseId,
   });
   try {
     await recordPageDeleteHistory({

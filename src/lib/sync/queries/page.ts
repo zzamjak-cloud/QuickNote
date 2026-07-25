@@ -76,7 +76,27 @@ export const UPSERT_PAGE_META = `
 `;
 
 export const SOFT_DELETE_PAGE = `
-  mutation SoftDeletePage($id: ID!, $workspaceId: ID!, $updatedAt: AWSDateTime!) {
+  mutation SoftDeletePage(
+    $id: ID!
+    $workspaceId: ID!
+    $updatedAt: AWSDateTime!
+    $title: String
+    $icon: String
+    $databaseId: ID
+  ) {
+    softDeletePage(
+      id: $id
+      workspaceId: $workspaceId
+      updatedAt: $updatedAt
+      title: $title
+      icon: $icon
+      databaseId: $databaseId
+    ) { ${PAGE_FIELDS} }
+  }
+`;
+
+export const SOFT_DELETE_PAGE_LEGACY = `
+  mutation SoftDeletePageLegacy($id: ID!, $workspaceId: ID!, $updatedAt: AWSDateTime!) {
     softDeletePage(id: $id, workspaceId: $workspaceId, updatedAt: $updatedAt) { ${PAGE_FIELDS} }
   }
 `;

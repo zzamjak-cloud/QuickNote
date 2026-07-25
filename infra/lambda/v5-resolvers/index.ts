@@ -593,6 +593,9 @@ const RESOLVERS: Record<
       id: event.arguments.id as string,
       workspaceId: event.arguments.workspaceId as string,
       updatedAt: event.arguments.updatedAt as string,
+      title: event.arguments.title as string | null | undefined,
+      icon: event.arguments.icon as string | null | undefined,
+      databaseId: event.arguments.databaseId as string | null | undefined,
     }),
   restorePage: async (event, base) =>
     await restorePage({
