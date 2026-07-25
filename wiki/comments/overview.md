@@ -54,3 +54,4 @@
 - **스레드 패널은 blockId 해석 우선** — `BlockCommentThreadPanel` 은 open 시점에 캡처한 절대 `payload.blockStart` 가 아니라 `findBlockStartById` 를 우선한다(절대 position 은 원격 편집으로 밀림). 문서 트랜잭션(`docChanged`) 마다 재앵커하며, 이때는 고정 viewport 앵커보다 블록 실좌표를 우선한다.
 - Enter 분할 시 id 는 UniqueID 확장이 "내용 블록이 원래 id 유지, 빈 블록에 새 id" 로 처리(빈 앞블록+동일 id 뒷블록 특례 포함) — 원격(y-sync) 트랜잭션에는 appendTransaction 을 돌리지 않으므로 편집한 클라이언트의 배정이 그대로 전파된다.
 - **이미 어긋난 기존 댓글은 자동 복구 불가**(댓글엔 blockId 만 저장, 원래 블록 역추적 불가) — 스레드 패널의 조준(Crosshair) 버튼으로 **수동 재앵커**: 픽 모드(`CommentReanchorMode`)에서 대상 블록 클릭 → `blockCommentStore.moveThread` 가 스레드 전체 blockId 교체 + 서버 upsert. 데코레이션 캐시 키에 blockId 가 포함되어 doc 변경 없이도 마커가 즉시 이동한다.
+- 수동 재앵커 후에도 다른 위치에 붙으면 대상 블록 자체가 과거 복제/분할로 **후순위 중복 id** 를 가진 상태일 가능성이 높다. 댓글·블럭 링크처럼 사용자가 특정 블록을 명시한 액션은 `ensureCommentAnchorBlockId` 로 후순위 중복 id 대상에 새 id 를 발급한 뒤 저장해야 한다. 그래야 표시 로직의 첫 매칭 규칙 때문에 댓글이 앞쪽 중복 블록으로 되돌아가지 않는다.

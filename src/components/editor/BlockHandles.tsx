@@ -68,8 +68,9 @@ import { useDatabaseStore } from "../../store/databaseStore";
 import { useUiStore } from "../../store/uiStore";
 import { useBlockCommentStore } from "../../store/blockCommentStore";
 import { useMemberStore } from "../../store/memberStore";
+import { PageIconDisplay } from "../common/PageIconDisplay";
 import { POINTER_PRESS_FEEDBACK_CLASS } from "../common/interactionClasses";
-import { ensureBlockId } from "../../lib/comments/ensureBlockId";
+import { ensureCommentAnchorBlockId } from "../../lib/comments/ensureBlockId";
 import { canBlockHaveComment } from "../../lib/comments/blockCommentTargets";
 import { buildQuickNotePageUrl } from "../../lib/navigation/quicknoteLinks";
 import {
@@ -123,6 +124,43 @@ const DIVIDER_STYLE_LABELS: Record<DividerLineStyle, string> = {
   dotted: "점선",
   double: "이중선",
 };
+
+function pinnedReactionStableKey(
+  reaction: PinnedCommentBadge["messages"][number]["reactions"][number],
+): string {
+  return `${reaction.kind}:${reaction.value}:${reaction.memberIds.join(",")}`;
+}
+
+function PinnedCommentReactionSummary({
+  reactions,
+}: {
+  reactions: PinnedCommentBadge["messages"][number]["reactions"];
+}) {
+  if (reactions.length === 0) return null;
+  return (
+    <div className="mt-1 flex flex-wrap items-center gap-1">
+      {reactions.map((reaction) => (
+        <span
+          key={`${reaction.kind}:${reaction.value}`}
+          className="inline-flex h-5 items-center gap-1 rounded-full border border-zinc-200 bg-zinc-50 px-1.5 text-[10px] font-medium text-zinc-600 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+          title={`${reaction.kind === "emoji" ? reaction.value : "커스텀 이모지"} 반응 ${reaction.memberIds.length}명`}
+        >
+          {reaction.kind === "custom" ? (
+            <PageIconDisplay
+              icon={reaction.value}
+              size="sm"
+              className="!h-3.5 !w-3.5"
+              imgClassName="!h-3.5 !w-3.5"
+            />
+          ) : (
+            <span className="text-xs leading-none">{reaction.value}</span>
+          )}
+          <span>{reaction.memberIds.length}</span>
+        </span>
+      ))}
+    </div>
+  );
+}
 
 
 type Props = {
@@ -510,7 +548,13 @@ export function BlockHandles({
       // 블록별 모든 댓글 수집 — createdAt 오름차순(오래된 → 최신)으로 정렬
       const messagesByBlockId = new Map<
         string,
-        Array<{ id: string; bodyText: string; authorMemberId: string; createdAt: number }>
+        Array<{
+          id: string;
+          bodyText: string;
+          authorMemberId: string;
+          createdAt: number;
+          reactions: PinnedCommentBadge["messages"][number]["reactions"];
+        }>
       >();
       for (const m of useBlockCommentStore.getState().messages) {
         if (m.pageId !== activePageId) continue;
@@ -522,6 +566,13 @@ export function BlockHandles({
           bodyText: m.bodyText,
           authorMemberId: m.authorMemberId,
           createdAt: m.createdAt,
+          reactions: (m.reactions ?? [])
+            .filter((reaction) => reaction.memberIds.length > 0)
+            .map((reaction) => ({
+              kind: reaction.kind,
+              value: reaction.value,
+              memberIds: [...reaction.memberIds],
+            })),
         });
         messagesByBlockId.set(m.blockId, arr);
       }
@@ -555,6 +606,7 @@ export function BlockHandles({
         const rendered = (msgs ?? []).map((m) => ({
           id: m.id,
           bodyText: m.bodyText,
+          reactions: m.reactions,
           authorName:
             members.find((mb) => mb.memberId === m.authorMemberId)?.name ||
             "구성원",
@@ -579,7 +631,15 @@ export function BlockHandles({
       }
 
       const nextKey = items
-        .map((i) => `${i.blockId}:${i.count}:${i.messages.map((m) => m.id).join(",")}`)
+        .map(
+          (i) =>
+            `${i.blockId}:${i.count}:${i.messages
+              .map(
+                (m) =>
+                  `${m.id}[${m.reactions.map(pinnedReactionStableKey).join(",")}]`,
+              )
+              .join(",")}`,
+        )
         .join("|");
       if (nextKey !== pinnedStableKeyRef.current) {
         pinnedStableKeyRef.current = nextKey;
@@ -824,7 +884,7 @@ export function BlockHandles({
     blockStart: number,
   ) => {
     if (!editor || !activePageId) return;
-    const blockId = ensureBlockId(editor, blockStart);
+    const blockId = ensureCommentAnchorBlockId(editor, blockStart);
     if (!blockId) return;
     const r = e.currentTarget.getBoundingClientRect();
     openCommentThread({
@@ -850,7 +910,7 @@ export function BlockHandles({
     if (!hover || !activePageId) return;
     // 편집(블록 추가/삭제)에도 안전하도록 블록에 안정적 id 를 부여해 링크에 싣는다.
     // 숫자 위치(blockStart)는 폴백으로 함께 저장한다.
-    const blockId = editor ? ensureBlockId(editor, hover.blockStart) : null;
+    const blockId = editor ? ensureCommentAnchorBlockId(editor, hover.blockStart) : null;
     void navigator.clipboard.writeText(
       buildQuickNotePageUrl({ pageId: activePageId, blockId, block: hover.blockStart }),
     );
@@ -1971,6 +2031,7 @@ export function BlockHandles({
                         <span className="italic text-zinc-400">내용 없음</span>
                       )}
                     </div>
+                    <PinnedCommentReactionSummary reactions={m.reactions} />
                   </div>
                 ))}
               </div>
@@ -1982,7 +2043,13 @@ export function BlockHandles({
       {!boxSelecting && hover && wrapperRect && (() => {
         const hBlockId = hover.node.attrs?.id as string | undefined;
         if (!hBlockId) return null;
-        if (pinnedCommentBadges.some((p) => p.blockId === hBlockId)) return null;
+        if (
+          pinnedCommentBadges.some(
+            (p) => p.blockId === hBlockId && p.blockStart === hover.blockStart,
+          )
+        ) {
+          return null;
+        }
         // 컨테이너 블록(컬럼/탭/콜아웃/인용/코드/표 등) 자체에는 댓글 입력 불허
         if (!canBlockHaveComment(hover.node.type.name)) return null;
         const top = hover.rect.top - wrapperRect.top + HANDLE_TOP_OFFSET_PX + 2;

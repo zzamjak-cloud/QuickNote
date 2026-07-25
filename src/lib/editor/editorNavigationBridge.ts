@@ -81,17 +81,18 @@ export function scrollToOutlineHeadingIndex(index: number): boolean {
 }
 
 /** 주어진 에디터의 doc 에서 attrs.id 가 blockId 인 블록의 시작 pos. */
-function findBlockPositionByIdIn(editor: Editor, blockId: string): number | null {
-  let foundPos: number | null = null;
+function findBlockPositionsByIdIn(editor: Editor, blockId: string): number[] {
+  const found: number[] = [];
   editor.state.doc.descendants((node, pos) => {
-    if (foundPos !== null) return false;
     if ((node.attrs.id as string | undefined) === blockId) {
-      foundPos = pos;
-      return false;
+      found.push(pos);
     }
-    return true;
   });
-  return foundPos;
+  return found;
+}
+
+function findBlockPositionByIdIn(editor: Editor, blockId: string): number | null {
+  return findBlockPositionsByIdIn(editor, blockId)[0] ?? null;
 }
 
 /** 블록 노드 attrs.id 로 pos 조회(UniqueID). */
@@ -121,8 +122,14 @@ function resolveTargetPos(
   fallbackPos: number | null,
 ): number | null {
   if (blockId) {
-    const byId = findBlockPositionByIdIn(editor, blockId);
-    if (byId !== null) return byId;
+    const positions = findBlockPositionsByIdIn(editor, blockId);
+    const fallback = clampValidPos(editor, fallbackPos);
+    // 과거 중복 id 문서에서는 blockId 첫 매칭이 링크를 만든 블럭과 다를 수 있다.
+    // 링크에 함께 저장된 PM 위치가 같은 id 를 가리키면 사용자가 복사한 그 위치를 우선한다.
+    if (fallback !== null && positions.length > 1 && positions.includes(fallback)) {
+      return fallback;
+    }
+    if (positions[0] !== undefined) return positions[0];
   }
   return clampValidPos(editor, fallbackPos);
 }

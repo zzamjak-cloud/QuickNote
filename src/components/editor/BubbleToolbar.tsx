@@ -24,7 +24,7 @@ import { sanitizeWebLinkHref } from "../../lib/safeUrl";
 import { parseQuickNoteLink } from "../../lib/navigation/quicknoteLinks";
 import { useUiStore } from "../../store/uiStore";
 import { useMediaPreviewStore } from "../../store/mediaPreviewStore";
-import { ensureBlockId } from "../../lib/comments/ensureBlockId";
+import { ensureCommentAnchorBlockId } from "../../lib/comments/ensureBlockId";
 import { canBlockHaveComment } from "../../lib/comments/blockCommentTargets";
 import {
   distributeSelectedColumnsEvenly,
@@ -414,7 +414,7 @@ export function BubbleToolbar({ editor, pageId }: Props) {
     if (!pageId) return;
     const blockStart = resolveCommentBlockStart(editor);
     if (blockStart === null) return;
-    const blockId = ensureBlockId(editor, blockStart);
+    const blockId = ensureCommentAnchorBlockId(editor, blockStart);
     if (!blockId) return;
     const anchor = anchorRef.current;
     useUiStore.getState().openCommentThread({

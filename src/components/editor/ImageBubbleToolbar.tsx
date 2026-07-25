@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import { useUiStore } from "../../store/uiStore";
 import { useImageMultiSelectStore } from "../../store/imageMultiSelectStore";
-import { ensureBlockId } from "../../lib/comments/ensureBlockId";
+import { ensureCommentAnchorBlockId } from "../../lib/comments/ensureBlockId";
 import { applyCaptionToggle } from "../../lib/tiptapExtensions/mediaCaption";
 import { decodeImageRef } from "../../lib/sync/imageScheme";
 import { decodeFileRef } from "../../lib/files/scheme";
@@ -166,7 +166,7 @@ export function ImageBubbleToolbar({ editor, pageId }: Props) {
 
   const addComment = () => {
     if (!pageId) return;
-    const blockId = ensureBlockId(editor, blockStart);
+    const blockId = ensureCommentAnchorBlockId(editor, blockStart);
     if (!blockId) return;
     const dom = editor.view.nodeDOM(blockStart);
     const el = dom instanceof HTMLElement ? dom : dom?.parentElement ?? null;

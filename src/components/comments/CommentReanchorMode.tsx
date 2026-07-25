@@ -7,7 +7,7 @@ import type { Editor } from "@tiptap/react";
 import { useUiStore } from "../../store/uiStore";
 import { useBlockCommentStore } from "../../store/blockCommentStore";
 import { canBlockHaveComment } from "../../lib/comments/blockCommentTargets";
-import { ensureBlockId } from "../../lib/comments/ensureBlockId";
+import { ensureCommentAnchorBlockId } from "../../lib/comments/ensureBlockId";
 import { dispatchDecoRefresh } from "../../lib/tiptapExtensions/blockCommentDecorations";
 import {
   getEditorForPage,
@@ -102,7 +102,7 @@ export function CommentReanchorMode() {
         });
         return;
       }
-      const toBlockId = ensureBlockId(liveEditor, blockStart);
+      const toBlockId = ensureCommentAnchorBlockId(liveEditor, blockStart);
       if (!toBlockId) {
         showToast("블럭 식별에 실패했습니다. 다시 시도해 주세요.", { kind: "error" });
         return;
