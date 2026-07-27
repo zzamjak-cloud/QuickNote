@@ -575,8 +575,8 @@ export function DatabaseRowPeek() {
                     onClick={() => {
                       setMenuOpen(false);
                       if (!peekPageId) return;
-                      // AI 패널과 피크가 둘 다 우측 패널이라 겹침 — 피크를 닫고 항목 컨텍스트로 대화
-                      closePeek();
+                      // AI 패널과 피크가 둘 다 우측 패널이라 겹침 — 항목을 전체 페이지로 연 뒤 AI 패널을 띄운다
+                      openFullPage();
                       openAiPanel(buildPageAiContext(peekPageId));
                     }}
                     className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"

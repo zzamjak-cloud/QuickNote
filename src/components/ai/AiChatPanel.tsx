@@ -1,5 +1,12 @@
 // AI 채팅 사이드 패널 — 페이지 컨텍스트 기반 대화 + @페이지 멘션·문서/이미지 첨부.
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import {
   AtSign,
   Check,
@@ -50,6 +57,20 @@ import {
   type PendingAttachment,
 } from "../../lib/ai/attachments";
 import { koreanMatchScore } from "../../lib/koreanSearch";
+
+// 패널 너비 persist — 데스크톱(sm 이상)에서만 적용, 모바일은 전폭 유지.
+const AI_PANEL_WIDTH_KEY = "quicknote.aiPanelWidth.v1";
+const DEFAULT_AI_PANEL_WIDTH = 400;
+const MIN_AI_PANEL_WIDTH = 320;
+const MAX_AI_PANEL_WIDTH_RATIO = 0.8; // 화면 폭의 80%까지 허용
+
+function loadAiPanelWidth(): number {
+  if (typeof window === "undefined") return DEFAULT_AI_PANEL_WIDTH;
+  const raw = localStorage.getItem(AI_PANEL_WIDTH_KEY);
+  const n = raw ? Number(raw) : NaN;
+  if (!Number.isFinite(n) || n < MIN_AI_PANEL_WIDTH) return DEFAULT_AI_PANEL_WIDTH;
+  return n;
+}
 
 // 페이지 번역 대상 언어. name 은 프롬프트에 넘기는 한국어 언어명(모델이 이해), label 은 표시용.
 const TRANSLATE_LANGUAGES: Array<{ name: string; label: string }> = [
@@ -122,6 +143,35 @@ export function AiChatPanel() {
   // 드래그앤드롭 — enter/leave 중첩을 카운터로 추적해 오버레이 표시
   const [isDragOver, setIsDragOver] = useState(false);
   const dragDepthRef = useRef(0);
+
+  // 너비 드래그 — 좌측 모서리를 잡고 좌우로 이동.
+  const [panelWidth, setPanelWidth] = useState<number>(() => loadAiPanelWidth());
+  const resizeDragRef = useRef<{ originX: number; originWidth: number } | null>(null);
+  const onResizeStart = (e: ReactPointerEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    resizeDragRef.current = { originX: e.clientX, originWidth: panelWidth };
+    document.body.style.cursor = "col-resize";
+  };
+  const onResizeMove = (e: ReactPointerEvent) => {
+    const d = resizeDragRef.current;
+    if (!d) return;
+    const dx = e.clientX - d.originX;
+    const max = Math.floor(window.innerWidth * MAX_AI_PANEL_WIDTH_RATIO);
+    // 좌측 핸들이므로 왼쪽으로 끌면(negative dx) 폭 증가.
+    const next = Math.min(max, Math.max(MIN_AI_PANEL_WIDTH, d.originWidth - dx));
+    setPanelWidth(next);
+  };
+  const onResizeEnd = (e: ReactPointerEvent) => {
+    if (!resizeDragRef.current) return;
+    try {
+      (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+    } catch { /* noop */ }
+    resizeDragRef.current = null;
+    document.body.style.cursor = "";
+    localStorage.setItem(AI_PANEL_WIDTH_KEY, String(panelWidth));
+  };
 
   const workspaceId = currentWorkspaceId ?? "";
   const wsConfig = workspaceId ? configByWorkspace[workspaceId] : undefined;
@@ -341,7 +391,9 @@ export function AiChatPanel() {
 
   return (
     <aside
-      className="fixed inset-y-0 right-0 z-[400] flex w-full flex-col border-l border-zinc-200 bg-white shadow-xl sm:w-[400px] dark:border-zinc-700 dark:bg-zinc-950"
+      // 모바일은 전폭(w-full), 데스크톱(sm 이상)은 드래그로 조절한 너비를 CSS 변수로 적용.
+      style={{ "--ai-panel-width": `${panelWidth}px` } as CSSProperties}
+      className="fixed inset-y-0 right-0 z-[400] flex w-full flex-col border-l border-zinc-200 bg-white shadow-xl sm:w-[var(--ai-panel-width)] dark:border-zinc-700 dark:bg-zinc-950"
       aria-label="AI 채팅 패널"
       onDragEnter={(e) => {
         if (!hasDraggedFiles(e)) return;
@@ -372,6 +424,15 @@ export function AiChatPanel() {
         if (files.length > 0) void addFiles(files);
       }}
     >
+      {/* 좌측 리사이즈 핸들 — hover 시 파란 띠. 모바일(전폭)에서는 숨김 */}
+      <div
+        onPointerDown={onResizeStart}
+        onPointerMove={onResizeMove}
+        onPointerUp={onResizeEnd}
+        onPointerCancel={onResizeEnd}
+        title="패널 너비 조절"
+        className="absolute left-0 top-0 z-30 hidden h-full w-1.5 cursor-col-resize hover:bg-blue-400/60 sm:block"
+      />
       {/* 드래그 중 드롭 안내 오버레이 */}
       {isDragOver && (
         <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-violet-50/80 dark:bg-violet-950/60">
