@@ -5,11 +5,13 @@
 //  - 자산 응답은 해당 페이지 doc(+icon/coverImage)에 실제 참조된 assetId 만 허용한다.
 //  - 응답 필드는 화이트리스트 — dbCells·blockComments·lastEditedBy* 등은 절대 내보내지 않는다.
 
+import { createHash } from "node:crypto";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import {
   DynamoDBDocumentClient,
   GetCommand,
   QueryCommand,
+  UpdateCommand,
 } from "@aws-sdk/lib-dynamodb";
 import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { collectDocAssetIds } from "./docAssets";
@@ -37,6 +39,8 @@ const SHARED_BLOCKS_TABLE = process.env.SHARED_BLOCKS_TABLE!;
 const ASSET_TABLE = process.env.IMAGE_ASSET_TABLE!;
 const ASSET_USAGE_TABLE = process.env.ASSET_USAGE_TABLE!;
 const BUCKET = process.env.IMAGES_BUCKET!;
+// 방문자 분석 테이블 — 미설정 환경에서는 op=hit 이 no-op 으로 동작한다.
+const ANALYTICS_TABLE = process.env.PUBLISH_ANALYTICS_TABLE ?? "";
 
 const TOKEN_RE = /^[A-Za-z0-9_-]{16,64}$/;
 const ID_RE = /^[A-Za-z0-9:._-]{1,128}$/;
@@ -51,7 +55,9 @@ const TREE_MEMO_TTL_MS = 30_000;
 const PUBLISH_LINK_QUERY_CONCURRENCY = 8;
 
 type FnUrlEvent = {
-  requestContext?: { http?: { method?: string } };
+  requestContext?: { http?: { method?: string; sourceIp?: string } };
+  /** Function URL 이벤트 헤더 — 키는 소문자로 전달된다. */
+  headers?: Record<string, string | undefined>;
   queryStringParameters?: Record<string, string | undefined>;
 };
 
@@ -476,6 +482,81 @@ async function handlePage(
   });
 }
 
+/** 방문 비컨 응답 — 본문 없음, 캐시 금지(매 조회가 Lambda 에 도달해야 집계된다). */
+function hitResponse(): FnUrlResult {
+  return {
+    statusCode: 204,
+    headers: { "cache-control": "no-store", "x-robots-tag": "noindex, nofollow" },
+    body: "",
+  };
+}
+
+/**
+ * 방문 기록(op=hit) — 조회수·고유 방문자·국가 집계용.
+ * 원본 IP 는 저장하지 않고 토큰별 솔트 SHA-256 해시만 기록한다(동일 IP = 방문자 1명).
+ * 국가는 CloudFront-Viewer-Country 헤더(ISO alpha-2), 직결/미전달 환경은 "??".
+ * 실패는 전부 삼킨다 — 통계 기록이 공개 페이지 조회를 깨면 안 된다.
+ */
+async function handleHit(
+  publish: PublishRecord,
+  pageId: string,
+  event: FnUrlEvent,
+): Promise<FnUrlResult> {
+  if (!ANALYTICS_TABLE) return hitResponse();
+  // CloudFront 뒤에서는 X-Forwarded-For 첫 항목이 방문자 IP(sourceIp 는 엣지 IP).
+  const forwardedFor = event.headers?.["x-forwarded-for"] ?? "";
+  const ip =
+    forwardedFor.split(",")[0]?.trim() ||
+    event.requestContext?.http?.sourceIp ||
+    "";
+  if (!ip) return hitResponse();
+  const ipHash = createHash("sha256")
+    .update(`${publish.token}:${ip}`)
+    .digest("hex")
+    .slice(0, 32);
+  const country =
+    (event.headers?.["cloudfront-viewer-country"] ?? "").trim().toUpperCase() ||
+    "??";
+  const now = new Date().toISOString();
+  const day = now.slice(0, 10);
+
+  // DynamoDB 예약어 충돌 방지 — 모든 속성명을 별칭으로 사용한다.
+  const send = (
+    sk: string,
+    updateExpression: string,
+    names: Record<string, string>,
+    values: Record<string, unknown>,
+  ) =>
+    ddb
+      .send(
+        new UpdateCommand({
+          TableName: ANALYTICS_TABLE,
+          Key: { token: publish.token, sk },
+          UpdateExpression: updateExpression,
+          ExpressionAttributeNames: names,
+          ExpressionAttributeValues: values,
+        }),
+      )
+      .catch((error) => {
+        console.warn("[public-view] 방문 기록 실패", {
+          sk,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      });
+
+  await Promise.all([
+    send(
+      `visitor#${ipHash}`,
+      "SET #c = :c, #ls = :now, #fs = if_not_exists(#fs, :now) ADD #v :one",
+      { "#v": "views", "#c": "country", "#ls": "lastSeenAt", "#fs": "firstSeenAt" },
+      { ":c": country, ":now": now, ":one": 1 },
+    ),
+    send(`day#${day}`, "ADD #v :one", { "#v": "views" }, { ":one": 1 }),
+    send(`page#${pageId}`, "ADD #v :one", { "#v": "views" }, { ":one": 1 }),
+  ]);
+  return hitResponse();
+}
+
 /** 자산이 해당 워크스페이스에서 실제 사용(AssetUsage)되는지 — 교차 워크스페이스 다운로드 차단. */
 async function assetUsedInWorkspace(
   assetId: string,
@@ -613,6 +694,11 @@ export async function handler(event: FnUrlEvent): Promise<FnUrlResult> {
       const assetId = qs.assetId ?? "";
       if (!ID_RE.test(pageId) || !ID_RE.test(assetId)) return notFound();
       return await handleAsset(publish, pageId, assetId);
+    }
+    if (op === "hit") {
+      const pageId = qs.pageId ?? "";
+      if (!ID_RE.test(pageId)) return notFound();
+      return await handleHit(publish, pageId, event);
     }
     return notFound();
   } catch (err) {

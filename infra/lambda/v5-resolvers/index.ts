@@ -149,6 +149,7 @@ import {
   unpublishPage,
   getPagePublishStatus,
 } from "./handlers/publishedPage";
+import { getPublishAnalytics } from "./handlers/publishAnalytics";
 import type { Tables, UpdateMemberInput } from "./handlers/member";
 
 const ddb = new DynamoDBClient({});
@@ -177,6 +178,7 @@ const tables: Tables = {
   ImageAssets: process.env.IMAGE_ASSETS_TABLE_NAME,
   AssetUsage: process.env.ASSET_USAGE_TABLE_NAME,
   PublishedPages: process.env.PUBLISHED_PAGES_TABLE_NAME,
+  PublishAnalytics: process.env.PUBLISH_ANALYTICS_TABLE_NAME,
   ImagesBucketName: process.env.IMAGES_BUCKET_NAME,
   CustomIcons: process.env.CUSTOM_ICONS_TABLE_NAME,
   PageHistory: process.env.PAGE_HISTORY_TABLE_NAME,
@@ -959,6 +961,11 @@ const RESOLVERS: Record<
     }),
   getPagePublishStatus: async (event, base) =>
     await getPagePublishStatus({
+      ...base,
+      pageId: event.arguments.pageId as string,
+    }),
+  getPublishAnalytics: async (event, base) =>
+    await getPublishAnalytics({
       ...base,
       pageId: event.arguments.pageId as string,
     }),

@@ -9,6 +9,7 @@ vi.hoisted(() => {
   process.env.IMAGE_ASSET_TABLE = "IA";
   process.env.ASSET_USAGE_TABLE = "AU";
   process.env.IMAGES_BUCKET = "bucket";
+  process.env.PUBLISH_ANALYTICS_TABLE = "PA";
 });
 
 const sendMock = vi.fn();
@@ -679,6 +680,55 @@ describe("public-view handler", () => {
       queryStringParameters: { op: "site", token: TOKEN },
     });
     expect(r.statusCode).toBe(405);
+  });
+
+  it("op=hit — 방문자(IP 해시)·일별·페이지별 3건을 upsert 하고 204 no-store 를 반환한다", async () => {
+    sendMock
+      .mockResolvedValueOnce({ Item: publishRecord }) // publish Get
+      .mockResolvedValueOnce({ Item: rootPage }) // rootMeta Get
+      .mockResolvedValueOnce({}) // visitor Update
+      .mockResolvedValueOnce({}) // day Update
+      .mockResolvedValueOnce({}); // page Update
+
+    const r = await handler({
+      requestContext: { http: { method: "GET", sourceIp: "10.0.0.9" } },
+      headers: {
+        "x-forwarded-for": "203.0.113.7, 130.176.0.1",
+        "cloudfront-viewer-country": "kr",
+      },
+      queryStringParameters: { op: "hit", token: TOKEN, pageId: "root-1" },
+    });
+
+    expect(r.statusCode).toBe(204);
+    expect(r.headers["cache-control"]).toBe("no-store");
+    const updates = sendMock.mock.calls
+      .slice(2)
+      .map((call) => (call[0] as { input: { Key: { sk: string }; ExpressionAttributeValues?: Record<string, unknown> } }).input);
+    const sks = updates.map((u) => u.Key.sk).sort();
+    expect(sks.some((sk) => sk.startsWith("visitor#"))).toBe(true);
+    expect(sks.some((sk) => sk.startsWith("day#"))).toBe(true);
+    expect(sks).toContain("page#root-1");
+    // 원본 IP 는 어디에도 저장되지 않는다(해시만).
+    expect(JSON.stringify(updates)).not.toContain("203.0.113.7");
+    const visitorUpdate = updates.find((u) => u.Key.sk.startsWith("visitor#"));
+    expect(visitorUpdate?.ExpressionAttributeValues?.[":c"]).toBe("KR");
+  });
+
+  it("op=hit — 분석 테이블 기록이 실패해도 204 를 반환한다(공개 조회 불침해)", async () => {
+    sendMock
+      .mockResolvedValueOnce({ Item: publishRecord })
+      .mockResolvedValueOnce({ Item: rootPage })
+      .mockRejectedValueOnce(new Error("ddb down"))
+      .mockRejectedValueOnce(new Error("ddb down"))
+      .mockRejectedValueOnce(new Error("ddb down"));
+
+    const r = await handler({
+      requestContext: { http: { method: "GET", sourceIp: "10.0.0.9" } },
+      headers: {},
+      queryStringParameters: { op: "hit", token: TOKEN, pageId: "root-1" },
+    });
+
+    expect(r.statusCode).toBe(204);
   });
 });
 

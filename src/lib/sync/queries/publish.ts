@@ -21,3 +21,14 @@ export const UNPUBLISH_PAGE = `
     unpublishPage(pageId: $pageId) { ${PUBLISH_STATUS_FIELDS} }
   }
 `;
+
+export const GET_PUBLISH_ANALYTICS = `
+  query GetPublishAnalytics($pageId: ID!) {
+    getPublishAnalytics(pageId: $pageId) {
+      pageId published totalViews uniqueVisitors firstViewAt lastViewAt
+      countries { country visitors views }
+      daily { date views }
+      pages { pageId views }
+    }
+  }
+`;

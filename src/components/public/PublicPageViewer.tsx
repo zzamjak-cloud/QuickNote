@@ -14,6 +14,7 @@ import {
   fetchPublicPage,
   fetchPublicSite,
   isPublicViewConfigured,
+  sendPublicPageHit,
   type PublicManifest,
   type PublicPage,
   type PublicSite,
@@ -516,6 +517,16 @@ export function PublicPageViewer() {
   const page = effectiveCacheKey ? pageCacheRef.current.get(effectiveCacheKey) : undefined;
   // pageCacheVersion 은 캐시 갱신 시 재렌더 트리거(파생 page 를 최신화)하는 용도.
   void pageCacheVersion;
+
+  // 방문 비컨 — 페이지가 실제 표시된 시점에 1회 전송(세션 내 같은 페이지 중복 제외).
+  const hitSentRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!token || !page || !effectivePageId || page.id !== effectivePageId) return;
+    const key = `${token}:${page.id}`;
+    if (hitSentRef.current.has(key)) return;
+    hitSentRef.current.add(key);
+    sendPublicPageHit(token, page.id);
+  }, [token, page, effectivePageId]);
 
   const navigateTo = useCallback(
     (id: string) => {

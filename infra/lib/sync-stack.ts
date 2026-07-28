@@ -965,6 +965,21 @@ export function response(ctx) {
       value: publishedPagesTable.tableName,
     });
 
+    // 웹 게시 방문자 분석 — token PK + sk(visitor#<ipHash> | day#<날짜> | page#<pageId>).
+    // 원본 IP 는 저장하지 않고 토큰별 솔트 해시만 기록한다(고유 방문자 식별용).
+    const publishAnalyticsTable = new dynamodb.Table(this, "PublishAnalyticsTable", {
+      tableName: `${envPrefix}quicknote-publish-analytics`,
+      partitionKey: { name: "token", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "sk", type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
+      encryption: DYNAMODB_TABLE_ENCRYPTION,
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+    });
+    new cdk.CfnOutput(this, "PublishAnalyticsTableName", {
+      value: publishAnalyticsTable.tableName,
+    });
+
     // 공개 웹 게시 조회 Lambda — 인증 없는 Function URL. 실패는 균일 404,
     // reservedConcurrentExecutions 로 남용 시 폭발 반경을 제한한다(읽기 전용 권한만 부여).
     const publicViewFn = new lambdaNode.NodejsFunction(this, "PublicViewFn", {
@@ -985,6 +1000,7 @@ export function response(ctx) {
         IMAGE_ASSET_TABLE: this.imageAssetTable.table.tableName,
         ASSET_USAGE_TABLE: assetUsageTable.tableName,
         IMAGES_BUCKET: imagesBucket.bucketName,
+        PUBLISH_ANALYTICS_TABLE: publishAnalyticsTable.tableName,
       },
       bundling: {
         minify: true,
@@ -994,6 +1010,8 @@ export function response(ctx) {
       },
     });
     publishedPagesTable.grantReadData(publicViewFn);
+    // 방문 비컨(op=hit) 기록용 쓰기 — 그 외 테이블은 읽기 전용 원칙 유지.
+    publishAnalyticsTable.grantWriteData(publicViewFn);
     this.pageTable.table.grantReadData(publicViewFn);
     this.sharedBlockTable.table.grantReadData(publicViewFn);
     this.imageAssetTable.table.grantReadData(publicViewFn);
@@ -1023,6 +1041,21 @@ export function response(ctx) {
         enableAcceptEncodingGzip: true,
       },
     );
+    // 방문자 국가(CloudFront-Viewer-Country)는 CloudFront 생성 헤더라
+    // origin request policy 에 명시해야 Lambda 에 전달된다(캐시 키에는 미포함 — 분할 없음).
+    const publicViewOriginRequestPolicy = new cloudfront.OriginRequestPolicy(
+      this,
+      "PublicViewOriginRequestPolicy",
+      {
+        originRequestPolicyName: `${envPrefix}quicknote-public-view-origin`,
+        comment: "QuickNote public-view — 방문자 국가 헤더 전달",
+        headerBehavior: cloudfront.OriginRequestHeaderBehavior.allowList(
+          "CloudFront-Viewer-Country",
+        ),
+        queryStringBehavior: cloudfront.OriginRequestQueryStringBehavior.all(),
+        cookieBehavior: cloudfront.OriginRequestCookieBehavior.none(),
+      },
+    );
     const publicViewCdn = new cloudfront.Distribution(this, "PublicViewCdn", {
       comment: `${envPrefix}QuickNote public-view CDN`,
       priceClass: cloudfront.PriceClass.PRICE_CLASS_200,
@@ -1036,6 +1069,7 @@ export function response(ctx) {
         allowedMethods: cloudfront.AllowedMethods.ALLOW_GET_HEAD,
         cachedMethods: cloudfront.CachedMethods.CACHE_GET_HEAD,
         cachePolicy: publicViewCdnCachePolicy,
+        originRequestPolicy: publicViewOriginRequestPolicy,
         responseHeadersPolicy:
           cloudfront.ResponseHeadersPolicy.CORS_ALLOW_ALL_ORIGINS_AND_SECURITY_HEADERS,
         viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
@@ -1150,6 +1184,7 @@ export function response(ctx) {
         IMAGE_ASSETS_TABLE_NAME: this.imageAssetTable.table.tableName,
         ASSET_USAGE_TABLE_NAME: assetUsageTable.tableName,
         PUBLISHED_PAGES_TABLE_NAME: publishedPagesTable.tableName,
+        PUBLISH_ANALYTICS_TABLE_NAME: publishAnalyticsTable.tableName,
         PAGE_HISTORY_TABLE_NAME: pageHistoryTable.tableName,
         DATABASE_HISTORY_TABLE_NAME: databaseHistoryTable.tableName,
         DATABASE_ROW_MEMBERS_TABLE_NAME: databaseRowMembersTable.tableName,
@@ -1195,6 +1230,7 @@ export function response(ctx) {
     databaseHistoryTable.grantReadWriteData(v5ResolversFn);
     databaseRowMembersTable.grantReadWriteData(v5ResolversFn);
     publishedPagesTable.grantReadWriteData(v5ResolversFn);
+    publishAnalyticsTable.grantReadData(v5ResolversFn); // 대시보드 집계 조회(읽기 전용 — 기록은 public-view)
     imagesBucket.grantReadWrite(v5ResolversFn);
     customIconsTable.grantReadWriteData(v5ResolversFn);
     workspaceAiConfigTable.grantReadWriteData(v5ResolversFn);
@@ -1253,6 +1289,10 @@ export function response(ctx) {
     v5Ds.createResolver("GetPagePublishStatusQuery", {
       typeName: "Query",
       fieldName: "getPagePublishStatus",
+    });
+    v5Ds.createResolver("GetPublishAnalyticsQuery", {
+      typeName: "Query",
+      fieldName: "getPublishAnalytics",
     });
     v5Ds.createResolver("PromoteToManagerMutation", { typeName: "Mutation", fieldName: "promoteToManager" });
     v5Ds.createResolver("DemoteToMemberMutation", { typeName: "Mutation", fieldName: "demoteToMember" });

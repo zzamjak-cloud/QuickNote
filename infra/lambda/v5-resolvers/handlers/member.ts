@@ -56,6 +56,8 @@ export type Tables = {
   AssetUsage?: string;
   /** 페이지 웹 게시 토큰 테이블 (public-view Lambda 와 공용) */
   PublishedPages?: string;
+  /** 웹 게시 방문자 분석 테이블 (기록은 public-view Lambda, 여기서는 집계 조회) */
+  PublishAnalytics?: string;
   /** S3 자산 버킷 이름 (자산 영구 삭제 시 객체 제거용) */
   ImagesBucketName?: string;
   /** 워크스페이스 공유 커스텀 아이콘 프리셋 테이블 */

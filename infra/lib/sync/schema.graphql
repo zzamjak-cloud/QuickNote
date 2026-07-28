@@ -555,6 +555,37 @@ type PagePublishStatus {
   publishedAt: AWSDateTime
 }
 
+"""웹 게시 방문자 분석 — developer 전용 조회. 동일 IP(해시)는 방문자 1명으로 집계."""
+type PublishCountryStat {
+  """ISO 3166-1 alpha-2 국가 코드 (미상은 "??")."""
+  country: String!
+  visitors: Int!
+  views: Int!
+}
+
+type PublishDailyStat {
+  """YYYY-MM-DD (UTC)."""
+  date: String!
+  views: Int!
+}
+
+type PublishPageViewStat {
+  pageId: ID!
+  views: Int!
+}
+
+type PublishAnalytics {
+  pageId: ID!
+  published: Boolean!
+  totalViews: Int!
+  uniqueVisitors: Int!
+  firstViewAt: AWSDateTime
+  lastViewAt: AWSDateTime
+  countries: [PublishCountryStat!]!
+  daily: [PublishDailyStat!]!
+  pages: [PublishPageViewStat!]!
+}
+
 type Query {
   me: Member!
 
@@ -597,6 +628,8 @@ type Query {
   getImageDownloadUrl(imageId: ID!): String!
   """페이지 웹 게시 상태 조회 — 워크스페이스 view 권한 필요."""
   getPagePublishStatus(pageId: ID!): PagePublishStatus!
+  """웹 게시 방문자 대시보드 집계 — developer 전용."""
+  getPublishAnalytics(pageId: ID!): PublishAnalytics!
   listMyNotifications: [Notification!]!
 
   listSchedules(

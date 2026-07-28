@@ -136,6 +136,16 @@ export async function fetchPublicPage(
   );
 }
 
+/** 방문 비컨 — 조회수/방문자 집계용. fire-and-forget, 실패는 무시한다. */
+export function sendPublicPageHit(token: string, pageId: string): void {
+  if (!isPublicViewConfigured()) return;
+  void fetch(endpoint({ op: "hit", token, pageId }), {
+    method: "GET",
+    cache: "no-store",
+    keepalive: true,
+  }).catch(() => {});
+}
+
 /** 자산(이미지·파일)의 공개 URL — Lambda 가 검증 후 CDN 캐시 가능한 binary 응답을 반환한다. */
 export function buildPublicAssetUrl(
   token: string,

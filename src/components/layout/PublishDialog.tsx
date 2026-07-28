@@ -1,8 +1,10 @@
 // 페이지 "웹에 게시" 다이얼로그 — 게시 상태 조회·게시/해제·공개 URL 복사.
 import { useEffect, useState } from "react";
-import { Globe, Copy, Loader2 } from "lucide-react";
+import { Globe, Copy, Loader2, BarChart3 } from "lucide-react";
 import { DialogBase } from "../../lib/ui-primitives";
 import { useUiStore } from "../../store/uiStore";
+import { useMemberStore } from "../../store/memberStore";
+import { PublishDashboardDialog } from "./PublishDashboardDialog";
 import {
   getPagePublishStatusRevision,
   usePagePublishStatusStore,
@@ -30,9 +32,14 @@ export function PublishDialog({ pageId, onClose }: Props) {
   const [status, setStatus] = useState<PagePublishStatus | null>(null);
   const [loading, setLoading] = useState(false);
   const [working, setWorking] = useState(false);
+  // 방문자 대시보드 — developer 워크스페이스 롤 전용(서버에서도 동일 가드).
+  const myRole = useMemberStore((s) => s.me?.workspaceRole ?? "member");
+  const [dashboardOpen, setDashboardOpen] = useState(false);
   const open = pageId !== null;
 
   useEffect(() => {
+    // 다른 페이지로 다이얼로그가 다시 열릴 때 대시보드가 잔존 상태로 자동 열리지 않도록.
+    setDashboardOpen(false);
     if (!pageId) {
       setStatus(null);
       return;
@@ -132,6 +139,7 @@ export function PublishDialog({ pageId, onClose }: Props) {
   };
 
   return (
+    <>
     <DialogBase
       open={open}
       onClose={onClose}
@@ -212,6 +220,16 @@ export function PublishDialog({ pageId, onClose }: Props) {
         >
           닫기
         </button>
+        {status?.published && myRole === "developer" ? (
+          <button
+            type="button"
+            disabled={loading}
+            onClick={() => setDashboardOpen(true)}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm text-zinc-800 hover:bg-zinc-50 disabled:opacity-50 dark:border-zinc-600 dark:bg-zinc-900 dark:text-zinc-200 dark:hover:bg-zinc-800"
+          >
+            <BarChart3 size={14} /> 대시보드
+          </button>
+        ) : null}
         {status?.published ? (
           <button
             type="button"
@@ -239,5 +257,10 @@ export function PublishDialog({ pageId, onClose }: Props) {
         </button>
       </DialogBase.Footer>
     </DialogBase>
+    <PublishDashboardDialog
+      pageId={dashboardOpen ? pageId : null}
+      onClose={() => setDashboardOpen(false)}
+    />
+    </>
   );
 }
