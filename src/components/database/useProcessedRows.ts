@@ -98,8 +98,8 @@ export function useProcessedRows(
     return ids;
   }, [bundleRowPageOrder, rowIndexRows, currentWorkspaceId]);
   const rowSourcesSelector = useMemo(
-    () => createDatabaseRowSourcesSelector(rowPageOrder, rowIndexRows),
-    [rowIndexRows, rowPageOrder],
+    () => createDatabaseRowSourcesSelector(rowPageOrder, rowIndexRows, databaseId),
+    [databaseId, rowIndexRows, rowPageOrder],
   );
   const rowSources = usePageStore(rowSourcesSelector);
   const databaseDependencyIds = useMemo(

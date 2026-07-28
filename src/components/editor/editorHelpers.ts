@@ -139,12 +139,14 @@ export function uniqueIdStepsHaveBoundary(steps: readonly Step[]): boolean {
   return false;
 }
 
-/** 풀 페이지 DB — 페이지 제목 입력 시 blur 에서만 DB 메타 제목 갱신(중복 검사) */
+/** 풀 페이지 DB — 페이지 제목 입력 시 blur 에서만 DB 메타 제목 갱신(중복 검사).
+ * doc 이 아직 로드되지 않은 콜드 상태에서는 페이지 메타 태그(fallbackDatabaseId)로 해석한다. */
 export function trySyncFullPageDatabaseTitle(
   doc: JSONContent,
   pageTitle: string,
+  fallbackDatabaseId?: string | null,
 ): boolean {
-  const databaseId = getFirstDatabaseBlockId(doc);
+  const databaseId = getFirstDatabaseBlockId(doc) ?? fallbackDatabaseId;
   if (databaseId) {
     return useDatabaseStore
       .getState()

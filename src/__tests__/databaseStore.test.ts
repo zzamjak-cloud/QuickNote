@@ -62,6 +62,37 @@ describe("databaseStore — 페이지 기반 행", () => {
     expect(usePageStore.getState().pages[homePageId!]?.title).toBe("DB2");
   });
 
+  it("setDatabaseTitle은 홈 문서 rename이 거부되면 DB 개명도 중단한다(제목 어긋남 방지)", () => {
+    const dbId = useDatabaseStore.getState().createDatabase("DB1");
+    const homePageId = usePageStore
+      .getState()
+      .ensureFullPagePageForDatabase(dbId, "DB1");
+    expect(homePageId).toBeTruthy();
+    // 목표 제목과 동명인 일반 페이지가 이미 존재 → renamePage 거부 상황 재현
+    usePageStore.setState((s) => ({
+      pages: {
+        ...s.pages,
+        conflict: {
+          id: "conflict",
+          title: "DB2",
+          icon: null,
+          doc: { type: "doc", content: [] },
+          parentId: null,
+          order: 0,
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      },
+    }));
+
+    const ok = useDatabaseStore.getState().setDatabaseTitle(dbId, "DB2");
+
+    expect(ok).toBe(false);
+    // DB 제목·홈 문서 제목 모두 원래 값 유지(부분 개명으로 인한 divergence 없음)
+    expect(useDatabaseStore.getState().databases[dbId]?.meta.title).toBe("DB1");
+    expect(usePageStore.getState().pages[homePageId!]?.title).toBe("DB1");
+  });
+
   it("updateCell title 컬럼은 page.title을 변경", () => {
     const dbId = useDatabaseStore.getState().createDatabase();
     const bundle = useDatabaseStore.getState().databases[dbId]!;

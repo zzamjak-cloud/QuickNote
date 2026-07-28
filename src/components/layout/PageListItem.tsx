@@ -17,6 +17,11 @@ import {
 import type { SidebarDropMode } from "../../lib/sidebarPageTreeCollision";
 import type { PageNode } from "../../store/pageStore";
 import { usePageStore } from "../../store/pageStore";
+import { useDatabaseStore } from "../../store/databaseStore";
+import {
+  getFirstDatabaseBlockId,
+  isFullPageDatabaseDoc,
+} from "../../lib/blocks/editorPolicy";
 import {
   openPageInNewTab,
   shouldOpenInternalLinkInNewTab,
@@ -201,7 +206,20 @@ const PageListItemInner = function PageListItem({
   const commit = () => {
     const next = draft.trim() || "제목 없음";
     if (next !== node.title) {
-      const ok = renamePage(node.id, next);
+      // 풀페이지 DB 홈 페이지(태그 누락 레거시 포함)는 setDatabaseTitle 로 라우팅해
+      // DB 제목과 페이지 제목을 함께 개명한다 — 페이지만 개명되면 두 제목이 어긋난다.
+      const page = usePageStore.getState().pages[node.id];
+      const fullPageDbId =
+        page?.fullPageDatabaseId ??
+        (page && isFullPageDatabaseDoc(page.doc)
+          ? getFirstDatabaseBlockId(page.doc)
+          : null);
+      const dbLoaded =
+        fullPageDbId != null &&
+        Boolean(useDatabaseStore.getState().databases[fullPageDbId]);
+      const ok = dbLoaded
+        ? useDatabaseStore.getState().setDatabaseTitle(fullPageDbId!, next)
+        : renamePage(node.id, next);
       if (!ok) {
         setTitleDuplicateAlert(true);
         return;

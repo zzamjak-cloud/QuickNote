@@ -9,6 +9,7 @@ import type {
 } from "./graphql/operations";
 import { usePageStore } from "../../store/pageStore";
 import { useDatabaseStore } from "../../store/databaseStore";
+import { useDatabaseRowIndexStore } from "../../store/databaseRowIndexStore";
 import { isProtectedDatabaseId } from "../scheduler/database";
 import { applyRemotePagesToStore } from "./storeApply/pageApply";
 import { applyRemoteDatabasesToStore } from "./storeApply/databaseApply";
@@ -100,6 +101,11 @@ export function reconcileWorkspacePagesFullSnapshot(args: {
       workspaceId,
       pages: removedPageIds.length,
     });
+    // row-index 스냅샷(IndexedDB 영속)에서도 제거 — 누락 시 하드 삭제/재생성된 행이
+    // 새로고침마다 fallback 유령으로 렌더되어 실제 행과 중복(2벌)으로 보인다.
+    void useDatabaseRowIndexStore
+      .getState()
+      .removePagesFromAllIndexes(removedPageIds);
   }
   return { removedPageIds };
 }

@@ -100,6 +100,38 @@ describe("database row sources selector", () => {
     ).toEqual([]);
   });
 
+  it("소속 DB가 다른 row index fallback은 행 소스에서 제외한다(캐시 오염/이동 행 유령 방지)", () => {
+    const selector = createDatabaseRowSourcesSelector(
+      ["a", "b"],
+      [
+        {
+          pageId: "a",
+          workspaceId: "ws",
+          databaseId: "other-db",
+          title: "다른 DB 행",
+          icon: null,
+          order: 1,
+          dbCells: {},
+          updatedAt: 1,
+        },
+        {
+          pageId: "b",
+          workspaceId: "ws",
+          databaseId: "db",
+          title: "이 DB 행",
+          icon: null,
+          order: 2,
+          dbCells: {},
+          updatedAt: 1,
+        },
+      ],
+      "db",
+    );
+
+    const rows = selector(state({}));
+    expect(rows.map((r) => r.pageId)).toEqual(["b"]);
+  });
+
   it("stale row index fallback의 템플릿 페이지도 행 소스에서 제외한다", () => {
     const selector = createDatabaseRowSourcesSelector(["template"], [
       {

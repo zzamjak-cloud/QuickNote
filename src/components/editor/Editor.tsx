@@ -1456,8 +1456,14 @@ function EditorInner({
                       return;
                     }
                   }
-                  if (!isFullPageDatabase) return;
-                  const ok = trySyncFullPageDatabaseTitle(page.doc, nextTitle);
+                  // doc 미로드(콜드) 상태에서는 isFullPageDatabase 가 false 라 동기화가 누락됐다
+                  // — 페이지 메타 태그(fullPageDatabaseId)로도 홈 여부를 판별한다.
+                  if (!isFullPageDatabase && !page.fullPageDatabaseId) return;
+                  const ok = trySyncFullPageDatabaseTitle(
+                    page.doc,
+                    nextTitle,
+                    page.fullPageDatabaseId,
+                  );
                   if (!ok) {
                     setSimpleAlert("이미 사용 중인 데이터베이스 이름입니다.");
                     renamePage(effectivePageId, dbTitleBaselineRef.current);

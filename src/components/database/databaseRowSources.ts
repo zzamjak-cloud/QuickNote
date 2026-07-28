@@ -37,10 +37,17 @@ function sameRowSource(
 export function createDatabaseRowSourcesSelector(
   rowPageOrder: readonly string[],
   fallbackRows: readonly DatabaseRowIndexEntry[] = [],
+  databaseId?: string,
 ) {
   let cachedById = new Map<string, CachedRowSource>();
   let lastOutput: DatabaseRowSource[] = [];
-  const fallbackById = new Map(fallbackRows.map((row) => [row.pageId, row]));
+  // 다른 DB 로 이동했거나 캐시가 오염된 엔트리가 이 DB 의 행으로 유령 렌더되지 않도록
+  // fallback 은 소속 DB 가 일치하는 것만 허용한다.
+  const fallbackById = new Map(
+    fallbackRows
+      .filter((row) => !databaseId || row.databaseId === databaseId)
+      .map((row) => [row.pageId, row]),
+  );
 
   return (state: PageStore): DatabaseRowSource[] => {
     const nextOutput: DatabaseRowSource[] = [];

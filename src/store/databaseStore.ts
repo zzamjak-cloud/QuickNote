@@ -364,6 +364,13 @@ export const useDatabaseStore = create<DatabaseStore>()(
         if (isDatabaseTitleTaken(state.databases, nextTitle, id, b.meta.workspaceId)) {
           return false;
         }
+        // 풀페이지 홈 페이지 제목을 먼저 동기화한다. 동명 페이지가 있어 rename 이 거부되면
+        // DB 개명도 중단 — DB 제목만 바뀌고 홈 페이지 제목이 옛 이름으로 남는 어긋남
+        // (DB 관리 팝업의 " · <페이지 제목>" 노출 원인)을 막는다.
+        const homePageId = usePageStore.getState().findFullPagePageIdForDatabase(id);
+        if (homePageId && !usePageStore.getState().renamePage(homePageId, nextTitle)) {
+          return false;
+        }
         set({
           databases: {
             ...state.databases,
@@ -384,9 +391,7 @@ export const useDatabaseStore = create<DatabaseStore>()(
           enqueueUpsertDatabase(bundleAfter);
         }
         // DB 제목 변경 시 해당 DB를 가리키는 buttonBlock 레이블 동기화
-        const homePageId = usePageStore.getState().findFullPagePageIdForDatabase(id);
         if (homePageId) {
-          usePageStore.getState().renamePage(homePageId, nextTitle);
           usePageStore.getState().updateButtonBlockLabels(homePageId, nextTitle);
         }
         return true;
