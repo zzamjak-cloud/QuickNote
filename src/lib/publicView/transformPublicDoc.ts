@@ -31,7 +31,20 @@ export type PublicDocContext = {
   publishedPageIds: ReadonlySet<string>;
   /** site 메타의 pageId → icon (멘션 라벨 보강용, 선택) */
   pageIcons?: ReadonlyMap<string, string | null>;
+  /** site 메타의 pageId → 현재 제목. doc 에 박제된 멘션/링크 라벨은 삽입 시점
+   * 제목이라 개명 후에도 갱신되지 않으므로, 렌더 시 이 맵의 제목을 우선한다. */
+  pageTitles?: ReadonlyMap<string, string>;
 };
+
+/** 트리 내 대상의 현재 제목 우선 — 비어 있으면 doc 저장 라벨로 폴백. */
+function resolveCurrentLabel(
+  targetId: string,
+  storedLabel: string,
+  ctx: PublicDocContext,
+): string {
+  const current = ctx.pageTitles?.get(targetId);
+  return (current?.trim() ? current : storedLabel) || "페이지";
+}
 
 /** icon/emoji 등 자산 스킴이 올 수 있는 attrs 키 */
 const ASSET_ATTR_KEYS = ["src", "icon", "emoji"] as const;
@@ -73,6 +86,8 @@ function transformSharedBlockNode(
       if (ctx.publishedPageIds.has(item.pageId)) {
         return [{
           ...item,
+          // 드롭다운 항목 라벨도 삽입 시점 박제라 개명 후 갱신되지 않는다 — 현재 제목 우선.
+          label: resolveCurrentLabel(item.pageId, item.label, ctx),
           href: publicPageHref(ctx.token, item.pageId),
           active: item.pageId === ctx.pageId,
         }];
@@ -129,6 +144,7 @@ function toPublicPageLinkInline(
   if (!ctx.publishedPageIds.has(targetId)) {
     return [{ type: "text", text: label || "페이지" }];
   }
+  const text = resolveCurrentLabel(targetId, label, ctx);
   const icon = ctx.pageIcons?.get(targetId) ?? null;
   const href = publicPageHref(ctx.token, targetId);
   const linkMark = { type: "link", attrs: { href } };
@@ -153,7 +169,7 @@ function toPublicPageLinkInline(
 
   nodes.push({
     type: "text",
-    text: label || "페이지",
+    text,
     marks: [linkMark],
   });
   return nodes;

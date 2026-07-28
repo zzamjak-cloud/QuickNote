@@ -557,6 +557,14 @@ export function PublicPageViewer() {
     return map;
   }, [site]);
 
+  // 멘션/링크 라벨은 doc 에 삽입 시점 제목으로 박제돼 있어 개명이 반영되지 않는다 —
+  // site 트리의 현재 제목으로 렌더 시 덮어쓴다.
+  const pageTitles = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const p of site?.pages ?? []) map.set(p.id, p.title);
+    return map;
+  }, [site]);
+
   const publicDocCtx = useMemo((): PublicDocContext | null => {
     if (!token || !effectivePageId || !manifest) return null;
     return {
@@ -565,8 +573,9 @@ export function PublicPageViewer() {
       snapshotVersion: manifest.snapshotVersion,
       publishedPageIds,
       pageIcons,
+      pageTitles,
     };
-  }, [token, effectivePageId, manifest, publishedPageIds, pageIcons]);
+  }, [token, effectivePageId, manifest, publishedPageIds, pageIcons, pageTitles]);
 
   // 변환 결과를 page 객체 참조와 함께 캐시해 **동일 객체 참조**를 유지한다.
   // 같은 공개 페이지를 재검증해 새 스냅샷이 오면 변환 캐시도 자연스럽게 갱신한다.

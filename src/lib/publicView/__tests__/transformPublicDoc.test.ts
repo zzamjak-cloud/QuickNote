@@ -110,6 +110,60 @@ describe("transformPublicDoc", () => {
     expect(inline[1]?.marks?.[0]?.attrs?.href).toBe(`/p/${ctx.token}?page=child-1`);
   });
 
+  it("멘션의 박제 라벨 대신 site 트리의 현재 제목을 렌더한다(개명 동기화)", () => {
+    const doc: JSONContent = {
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          content: [
+            {
+              type: "mention",
+              attrs: { id: "p:child-1", mentionKind: "page", label: "옛 제목" },
+            },
+            { type: "pageLink", attrs: { id: "child-1", label: "옛 제목" } },
+          ],
+        },
+      ],
+    };
+    const out = transformPublicDoc(doc, {
+      ...ctx,
+      pageTitles: new Map([["child-1", "새 제목"]]),
+    });
+    const inline = out.content?.[0]?.content ?? [];
+    expect(inline[0]?.text).toBe("새 제목");
+    expect(inline[1]?.text).toBe("새 제목");
+  });
+
+  it("현재 제목이 비어 있으면 박제 라벨로 폴백하고, 트리 밖 멘션은 라벨을 유지한다", () => {
+    const doc: JSONContent = {
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          content: [
+            {
+              type: "mention",
+              attrs: { id: "p:child-1", mentionKind: "page", label: "저장 라벨" },
+            },
+            {
+              type: "mention",
+              attrs: { id: "p:secret-1", mentionKind: "page", label: "비공개 라벨" },
+            },
+          ],
+        },
+      ],
+    };
+    const out = transformPublicDoc(doc, {
+      ...ctx,
+      pageTitles: new Map([["child-1", "  "]]),
+    });
+    const inline = out.content?.[0]?.content ?? [];
+    expect(inline[0]?.text).toBe("저장 라벨");
+    expect(inline[1]?.text).toBe("비공개 라벨");
+    expect(inline[1]?.marks).toBeUndefined();
+  });
+
   it("페이지 멘션 Lucide 아이콘은 lucideInlineIcon 노드로 변환한다", () => {
     const doc: JSONContent = {
       type: "doc",
