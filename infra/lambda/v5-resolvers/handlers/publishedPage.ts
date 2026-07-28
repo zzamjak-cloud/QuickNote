@@ -29,6 +29,9 @@ import {
 
 const s3 = new S3Client({});
 const MAX_SNAPSHOT_PAGES_PER_PUBLISH = 200;
+// 페이지 스냅샷 생성 병렬도 — 순차 처리로는 대형 트리(수백 페이지)가 Lambda 28초
+// 타임아웃에 걸려 포인터 갱신 전에 죽고, 방문자는 영구히 옛 스냅샷을 보게 된다.
+const SNAPSHOT_BUILD_CONCURRENCY = 6;
 
 export type PublishRecord = {
   token: string;
@@ -273,13 +276,15 @@ async function putSnapshotJson(args: {
   );
 }
 
+/** 공개 스냅샷 재생성. 성공 여부를 반환한다(실패 시 옛 version 포인터가 유지됨). */
 async function refreshPublishedSnapshot(args: {
   doc: DynamoDBDocumentClient;
   tables: Tables;
   publish: PublishRecord;
-}): Promise<void> {
+}): Promise<boolean> {
   const snapshotTables = resolveSnapshotTables(args.tables);
-  if (!snapshotTables) return;
+  // 스냅샷 인프라 미구성 환경은 라이브 서빙이 기본이므로 성공으로 간주한다.
+  if (!snapshotTables) return true;
 
   try {
     const version = makeSnapshotVersion();
@@ -295,21 +300,34 @@ async function refreshPublishedSnapshot(args: {
       .map((page) => page.id)
       .slice(0, MAX_SNAPSHOT_PAGES_PER_PUBLISH);
 
-    for (const pageId of snapshotPageIds) {
-      const page = await buildPublicPageSnapshot({
-        docClient: args.doc,
-        tables: snapshotTables,
-        publish: args.publish,
-        tree,
-        pageId,
-      });
-      if (!page) continue;
-      await putSnapshotJson({
-        bucket: snapshotTables.bucket,
-        key: publicSnapshotPageKey(args.publish.token, version, pageId),
-        body: page,
-      });
-    }
+    // 소규모 병렬 워커 풀 — 순차 처리 대비 벽시계 시간을 크게 줄여 타임아웃을 회피한다.
+    let cursor = 0;
+    await Promise.all(
+      Array.from(
+        { length: Math.min(SNAPSHOT_BUILD_CONCURRENCY, snapshotPageIds.length) },
+        async () => {
+          for (;;) {
+            const index = cursor;
+            cursor += 1;
+            if (index >= snapshotPageIds.length) return;
+            const pageId = snapshotPageIds[index];
+            const page = await buildPublicPageSnapshot({
+              docClient: args.doc,
+              tables: snapshotTables,
+              publish: args.publish,
+              tree,
+              pageId,
+            });
+            if (!page) continue;
+            await putSnapshotJson({
+              bucket: snapshotTables.bucket,
+              key: publicSnapshotPageKey(args.publish.token, version, pageId),
+              body: page,
+            });
+          }
+        },
+      ),
+    );
     await putSnapshotJson({
       bucket: snapshotTables.bucket,
       key: siteKey,
@@ -333,12 +351,16 @@ async function refreshPublishedSnapshot(args: {
         },
       }),
     );
+    return true;
   } catch (error) {
-    console.warn("[publish] 공개 스냅샷 생성 실패, live fallback 유지", {
+    // 주의: 실패해도 "live fallback"이 아니라 이전 snapshotVersion 포인터가 그대로
+    // 서빙된다 — 호출부가 반환값으로 사용자에게 실패를 알려야 한다.
+    console.warn("[publish] 공개 스냅샷 생성 실패", {
       pageId: args.publish.pageId,
       token: args.publish.token,
       message: error instanceof Error ? error.message : String(error),
     });
+    return false;
   }
 }
 
@@ -384,7 +406,7 @@ export async function publishPage(args: BaseArgs): Promise<PagePublishStatusGql>
         },
       }),
     );
-    await refreshPublishedSnapshot({
+    const refreshed = await refreshPublishedSnapshot({
       doc: args.doc,
       tables: args.tables,
       publish: {
@@ -394,6 +416,11 @@ export async function publishPage(args: BaseArgs): Promise<PagePublishStatusGql>
         fullWidthById: layout.fullWidthById,
       },
     });
+    // 재게시의 목적이 스냅샷 갱신이므로, 무음 실패(성공 토스트 + 옛 화면 지속)를 막고
+    // 사용자에게 실패를 알려 재시도를 유도한다.
+    if (!refreshed) {
+      badRequest("공개 스냅샷 갱신에 실패했습니다. 잠시 후 다시 시도해 주세요.");
+    }
     return toStatus(args.pageId, page.workspaceId, existing);
   }
 

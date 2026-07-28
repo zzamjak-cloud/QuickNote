@@ -345,6 +345,11 @@ export function PublicPageViewer() {
     parsePublicRouteFromLocation().pageId,
   );
   const manifestTokenRef = useRef<string | null>(null);
+  // manifest 를 한 번이라도 성공적으로 받은 token — 일시 오류와 초기 로드 실패를 구분한다.
+  const manifestLoadedTokenRef = useRef<string | null>(null);
+  // 일시 오류(429/5xx/네트워크) 상태 — "게시 해제"(404)와 분리해 오탐 화면을 막는다.
+  const [loadError, setLoadError] = useState(false);
+  const [retryNonce, setRetryNonce] = useState(0);
   const siteCacheRef = useRef<Map<string, PublicSite | null>>(new Map());
   const siteFetchedAtRef = useRef<Map<string, number>>(new Map());
   // 방문한 페이지 캐시(token:snapshotVersion:pageId → 결과). undefined=미로드, null=404, 객체=본문.
@@ -384,18 +389,32 @@ export function PublicPageViewer() {
     void fetchPublicManifest(token)
       .then((m) => {
         if (canceled) return;
+        manifestLoadedTokenRef.current = token;
+        setLoadError(false);
         setManifest(m);
         if (!m) setSite(null);
       })
       .catch(() => {
         if (canceled) return;
-        setManifest(null);
-        setSite(null);
+        // 일시 오류(재시도 후에도 실패) — "게시 해제"로 오분류하지 않는다.
+        // 이미 성공한 manifest/site 가 있으면 기존 화면을 유지하고,
+        // 초기 로드 실패일 때만 오류 화면(자동 재시도)으로 구분한다.
+        if (manifestLoadedTokenRef.current !== token) setLoadError(true);
       });
     return () => {
       canceled = true;
     };
-  }, [token, currentPageId]);
+  }, [token, currentPageId, retryNonce]);
+
+  // 일시 오류 자동 재시도 — 초기 로드 실패 화면에서만 주기적으로 다시 시도한다.
+  useEffect(() => {
+    if (!loadError) return;
+    const timer = window.setTimeout(() => {
+      setLoadError(false);
+      setRetryNonce((n) => n + 1);
+    }, 8000);
+    return () => window.clearTimeout(timer);
+  }, [loadError]);
 
   // 사이트(트리) 로드
   useEffect(() => {
@@ -425,7 +444,10 @@ export function PublicPageViewer() {
         setSite(s);
       })
       .catch(() => {
-        if (!canceled) setSite(null);
+        if (canceled) return;
+        // 일시 실패 — 캐시된 트리가 있으면 그대로 유지하고(해제 오탐 방지),
+        // 초기 로드 실패일 때만 오류 화면으로 구분한다.
+        if (siteCacheRef.current.get(cacheKey) === undefined) setLoadError(true);
       });
     return () => {
       canceled = true;
@@ -470,7 +492,10 @@ export function PublicPageViewer() {
       .then((p) => {
         if (canceled) return;
         pageCacheRef.current.set(cacheKey, p);
-        pageFetchedAtRef.current.set(cacheKey, Date.now());
+        // 404(null)는 일시적(스냅샷 교체·트리 메모 스테일)일 수 있으므로 재검증 창을
+        // 기록하지 않는다 — 다음 진입 시 60초 차단 없이 즉시 재확인해 고착을 막는다.
+        if (p) pageFetchedAtRef.current.set(cacheKey, Date.now());
+        else pageFetchedAtRef.current.delete(cacheKey);
         setPageCacheVersion((v) => v + 1);
       })
       .catch(() => {
@@ -499,6 +524,9 @@ export function PublicPageViewer() {
       window.history.pushState(null, "", url);
       setCurrentPageId(id === site?.rootId ? null : id);
       setBackDepth((d) => d + 1);
+      // 문서 중간 스크롤 위치가 새 페이지에 남으면 lazy 이미지가 한꺼번에 활성화되어
+      // 동시 요청 폭주(429)로 이어진다 — 페이지 이동 시 최상단에서 시작한다.
+      scrollHostRef.current?.scrollTo({ top: 0 });
     },
     [token, site],
   );
@@ -518,6 +546,7 @@ export function PublicPageViewer() {
       setCurrentPageId(route.pageId);
       setBackDepth((d) => d + 1);
       setOutlineOpen(false);
+      scrollHostRef.current?.scrollTo({ top: 0 });
     },
     [setOutlineOpen],
   );
@@ -594,6 +623,14 @@ export function PublicPageViewer() {
     return <CenteredNotice title="잘못된 링크입니다." />;
   }
   if (site === undefined) {
+    if (loadError) {
+      return (
+        <CenteredNotice
+          title="일시적인 오류로 불러오지 못했습니다."
+          detail="네트워크 또는 서버 혼잡일 수 있습니다. 잠시 후 자동으로 다시 시도합니다."
+        />
+      );
+    }
     return <CenteredNotice title="불러오는 중…" />;
   }
   if (site === null) {

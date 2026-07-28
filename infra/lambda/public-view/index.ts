@@ -225,6 +225,50 @@ async function getActivePublishRecord(token: string): Promise<PublishRecord | nu
 }
 
 /**
+ * 하위 페이지가 자기 토큰으로 더 최신 스냅샷을 갖고 있으면 그것을 우선 서빙한다.
+ * 재게시(스냅샷 업데이트)는 해당 페이지 자신의 토큰만 다시 굽고 조상 토큰 스냅샷은
+ * 갱신하지 않으므로, 이 선별이 없으면 조상 경로(/p/<ancestor>?page=<child>)가
+ * 재게시 후에도 영구히 옛 사본을 서빙한다.
+ */
+async function findFresherOwnPageSnapshot(
+  publish: PublishRecord,
+  pageId: string,
+): Promise<PublicPageSnapshot | null> {
+  try {
+    const r = await ddb.send(
+      new QueryCommand({
+        TableName: PUBLISHED_TABLE,
+        IndexName: "byPageId",
+        KeyConditionExpression: "pageId = :p",
+        ExpressionAttributeValues: { ":p": pageId },
+        ScanIndexForward: false,
+      }),
+    );
+    const own = ((r.Items ?? []) as PublishRecord[]).find(
+      (rec) =>
+        rec.pageId === pageId &&
+        rec.workspaceId === publish.workspaceId &&
+        !rec.revokedAt &&
+        Boolean(rec.snapshotVersion),
+    );
+    if (!own) return null;
+    const ownCreatedAt = own.snapshotCreatedAt ?? "";
+    const baseCreatedAt = publish.snapshotCreatedAt ?? "";
+    // ISO 문자열 사전순 비교 — 자체 스냅샷이 더 최신일 때만 대체한다.
+    if (!ownCreatedAt || ownCreatedAt <= baseCreatedAt) return null;
+    return await readSnapshotJson<PublicPageSnapshot>(
+      getSnapshotPageKey(own, pageId),
+    );
+  } catch (error) {
+    console.warn("[public-view] 하위 페이지 자체 스냅샷 조회 실패", {
+      pageId,
+      message: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  }
+}
+
+/**
  * 현재 트리 밖 드롭다운 대상 중 같은 워크스페이스에서 별도 게시 중인 루트의 href를 찾는다.
  * 대상 페이지의 존재·삭제·DB 행 여부는 이미 workspace 메타 쿼리의 공개 가능 집합으로 검증한다.
  */
@@ -380,6 +424,10 @@ async function handlePage(
   publish: PublishRecord,
   pageId: string,
 ): Promise<FnUrlResult> {
+  if (pageId !== publish.pageId) {
+    const fresher = await findFresherOwnPageSnapshot(publish, pageId);
+    if (fresher) return snapshotJson(fresher);
+  }
   const snapshot = await readSnapshotJson<PublicPageSnapshot>(
     getSnapshotPageKey(publish, pageId),
   );
@@ -452,32 +500,53 @@ async function handleAsset(
   pageId: string,
   assetId: string,
 ): Promise<FnUrlResult> {
-  if (pageId !== publish.pageId) {
-    const { ids } = await getPublishedTree(publish);
-    if (!ids.has(pageId)) return notFound();
-  }
-  const page = await getPageRow(pageId);
-  if (!isServablePage(page, publish)) return notFound();
-  let pageDoc = parseDocField(page.doc);
-  if (hasSharedBlockNodes(pageDoc)) {
-    const { ids } = await getPublishedTree(publish);
-    pageDoc = await hydratePublicSharedBlocks({
-      docClient: ddb,
-      tableName: SHARED_BLOCKS_TABLE,
-      workspaceId: publish.workspaceId,
-      publishedPageIds: ids,
-      pageDoc,
-    });
+  // 스냅샷 우선 — 방문자가 보는 doc(스냅샷)과 동일한 기준으로 참조를 검증한다.
+  // 이 경로가 없으면 자식 페이지의 이미지 1장마다 워크스페이스 전체 트리 스캔 +
+  // 라이브 doc 읽기가 돌아, 동시 이미지 요청이 Lambda 동시성 한도를 소진한다(429).
+  let icon: string | null = null;
+  let coverImage: string | null = null;
+  let refs: ReadonlySet<string>;
+  const fresher =
+    pageId !== publish.pageId
+      ? await findFresherOwnPageSnapshot(publish, pageId)
+      : null;
+  const snapshot =
+    fresher ??
+    (await readSnapshotJson<PublicPageSnapshot>(
+      getSnapshotPageKey(publish, pageId),
+    ));
+  if (snapshot) {
+    icon = snapshot.icon ?? null;
+    coverImage = snapshot.coverImage ?? null;
+    refs = collectDocAssetIds(snapshot.doc, [icon, coverImage]);
+  } else {
+    // 레거시 토큰(스냅샷 없음) — 기존 라이브 경로.
+    if (pageId !== publish.pageId) {
+      const { ids } = await getPublishedTree(publish);
+      if (!ids.has(pageId)) return notFound();
+    }
+    const page = await getPageRow(pageId);
+    if (!isServablePage(page, publish)) return notFound();
+    let pageDoc = parseDocField(page.doc);
+    if (hasSharedBlockNodes(pageDoc)) {
+      const { ids } = await getPublishedTree(publish);
+      pageDoc = await hydratePublicSharedBlocks({
+        docClient: ddb,
+        tableName: SHARED_BLOCKS_TABLE,
+        workspaceId: publish.workspaceId,
+        publishedPageIds: ids,
+        pageDoc,
+      });
+    }
+    icon = page.icon ?? null;
+    coverImage = page.coverImage ?? null;
+    refs = collectDocAssetIds(pageDoc, [icon, coverImage]);
   }
   // 1차 방어: 페이지에 실제 참조된 자산만(임의 assetId 다운로드 금지).
-  const refs = collectDocAssetIds(pageDoc, [
-    page.icon,
-    page.coverImage,
-  ]);
   if (!refs.has(assetId)) return notFound();
-  // 페이지 chrome(icon/cover) 은 Pages 행에 직접 붙어 있으므로 AssetUsage 누락이어도
+  // 페이지 chrome(icon/cover) 은 페이지 행/스냅샷에 직접 붙어 있으므로 AssetUsage 누락이어도
   // 게시 워크스페이스 소속 페이지만 통과하면 허용한다(제목 아이콘 401/깨짐 방지).
-  const chromeIds = collectDocAssetIds(null, [page.icon, page.coverImage]);
+  const chromeIds = collectDocAssetIds(null, [icon, coverImage]);
   const isPageChrome = chromeIds.has(assetId);
   if (!isPageChrome) {
     // 2차 방어(교차 워크스페이스 유출 차단): doc attrs 는 클라이언트가 임의로 쓸 수 있으므로

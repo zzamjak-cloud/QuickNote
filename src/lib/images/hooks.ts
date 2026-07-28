@@ -28,6 +28,11 @@ export type UseImageUrlResult = {
 // <img> 로드 실패 자가 치유 재시도 상한(초과 시 에러 표시로 전환).
 const MAX_LOAD_ERROR_HEALS = 2;
 
+// 일반 URL(공개 게시 asset 등) <img> 로드 실패 재시도 상한.
+// 공개 뷰어 Lambda 동시성 제한(429)·일시 5xx 로 실패해도 백오프 재시도로 자가 치유한다 —
+// 재시도가 없으면 한 번의 실패가 새로고침 전까지 [image error] 로 고착된다.
+const MAX_PLAIN_URL_RETRIES = 4;
+
 const LOAD_FAIL_MESSAGE = "이미지를 불러오지 못했습니다.";
 
 function mapImageErrorMessage(error: unknown): string {
@@ -93,12 +98,24 @@ export function useImageUrl(
     }
     const id = decodeImageRef(srcOrRef) ?? decodeFileRef(srcOrRef);
     if (!id) {
-      // 일반 URL(또는 data:)은 그대로 사용. 로드 실패 시엔 재발급으로 치유할 수 없으므로
-      // 깨진 아이콘 대신 에러 표시로 전환한다.
-      if (healCount > 0) {
+      // 일반 URL(또는 data:)은 재발급 치유가 불가능하지만, 서버 측 일시 오류(429/5xx)로
+      // 실패할 수 있으므로 백오프 후 같은 URL 로 재시도한다(에러 응답은 no-store 라 캐시 고착 없음).
+      if (healCount > MAX_PLAIN_URL_RETRIES) {
         setUrl(null);
         setError(LOAD_FAIL_MESSAGE);
         return;
+      }
+      if (healCount > 0) {
+        // url 을 잠시 비워 <img> 를 재마운트시켜야 동일 src 재요청이 발생한다.
+        setUrl(null);
+        setError(null);
+        retryTimer = setTimeout(() => {
+          if (!canceled) setUrl(srcOrRef);
+        }, Math.min(IMAGE_RESOLVE_MAX_DELAY_MS, IMAGE_RESOLVE_BASE_DELAY_MS * 2 ** (healCount - 1)));
+        return () => {
+          canceled = true;
+          if (retryTimer) clearTimeout(retryTimer);
+        };
       }
       setUrl(srcOrRef);
       setError(null);

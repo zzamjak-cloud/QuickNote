@@ -682,6 +682,157 @@ describe("public-view handler", () => {
   });
 });
 
+describe("public-view 스냅샷 우선 서빙", () => {
+  const PARENT_TOKEN = "parenttoken123456789";
+  const CHILD_TOKEN = "childtoken1234567890";
+  const parentSnapshotRecord = {
+    token: PARENT_TOKEN,
+    pageId: "root-1",
+    workspaceId: "ws-1",
+    publishedAt: "2026-07-01T00:00:00Z",
+    snapshotVersion: "v1",
+    snapshotCreatedAt: "2026-07-01T00:00:00.000Z",
+    snapshotSiteKey: `public-snapshots/${PARENT_TOKEN}/v1/site.json`,
+    snapshotPageKeyPrefix: `public-snapshots/${PARENT_TOKEN}/v1/pages/`,
+  };
+
+  function s3JsonObject(body: unknown) {
+    return {
+      Body: { transformToString: async () => JSON.stringify(body) },
+    };
+  }
+
+  it("op=page — 자식이 자기 토큰으로 더 최신 스냅샷을 가지면 그것을 서빙한다(재게시 반영)", async () => {
+    sendMock
+      .mockResolvedValueOnce({ Item: parentSnapshotRecord }) // publish Get
+      .mockResolvedValueOnce({ Item: { id: "root-1", workspaceId: "ws-1" } }) // rootMeta
+      .mockResolvedValueOnce({
+        // byPageId Query — 자식의 자체 게시 레코드(더 최신 스냅샷)
+        Items: [
+          {
+            token: CHILD_TOKEN,
+            pageId: "child-1",
+            workspaceId: "ws-1",
+            snapshotVersion: "v9",
+            snapshotCreatedAt: "2026-07-25T00:00:00.000Z",
+            snapshotPageKeyPrefix: `public-snapshots/${CHILD_TOKEN}/v9/pages/`,
+          },
+        ],
+      });
+    s3SendMock.mockResolvedValueOnce(
+      s3JsonObject({
+        id: "child-1",
+        title: "자식 최신",
+        titleColor: null,
+        icon: null,
+        coverImage: null,
+        parentId: "root-1",
+        updatedAt: "2026-07-25T00:00:00Z",
+        fullWidth: false,
+        doc: { type: "doc", content: [] },
+      }),
+    );
+
+    const r = await handler(
+      getEvent({ op: "page", token: PARENT_TOKEN, pageId: "child-1" }),
+    );
+
+    expect(r.statusCode).toBe(200);
+    expect(JSON.parse(r.body).title).toBe("자식 최신");
+    // 자식 자체 토큰의 스냅샷 키를 읽었는지 확인
+    const s3Key = (s3SendMock.mock.calls[0]?.[0] as { input?: { Key?: string } })
+      ?.input?.Key;
+    expect(s3Key).toBe(`public-snapshots/${CHILD_TOKEN}/v9/pages/child-1.json`);
+  });
+
+  it("op=asset — 스냅샷 doc 으로 참조를 검증한다(라이브 페이지·워크스페이스 트리 조회 없음)", async () => {
+    sendMock
+      .mockResolvedValueOnce({ Item: parentSnapshotRecord }) // publish Get
+      .mockResolvedValueOnce({ Item: { id: "root-1", workspaceId: "ws-1" } }) // rootMeta
+      .mockResolvedValueOnce({ Items: [{ workspaceId: "ws-1" }] }) // AssetUsage
+      .mockResolvedValueOnce({
+        Item: { id: "asset-9", status: "READY", key: "k/asset-9" },
+      }); // Asset Get
+    s3SendMock
+      .mockResolvedValueOnce(
+        s3JsonObject({
+          id: "root-1",
+          title: "루트",
+          titleColor: null,
+          icon: null,
+          coverImage: null,
+          parentId: null,
+          updatedAt: null,
+          fullWidth: false,
+          doc: {
+            type: "doc",
+            content: [{ type: "image", attrs: { src: "quicknote-image://asset-9" } }],
+          },
+        }),
+      )
+      .mockResolvedValueOnce(s3ImageObject([1, 2, 3]));
+
+    const r = await handler(
+      getEvent({
+        op: "asset",
+        token: PARENT_TOKEN,
+        pageId: "root-1",
+        assetId: "asset-9",
+      }),
+    );
+
+    expect(r.statusCode).toBe(200);
+    expect(Buffer.from(r.body, "base64")).toEqual(Buffer.from([1, 2, 3]));
+    // getPageRow·workspaceMetas 스캔 없이 publish·rootMeta·AssetUsage·Asset 4회만
+    expect(sendMock).toHaveBeenCalledTimes(4);
+    expect(s3SendMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("op=asset — 자식 페이지도 스냅샷 경로로 검증한다(전체 트리 스캔 제거)", async () => {
+    sendMock
+      .mockResolvedValueOnce({ Item: parentSnapshotRecord }) // publish Get
+      .mockResolvedValueOnce({ Item: { id: "root-1", workspaceId: "ws-1" } }) // rootMeta
+      .mockResolvedValueOnce({ Items: [] }) // byPageId Query — 자체 게시 없음
+      .mockResolvedValueOnce({ Items: [{ workspaceId: "ws-1" }] }) // AssetUsage
+      .mockResolvedValueOnce({
+        Item: { id: "asset-7", status: "READY", key: "k/asset-7" },
+      }); // Asset Get
+    s3SendMock
+      .mockResolvedValueOnce(
+        s3JsonObject({
+          id: "child-1",
+          title: "자식",
+          titleColor: null,
+          icon: null,
+          coverImage: null,
+          parentId: "root-1",
+          updatedAt: null,
+          fullWidth: false,
+          doc: {
+            type: "doc",
+            content: [{ type: "image", attrs: { src: "quicknote-image://asset-7" } }],
+          },
+        }),
+      )
+      .mockResolvedValueOnce(s3ImageObject([4, 5, 6]));
+
+    const r = await handler(
+      getEvent({
+        op: "asset",
+        token: PARENT_TOKEN,
+        pageId: "child-1",
+        assetId: "asset-7",
+      }),
+    );
+
+    expect(r.statusCode).toBe(200);
+    expect(Buffer.from(r.body, "base64")).toEqual(Buffer.from([4, 5, 6]));
+    // 워크스페이스 전체 메타 스캔(loadPublishablePageMetas) 호출 없음
+    expect(sendMock).toHaveBeenCalledTimes(5);
+    expect(s3SendMock).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe("tree/docAssets 순환·상한", () => {
   it("순환 parentId 데이터에서도 종료한다", async () => {
     const { collectSubtreeIds } = await import("./tree");

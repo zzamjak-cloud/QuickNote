@@ -971,10 +971,13 @@ export function response(ctx) {
       entry: path.join(__dirname, "..", "lambda", "public-view", "index.ts"),
       runtime: lambda.Runtime.NODEJS_22_X,
       handler: "handler",
-      memorySize: 256,
+      // 512MB — base64 응답(최대 ~6MB) 버퍼링 + CPU 비례 상향으로 대형 이미지 인코딩 지연을 줄인다.
+      memorySize: 512,
       timeout: cdk.Duration.seconds(10),
       logRetention: logs.RetentionDays.ONE_MONTH,
-      reservedConcurrentExecutions: 10,
+      // 페이지 진입 시 이미지 N장 + manifest/page 요청이 동시에 몰린다. 10이면 방문자 1~2명의
+      // 이미지 폭주만으로 429 가 나서 [image error]·"게시 해제" 오탐으로 이어졌다.
+      reservedConcurrentExecutions: 50,
       environment: {
         PUBLISHED_PAGES_TABLE: publishedPagesTable.tableName,
         PAGES_TABLE: this.pageTable.table.tableName,

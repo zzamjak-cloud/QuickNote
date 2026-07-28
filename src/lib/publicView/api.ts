@@ -59,7 +59,16 @@ type FetchJsonOptions = {
   cache?: RequestCache;
 };
 
-/** 404(미게시/해제)를 null 로 돌려준다. 그 외 실패는 throw. */
+// 일시 오류(429/5xx/네트워크) 백오프 재시도 — 공개 뷰어 Lambda 동시성 제한에 잠깐 걸려도
+// 호출부에서 "게시 해제"로 오분류되지 않도록 여기서 흡수한다.
+const FETCH_MAX_ATTEMPTS = 3;
+const FETCH_RETRY_BASE_DELAY_MS = 600;
+
+function isRetryableStatus(status: number): boolean {
+  return status === 429 || status >= 500;
+}
+
+/** 404(미게시/해제)를 null 로 돌려준다. 그 외 실패는 재시도 후에도 안 되면 throw. */
 async function fetchJson<T>(
   url: string,
   options: FetchJsonOptions = {},
@@ -68,10 +77,27 @@ async function fetchJson<T>(
   // 브라우저가 서버 Cache-Control(max-age/stale-while-revalidate)을 활용할 수 있게 둔다.
   const init: RequestInit = { method: "GET" };
   if (options.cache) init.cache = options.cache;
-  const resp = await fetch(url, init);
-  if (resp.status === 404) return null;
-  if (!resp.ok) throw new Error(`public-view 요청 실패: ${resp.status}`);
-  return (await resp.json()) as T;
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt < FETCH_MAX_ATTEMPTS; attempt++) {
+    if (attempt > 0) {
+      await new Promise((resolve) =>
+        setTimeout(resolve, FETCH_RETRY_BASE_DELAY_MS * 2 ** (attempt - 1)),
+      );
+    }
+    try {
+      const resp = await fetch(url, init);
+      if (resp.status === 404) return null;
+      if (resp.ok) return (await resp.json()) as T;
+      lastError = new Error(`public-view 요청 실패: ${resp.status}`);
+      if (!isRetryableStatus(resp.status)) break;
+    } catch (error) {
+      // 네트워크/CORS 실패 — 일시 오류로 보고 재시도.
+      lastError = error;
+    }
+  }
+  throw lastError instanceof Error
+    ? lastError
+    : new Error("public-view 요청 실패");
 }
 
 export async function fetchPublicManifest(
