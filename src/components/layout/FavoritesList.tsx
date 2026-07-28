@@ -4,7 +4,8 @@ import { useCallback, useEffect, useRef } from "react";
 import {
   DndContext,
   type DragEndEvent,
-  PointerSensor,
+  MouseSensor,
+  TouchSensor,
   useSensor,
   useSensors,
   closestCenter,
@@ -71,7 +72,7 @@ function FavoriteRow({ pageId }: { pageId: string }) {
     <div
       ref={setNodeRef}
       style={style}
-      className="group flex min-h-7 items-center gap-1 rounded-md px-1 py-0.5 hover:bg-zinc-200/80 dark:hover:bg-zinc-800/80"
+      className="group flex min-h-7 touch-pan-y select-none items-center gap-1 rounded-md px-1 py-0.5 hover:bg-zinc-200/80 dark:hover:bg-zinc-800/80"
       {...attributes}
       {...listeners}
     >
@@ -270,8 +271,10 @@ export function FavoritesList() {
     showToast,
   ]);
 
+  // 사이드바와 동일한 입력별 분리 — 터치는 롱프레스 후에만 드래그(스크롤 오인 방지).
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(MouseSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 8 } }),
   );
 
   const onDragEnd = useCallback(

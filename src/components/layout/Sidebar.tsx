@@ -2,7 +2,8 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } fro
 import {
   DndContext,
   DragOverlay,
-  PointerSensor,
+  MouseSensor,
+  TouchSensor,
   useSensor,
   useSensors,
   type DragEndEvent,
@@ -175,8 +176,13 @@ export function Sidebar({ variant = "inline" }: { variant?: "inline" | "drawer" 
     return () => window.removeEventListener("keydown", onKey);
   }, [activePageId, movePageRelative]);
 
+  // 입력별 활성화 조건 분리 — 터치에서 스크롤 스와이프가 드래그로 오인되는 것을 막는다.
+  //  - 마우스: 4px 이동 시 드래그(기존 감각 유지)
+  //  - 터치: 롱프레스 250ms + 8px 허용오차 후 드래그. 즉시 움직이면 네이티브 스크롤,
+  //    슬롭 이내 탭은 클릭(페이지 열기)으로 각각 분리된다.
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(MouseSensor, { activationConstraint: { distance: 4 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 8 } }),
   );
 
   const flushPendingDropPaint = () => {

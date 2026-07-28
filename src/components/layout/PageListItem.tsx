@@ -265,7 +265,9 @@ const PageListItemInner = function PageListItem({
         {...(rowDragEnabled ? listeners : {})}
         className={[
           "group relative flex items-center gap-0.5 rounded-md py-1 pr-1 text-sm transition-transform duration-100",
-          rowDragEnabled ? `${POINTER_PRESS_FEEDBACK_CLASS} touch-none` : "",
+          // touch-pan-y: 세로 스와이프는 네이티브 스크롤에 위임. 드래그는 TouchSensor
+          // 롱프레스(250ms) 성립 후에만 시작된다(touch-none 이면 스크롤 자체가 불가).
+          rowDragEnabled ? `${POINTER_PRESS_FEEDBACK_CLASS} touch-pan-y select-none` : "",
           selected
             ? "bg-blue-100/80 text-zinc-900 dark:bg-blue-900/40 dark:text-zinc-100"
             : active
@@ -282,6 +284,10 @@ const PageListItemInner = function PageListItem({
         onContextMenu={(e) => {
           e.preventDefault();
           e.stopPropagation();
+          // 터치 롱프레스가 드래그(TouchSensor delay)로 활성화된 뒤 브라우저 contextmenu 가
+          // 뒤따라 발화하면(안드로이드) 메뉴가 드래그 위에 겹치므로 억제한다.
+          // 모바일 메뉴 진입은 행의 상시 노출 "페이지 메뉴(…)" 버튼이 담당한다.
+          if (isDragging) return;
           setMenuPosition({ x: e.clientX, y: e.clientY });
         }}
       >
