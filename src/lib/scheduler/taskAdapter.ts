@@ -28,6 +28,7 @@ import {
   type SchedulerTaskMeta,
 } from "./taskMeta";
 import { isDeletedSchedulePage, markDeletedSchedulePage } from "./deletedSchedulePages";
+import { computeScheduleAutoStatus, isAutoStatusExempt } from "./autoStatus";
 
 const INSTANCE_SEPARATOR = "::";
 const GLOBAL_ASSIGNEE_ID = "__global__";
@@ -245,6 +246,58 @@ function setCell(databaseId: string, pageId: string, columnId: string, value: Ce
   useDatabaseStore.getState().updateCell(databaseId, pageId, columnId, value);
 }
 
+/**
+ * 날짜 변경 직후 오늘 기준으로 상태 셀을 자동 갱신한다.
+ * 근태(연차) 행과 보류(hold)·레거시 leave 상태는 건드리지 않는다.
+ */
+function applyScheduleAutoStatus(databaseId: string, pageId: string): void {
+  const page = usePageStore.getState().pages[pageId];
+  if (!page) return;
+  const status = asString(page.dbCells?.[LC_SCHEDULER_COLUMN_IDS.status]);
+  if (isAutoStatusExempt(status)) return;
+  if (normalizeLCSchedulerAttendanceValue(asString(page.dbCells?.[LC_SCHEDULER_COLUMN_IDS.attendance]))) return;
+  const meta = parseSchedulerTaskMeta(page.dbCells?.[LC_SCHEDULER_COLUMN_IDS.meta]);
+  if (meta.kind === "leave" || meta.attendanceValue) return;
+  const range = asDateRange(page.dbCells?.[LC_SCHEDULER_COLUMN_IDS.period]);
+  if (!range?.start) return;
+  const next = computeScheduleAutoStatus(range.start, range.end ?? range.start);
+  if (next !== status) {
+    setCell(databaseId, pageId, LC_SCHEDULER_COLUMN_IDS.status, next);
+  }
+}
+
+/**
+ * 지난 카드(종료일 경과)를 일괄 완료 처리한다 — 스케줄러 모달 진입 시 호출.
+ * 회색 표시 판정(endAt < now)과 동일 기준. 값이 실제로 달라질 때만 셀을 써서
+ * 여러 클라이언트가 반복 진입해도 중복 upsert 가 발생하지 않는다.
+ * @returns 완료 처리된 행 수
+ */
+export function sweepLCSchedulerPastStatuses(workspaceId: string): number {
+  const schedulerWorkspaceId = resolveLCSchedulerWorkspaceId(workspaceId);
+  const databaseId = makeLCSchedulerDatabaseId(schedulerWorkspaceId);
+  const pages = usePageStore.getState().pages;
+  const now = Date.now();
+  let updated = 0;
+  for (const page of Object.values(pages)) {
+    if (page.databaseId !== databaseId) continue;
+    if (isDeletedSchedulePage(page.id)) continue;
+    if (page.dbCells?.["_qn_isTemplate"] === "1") continue;
+    const status = asString(page.dbCells?.[LC_SCHEDULER_COLUMN_IDS.status]);
+    if (status === "done" || isAutoStatusExempt(status)) continue;
+    if (normalizeLCSchedulerAttendanceValue(asString(page.dbCells?.[LC_SCHEDULER_COLUMN_IDS.attendance]))) continue;
+    const meta = parseSchedulerTaskMeta(page.dbCells?.[LC_SCHEDULER_COLUMN_IDS.meta]);
+    if (meta.kind === "leave" || meta.attendanceValue) continue;
+    const range = asDateRange(page.dbCells?.[LC_SCHEDULER_COLUMN_IDS.period]);
+    const endIso = range?.end ?? range?.start;
+    if (!endIso) continue;
+    const end = new Date(endIso).getTime();
+    if (!Number.isFinite(end) || end >= now) continue;
+    setCell(databaseId, page.id, LC_SCHEDULER_COLUMN_IDS.status, "done");
+    updated += 1;
+  }
+  return updated;
+}
+
 function replaceAssignee(
   current: string[],
   from: string | null,
@@ -351,6 +404,8 @@ export async function updateLCSchedulerSchedule(input: UpdateScheduleInput): Pro
       start: input.startAt ?? prev?.start,
       end: input.endAt ?? prev?.end ?? input.startAt ?? prev?.start,
     });
+    // 카드 이동/기간 변경 시 오늘 기준으로 상태를 자동 갱신 (보류·근태 제외)
+    applyScheduleAutoStatus(databaseId, page.id);
   }
   if (input.projectId !== undefined) {
     setCell(databaseId, page.id, LC_SCHEDULER_COLUMN_IDS.project, input.projectId);

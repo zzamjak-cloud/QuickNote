@@ -22,6 +22,7 @@ import { SchedulerToolbar } from "./SchedulerToolbar";
 import { WeeklyMmPanel } from "./mm/WeeklyMmPanel";
 import { refreshWorkspaceMeta } from "../../lib/sync/workspaceMetaCache";
 import { ensureDatabaseRowsLoaded } from "../../lib/sync/externalProtectedDatabaseLoad";
+import { sweepLCSchedulerPastStatuses } from "../../lib/scheduler/taskAdapter";
 
 const ScheduleGrid = lazy(() =>
   import("./ScheduleGrid").then((m) => ({ default: m.ScheduleGrid })),
@@ -123,8 +124,19 @@ export function LCSchedulerModal({ onClose }: Props) {
 
   // 마운트 시 + 연도 변경 시 사용자가 보는 주변 월만 먼저 가져온다.
   useEffect(() => {
+    let cancelled = false;
     const { from, to } = getSchedulerFetchWindow({ currentYear });
-    void fetchSchedules(schedulerWorkspaceId, from, to);
+    void fetchSchedules(schedulerWorkspaceId, from, to).then(() => {
+      if (cancelled) return;
+      // 지난 카드(회색 전환)와 동일 기준으로 상태를 완료 처리 (보류·근태 제외).
+      // 값이 달라질 때만 셀을 쓰므로 재실행돼도 중복 upsert 없음.
+      sweepLCSchedulerPastStatuses(schedulerWorkspaceId);
+    }).catch(() => {
+      // fetch 실패 시 스윕 생략 — 다음 진입에서 재시도
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [
     currentYear,
     fetchSchedules,

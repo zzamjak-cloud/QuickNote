@@ -38,6 +38,16 @@
 
 list 계열(조회)은 이 래퍼를 거치지 않는다.
 
+## 상태(status) 자동화
+
+작업 카드의 상태 셀(`lc-scheduler:status`)은 오늘 날짜 기준으로 자동 갱신된다. 순수 판정은 `src/lib/scheduler/autoStatus.ts`, 셀 쓰기는 `src/lib/scheduler/taskAdapter.ts`.
+
+- **날짜 이동/리사이즈 시** (`updateLCSchedulerSchedule` 내 `applyScheduleAutoStatus`): 종료 지남 → `done`, 시작 전 → `todo`, 기간 내 → `progress`. 생성(`createLCSchedulerSchedule`)도 update 를 경유하므로 동일 적용.
+- **모달 진입 시 스윕** (`sweepLCSchedulerPastStatuses`, `LCSchedulerModal.tsx` fetch 후 호출): 지난 카드(회색 판정과 동일한 `endAt < now`)만 `done` 일괄 처리. 값이 달라질 때만 셀을 써서 재실행·다중 클라이언트에도 중복 upsert 없음.
+- **자동화 제외 (회귀 주의)**: `hold`(보류, 사용자 판단) · 레거시 `leave` 센티널(근태 판정 신호 — 덮어쓰면 근태 표시 파괴) · 근태 셀 값 있는 행 · `meta.kind === "leave"` 행. 상태는 행 단위라 다중 작업자 카드는 함께 바뀐다.
+- 피처 DB 진행률 롤업(`done` 비율)이 이 자동화로 함께 움직인다 — 의도된 동작.
+- 피크뷰 속성 패널에서 기간만 고치는 경로는 자동화를 타지 않는다(다음 모달 진입 스윕에서 지난 카드만 보정).
+
 ## 터치(태블릿) 회귀 방지
 
 - **카드 더블탭 → 피커뷰**: 카드는 react-rnd(react-draggable) 래핑이라 `touchstart` 에서 `preventDefault()` 되어 합성 click/dblclick 이 생성되지 않는다 → `onDoubleClick` 은 터치에서 절대 발화하지 않는다. `useDoubleTap` 훅(`src/hooks/useDoubleTap.ts`)을 카드 콘텐츠 div 에 스프레드해 터치 더블탭을 직접 감지한다. **카드 구현은 세 곳** — 연간뷰(`ScheduleCard.tsx`)·주간뷰(`ScheduleWeekCard.tsx`)·**DB 타임라인(`SchedulerDatabaseTimeline.tsx`, 마일스톤/작업/날짜없음 카드)** 전부 적용해야 함. 실제로 앞 두 곳만 고쳐서 실기기 미동작이 재발한 이력 있음. 타임라인처럼 map 렌더 내부라 카드별 훅이 불가한 곳은 `useDoubleTapByKey`(pageId 키 기반 공용 감지기 1개) 사용. 탭 판정 파라미터(슬롭 24px·간격 400ms)는 실기기 손가락 오차 기준 — 좁히면 회귀.
