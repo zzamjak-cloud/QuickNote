@@ -12,6 +12,8 @@
 |------|------|
 | `useBoxSelectMarquee.ts` | 마우스 드래그 → marquee 사각형 그리기 + 블록 선택 (핵심, 별도 문서 참조) |
 | `useBoxSelectCommittedOverlay.ts` | 선택 확정 후 블록 강조 오버레이 유지·갱신 |
+| `useBoxSelectCopyBlocks.ts` | 박스 선택 블록 일괄 복사 (Ctrl/Cmd+C, window capture) |
+| `useBoxSelectCutBlocks.ts` | 잘라내기 (Ctrl/Cmd+X) — NodeSelection·박스 선택 처리 (아래 회귀 주의) |
 | `useBoxSelectDeleteBlocks.ts` | 선택된 블록 일괄 삭제 (Backspace/Delete 키 처리) |
 | `useBoxSelectDuplicateBlocks.ts` | 선택된 블록 일괄 복제 |
 | `useBoxSelectEscape.ts` | Escape 키로 박스 선택 해제 |
@@ -63,6 +65,13 @@ useBoxSelectCommittedOverlay ← scroll/resize 시 오버레이 위치 재계산
 |--------|------|
 | `paintOverlayForPositions` | PM 위치 배열로부터 각 블록 DOM rect를 측정해 오버레이 div 생성·업데이트 |
 | `hideGroupOverlay` | 오버레이 전체 숨김 |
+
+## useBoxSelectCutBlocks — 회귀 주의 (컬럼 내 이미지 잘라내기)
+
+처리 순서가 중요하다: **NodeSelection(이미지/파일 atom) → DOM 셀렉션 양보 → 박스 선택** 순.
+
+- PM 뷰가 포커스를 가지면 NodeSelection 을 감싸는 **비-collapsed DOM 셀렉션**을 만든다. `isCollapsed` 게이트를 NodeSelection 검사보다 앞에 두면 컬럼 내 이미지 등에서 잘라내기가 조용히 무시된다(포커스 없음 + 잔존 텍스트 셀렉션 조합). 브라우저 기본 잘라내기 양보는 "DOM 셀렉션이 에디터 밖에 있을 때"로 한정한다.
+- 마퀴는 이미지(contenteditable=false 노드뷰) 클릭 시 박스 선택을 지우지 않는다(`useBoxSelectMarquee` INTERACTIVE_SELECTOR 경로) → 잔존 `selectedStartsRef` 가 있을 수 있으므로 NodeSelection 을 박스 선택보다 **먼저** 처리해야 최신 사용자 의도가 이긴다.
 
 ## 주의사항
 - 오버레이 div는 에디터 외부(body 레벨)가 아닌 에디터 내부 특정 컨테이너에 부착 — z-index 관리 주의

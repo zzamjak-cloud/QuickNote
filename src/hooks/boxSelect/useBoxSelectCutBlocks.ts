@@ -20,14 +20,42 @@ export function useBoxSelectCutBlocks(
     const onKey = (e: KeyboardEvent) => {
       if (e.isComposing || e.key === "Process") return;
       if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== "x") return;
-      // 사용자가 텍스트를 따로 드래그 선택해 둔 경우는 브라우저 기본 잘라내기에 양보.
       const domSel = window.getSelection();
-      if (domSel && !domSel.isCollapsed) return;
+      const hasDomRange = Boolean(domSel && !domSel.isCollapsed);
 
       const { doc, schema } = editor.state;
+
+      // 1) 단일 노드 선택(이미지/파일 등 atom) — 잔존 박스 선택보다 최신 사용자 의도이므로 먼저 처리.
+      //    뷰가 포커스를 가지면 PM 이 노드를 감싸는 비-collapsed DOM 셀렉션을 만들기 때문에
+      //    isCollapsed 게이트를 여기에 적용하면 컬럼 내 이미지 등에서 잘라내기가 조용히 무시된다.
+      const sel = editor.state.selection;
+      if (sel instanceof NodeSelection) {
+        // 에디터 밖 텍스트를 드래그 선택해 둔 경우만 브라우저 기본 잘라내기에 양보
+        if (
+          hasDomRange &&
+          domSel?.anchorNode &&
+          !editor.view.dom.contains(domSel.anchorNode)
+        ) {
+          return;
+        }
+        e.preventDefault();
+        e.stopPropagation();
+        writeBlocksToClipboard([sel.node], schema);
+        editor
+          .chain()
+          .deleteRange({ from: sel.from, to: sel.to })
+          .focus()
+          .run();
+        clearSelection();
+        return;
+      }
+
+      // 사용자가 텍스트를 따로 드래그 선택해 둔 경우는 브라우저 기본 잘라내기에 양보.
+      if (hasDomRange) return;
+
       const starts = selectedStartsRef.current;
 
-      // 1) 박스 선택 다중 블록
+      // 2) 박스 선택 다중 블록
       if (starts.length > 0) {
         const sortedAsc = [...starts].sort((a, b) => a - b);
         const nodes = sortedAsc
@@ -49,20 +77,6 @@ export function useBoxSelectCutBlocks(
           editor.view.focus();
           clearSelection();
         }
-        return;
-      }
-
-      // 2) 단일 노드 선택(이미지/파일 등 atom)
-      const sel = editor.state.selection;
-      if (sel instanceof NodeSelection) {
-        e.preventDefault();
-        e.stopPropagation();
-        writeBlocksToClipboard([sel.node], schema);
-        editor
-          .chain()
-          .deleteRange({ from: sel.from, to: sel.to })
-          .focus()
-          .run();
       }
     };
     window.addEventListener("keydown", onKey, true);
