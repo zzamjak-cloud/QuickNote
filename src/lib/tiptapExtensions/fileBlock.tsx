@@ -312,9 +312,14 @@ const FileView = memo(function FileView(props: NodeViewProps) {
               inlineVideoRef.current = el;
               mediaMeasureRef(el);
             }}
+            autoPlay
             controls
             controlsList="nofullscreen noremoteplayback"
             disablePictureInPicture
+            loop
+            muted
+            playsInline
+            preload="auto"
             className="block h-auto rounded-lg border border-zinc-200 dark:border-zinc-700"
             onDoubleClickCapture={(e) => {
               e.preventDefault();
