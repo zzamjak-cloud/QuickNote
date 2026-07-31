@@ -232,7 +232,15 @@ function FlowchartEditorInner({
   const onReconnect = useCallback(
     (oldEdge: RfEdge, conn: Connection) => {
       snapshot();
-      setEdges((eds) => reconnectEdge(oldEdge, conn, eds));
+      setEdges((eds) => {
+        // oldEdge 는 선택 스타일(굵기·글로우·animated)이 주입된 렌더용 엣지라
+        // 그대로 쓰면 그 스타일이 상태에 박제되어 선택 해제 후에도 남는다
+        // → 상태의 원본 엣지로 재연결한다.
+        const original = eds.find((e) => e.id === oldEdge.id);
+        if (!original) return eds;
+        // id 를 유지해 선택 상태·히스토리 참조가 끊기지 않게 한다.
+        return reconnectEdge(original, conn, eds, { shouldReplaceId: false });
+      });
     },
     [snapshot, setEdges],
   );
