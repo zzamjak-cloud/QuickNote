@@ -630,10 +630,12 @@ export function BlockHandles({
         items.sort((a, b) => a.top - b.top || a.commentLeft - b.commentLeft);
       }
 
+      // 기하(top/left) 변화도 키에 포함 — 이미지 지연 로드 등으로 본문 높이가 바뀌면
+      // 내용이 같아도 새 좌표를 반영해야 한다. 서브픽셀 노이즈는 반올림으로 흡수.
       const nextKey = items
         .map(
           (i) =>
-            `${i.blockId}:${i.count}:${i.messages
+            `${i.blockId}:${i.count}:${Math.round(i.top)}:${Math.round(i.commentLeft)}:${i.messages
               .map(
                 (m) =>
                   `${m.id}[${m.reactions.map(pinnedReactionStableKey).join(",")}]`,
@@ -1975,7 +1977,7 @@ export function BlockHandles({
           className={
             compactComments
               ? "pointer-events-auto absolute z-30 flex h-7 w-7 cursor-pointer select-none items-center justify-center rounded-md border border-zinc-200 bg-white shadow-sm hover:bg-amber-50 focus:outline-none focus:ring-2 focus:ring-amber-300 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:bg-amber-950/30"
-              : "pointer-events-auto absolute z-30 cursor-pointer select-none overflow-hidden rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-left shadow-sm transition hover:border-amber-300 hover:bg-amber-50/40 focus:outline-none focus:ring-2 focus:ring-amber-300 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:border-amber-700 dark:hover:bg-amber-950/30"
+              : "pointer-events-auto absolute z-30 flex cursor-pointer select-none flex-col overflow-hidden rounded-md border border-zinc-200 bg-white px-2.5 py-1.5 text-left shadow-sm transition hover:border-amber-300 hover:bg-amber-50/40 focus:outline-none focus:ring-2 focus:ring-amber-300 dark:border-zinc-700 dark:bg-zinc-900 dark:hover:border-amber-700 dark:hover:bg-amber-950/30"
           }
           // 컴팩트(피크): 작은 정사각 배지(블록 우측 가장자리)
           // 일반: 232px 카드 — wrapper 우측 가장자리 사이드바 컬럼에 고정 정렬 (전체너비 토글 시 자연스러운 확장)
@@ -2003,7 +2005,7 @@ export function BlockHandles({
             </div>
           ) : (
             <>
-              <div className="mb-1 flex items-center gap-1.5">
+              <div className="mb-1 flex shrink-0 items-center gap-1.5">
                 <MessageSquare
                   size={11}
                   strokeWidth={2}
@@ -2013,7 +2015,8 @@ export function BlockHandles({
                   댓글 {pin.count}개
                 </span>
               </div>
-              <div className="space-y-1.5">
+              {/* 긴 댓글도 카드 안에서 스크롤로 전체 열람 가능 — 바깥(본문) 스크롤 전파 차단 */}
+              <div className="min-h-0 flex-1 space-y-1.5 overflow-y-auto overscroll-contain">
                 {pin.messages.map((m, idx) => (
                   <div
                     key={m.id}
@@ -2026,7 +2029,7 @@ export function BlockHandles({
                     <div className="truncate text-[11px] font-semibold text-zinc-700 dark:text-zinc-200">
                       {m.authorName}
                     </div>
-                    <div className="line-clamp-3 whitespace-pre-wrap text-[11px] leading-snug text-zinc-600 dark:text-zinc-300">
+                    <div className="whitespace-pre-wrap text-[11px] leading-snug text-zinc-600 dark:text-zinc-300">
                       {m.bodyText || (
                         <span className="italic text-zinc-400">내용 없음</span>
                       )}
