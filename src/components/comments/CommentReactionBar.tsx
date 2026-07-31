@@ -54,6 +54,7 @@ export function CommentReactionBar({
 }: Props) {
   const [pickerAnchor, setPickerAnchor] = useState<{ top: number; left: number } | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const pickerRef = useRef<HTMLDivElement | null>(null);
   const reactions = (msg.reactions ?? []).filter((reaction) => reaction.memberIds.length > 0);
 
   useEffect(() => {
@@ -62,14 +63,20 @@ export function CommentReactionBar({
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") close();
     };
+    // 피커 내부 목록 스크롤은 무시 — 바깥(본문/패널) 스크롤일 때만 닫는다
+    const handleScroll = (event: Event) => {
+      const target = event.target;
+      if (target instanceof Node && pickerRef.current?.contains(target)) return;
+      close();
+    };
     window.addEventListener("keydown", handleKeyDown);
     window.addEventListener("resize", close);
-    window.addEventListener("scroll", close, true);
+    window.addEventListener("scroll", handleScroll, true);
     document.addEventListener("mousedown", close);
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("resize", close);
-      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("scroll", handleScroll, true);
       document.removeEventListener("mousedown", close);
     };
   }, [pickerAnchor]);
@@ -140,6 +147,7 @@ export function CommentReactionBar({
       {pickerAnchor
         ? createPortal(
             <div
+              ref={pickerRef}
               className="fixed z-[520]"
               style={{ top: pickerAnchor.top, left: pickerAnchor.left }}
               onMouseDown={(event) => event.stopPropagation()}
