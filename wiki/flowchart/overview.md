@@ -66,7 +66,7 @@ FlowchartRecord = { id, workspaceId, title, data, updatedAt(epoch ms), deletedAt
 | `box` | 사각형·둥근사각형·터미널·원형 | CSS `border`+`border-radius`. 테두리 두께 항상 균일, 왜곡 없음 |
 | `parallelogram` | 평행사변형 | `transform: skewX` + CSS border |
 | `svg` | 마름모·육각형·원통·문서 | SVG path/polygon, `preserveAspectRatio="xMidYMid meet"`(비율 보존, 안 찌그러짐), `vector-effect="non-scaling-stroke"`(선 두께 균일) |
-| `text` | 텍스트 전용 | 배경/테두리 없음(색 지정 시 배경만). 편집기에선 선택·호버 시 점선으로 영역 표시. 미리보기 SVG 도 외곽선 생략 |
+| `text` | 텍스트 전용 | 배경/테두리 없음(색 지정 시 배경만). 편집기에선 선택·호버 시 점선으로 영역 표시. 미리보기 SVG 도 외곽선 생략. **정렬**: `data.align`(left/center/right, 기본 left — 다른 도형은 center 고정), 편집기 호버 시 도형 상단 정렬 툴바 노출 |
 
 - 각 도형은 고유 `aspect` 를 노드에 `aspect-ratio` 로 강제 → 도형다운 비율 유지.
 - **마름모는 polygon**(대각선이 수평/수직 정렬)이라 폭이 넓어져도 대칭. 회전 정사각형 방식은 비정사각형에서 기울어진 직사각형처럼 보여 폐기함.

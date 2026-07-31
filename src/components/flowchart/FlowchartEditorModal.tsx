@@ -35,6 +35,7 @@ import {
   type FlowchartNode,
   type FlowchartNodeLink,
   type FlowchartNodeShape,
+  type FlowchartTextAlign,
 } from "../../types/flowchart";
 import { ShapeNode, type ShapeNodeRuntimeData } from "./ShapeNode";
 import { FLOWCHART_SHAPES } from "./shapes";
@@ -89,6 +90,7 @@ function toRfNode(n: FlowchartNode): RfNode {
       label: n.data.label,
       shape: n.data.shape,
       color: n.data.color,
+      ...(n.data.align ? { align: n.data.align } : {}),
       ...(n.data.link ? { link: n.data.link } : {}),
     },
     // 편집기에서는 크기를 고정하지 않는다 — 글자 입력에 따라 노드가 자라야 한다.
@@ -109,6 +111,7 @@ function fromRfNode(n: RfNode): FlowchartNode {
       label: typeof d.label === "string" ? d.label : "",
       shape: d.shape,
       ...(d.color ? { color: d.color } : {}),
+      ...(d.align ? { align: d.align } : {}),
       ...(d.link ? { link: d.link } : {}),
     },
     ...(typeof w === "number" ? { width: w } : {}),
@@ -257,6 +260,19 @@ function FlowchartEditorInner({
     [snapshot, setNodes],
   );
 
+  // 텍스트 블럭 정렬 변경 — 정렬 한 번이 히스토리 1건
+  const onAlignChange = useCallback(
+    (id: string, align: FlowchartTextAlign) => {
+      snapshot();
+      setNodes((nds) =>
+        nds.map((n) =>
+          n.id === id ? { ...n, data: { ...n.data, align } } : n,
+        ),
+      );
+    },
+    [snapshot, setNodes],
+  );
+
   // 편집용 콜백을 주입한 렌더 노드 (저장 상태에는 포함하지 않음)
   const rfNodes = useMemo<RfNode[]>(
     () =>
@@ -267,9 +283,10 @@ function FlowchartEditorInner({
           editable: true,
           hasLink: Boolean((n.data as { link?: unknown }).link),
           onLabelChange,
+          onAlignChange,
         },
       })),
-    [nodes, onLabelChange],
+    [nodes, onLabelChange, onAlignChange],
   );
 
   // 우클릭 컨텍스트 메뉴 / 링크 다이얼로그 상태

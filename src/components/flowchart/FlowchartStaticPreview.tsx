@@ -219,6 +219,9 @@ export function FlowchartStaticPreview({ data, onNodeLink }: Props) {
         if (!b) return null;
         const fill =
           n.data.color ?? (n.data.shape === "text" ? "transparent" : "#ffffff");
+        // 정렬 기본값: 텍스트 블럭=좌측, 그 외 도형=가운데 (편집기와 동일)
+        const align =
+          n.data.align ?? (n.data.shape === "text" ? "left" : "center");
         const link = n.data.link;
         return (
           <g
@@ -235,9 +238,14 @@ export function FlowchartStaticPreview({ data, onNodeLink }: Props) {
                   height: "100%",
                   display: "flex",
                   alignItems: "center",
-                  justifyContent: "center",
+                  justifyContent:
+                    align === "left"
+                      ? "flex-start"
+                      : align === "right"
+                        ? "flex-end"
+                        : "center",
                   padding: "6px 10px",
-                  textAlign: "center",
+                  textAlign: align,
                   fontSize: 14,
                   lineHeight: 1.25,
                   color: "#1f2937",

@@ -8,8 +8,11 @@ import {
   useConnection,
   type NodeProps,
 } from "@xyflow/react";
-import { Link2 } from "lucide-react";
-import type { FlowchartNodeShape } from "../../types/flowchart";
+import { AlignCenter, AlignLeft, AlignRight, Link2 } from "lucide-react";
+import type {
+  FlowchartNodeShape,
+  FlowchartTextAlign,
+} from "../../types/flowchart";
 import { getShapeMeta } from "./shapes";
 
 // React Flow 런타임 노드의 data. 직렬화 대상(FlowchartNodeData)에 편집용 콜백을 더한 형태.
@@ -17,10 +20,23 @@ export type ShapeNodeRuntimeData = {
   label: string;
   shape: FlowchartNodeShape;
   color?: string;
+  align?: FlowchartTextAlign;
   editable?: boolean;
   hasLink?: boolean;
   onLabelChange?: (id: string, label: string) => void;
+  onAlignChange?: (id: string, align: FlowchartTextAlign) => void;
 };
+
+// 텍스트 블럭 정렬 툴바 옵션
+const ALIGN_OPTIONS: {
+  value: FlowchartTextAlign;
+  icon: typeof AlignLeft;
+  label: string;
+}[] = [
+  { value: "left", icon: AlignLeft, label: "왼쪽 정렬" },
+  { value: "center", icon: AlignCenter, label: "가운데 정렬" },
+  { value: "right", icon: AlignRight, label: "오른쪽 정렬" },
+];
 
 const HANDLE_POSITIONS = [
   Position.Top,
@@ -34,6 +50,9 @@ function ShapeNodeImpl({ id, data, selected }: NodeProps) {
   const textRef = useRef<HTMLTextAreaElement>(null);
   const editable = d.editable === true;
   const meta = getShapeMeta(d.shape);
+  const isTextShape = meta.kind === "text";
+  // 정렬 기본값: 텍스트 블럭=좌측, 그 외 도형=가운데
+  const align: FlowchartTextAlign = d.align ?? (isTextShape ? "left" : "center");
 
   // 연결 드래그 진행 상태 — 핸들/노드를 강조해 드롭 대상을 잘 보이게 한다.
   const connection = useConnection();
@@ -137,6 +156,27 @@ function ShapeNodeImpl({ id, data, selected }: NodeProps) {
     >
       {shapeLayer}
 
+      {/* 텍스트 블럭 정렬 툴바 — 호버 시 도형 상단에 표시 */}
+      {editable && isTextShape && (
+        <div className="nodrag nopan absolute -top-9 left-1/2 z-20 flex -translate-x-1/2 items-center gap-0.5 rounded-md border border-zinc-200 bg-white p-0.5 opacity-0 shadow-md transition-opacity group-hover/qnshape:opacity-100 dark:border-zinc-600 dark:bg-zinc-800">
+          {ALIGN_OPTIONS.map(({ value, icon: Icon, label }) => (
+            <button
+              key={value}
+              type="button"
+              title={label}
+              onClick={() => d.onAlignChange?.(id, value)}
+              className={`rounded p-1 ${
+                align === value
+                  ? "bg-sky-100 text-sky-600 dark:bg-sky-900 dark:text-sky-300"
+                  : "text-zinc-500 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-700"
+              }`}
+            >
+              <Icon className="h-3.5 w-3.5" />
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* 링크 아이콘 — 외부/내부 링크가 연결된 도형 */}
       {d.hasLink && (
         <span className="absolute -right-1.5 -top-1.5 z-[2] flex h-5 w-5 items-center justify-center rounded-full border border-white bg-sky-500 text-white shadow">
@@ -177,14 +217,18 @@ function ShapeNodeImpl({ id, data, selected }: NodeProps) {
             value={d.label}
             onChange={(e) => d.onLabelChange?.(id, e.target.value)}
             // nodrag/nopan: React Flow 가 입력 중 노드를 드래그/팬하지 않도록
-            className="nodrag nopan w-full resize-none overflow-hidden border-0 bg-transparent text-center text-sm text-zinc-800 outline-none placeholder:text-zinc-400"
+            className="nodrag nopan w-full resize-none overflow-hidden border-0 bg-transparent text-sm text-zinc-800 outline-none placeholder:text-zinc-400"
+            style={{ textAlign: align }}
             rows={1}
             placeholder="텍스트"
           />
         ) : (
           // 편집기 textarea(w-full)와 동일한 폭/줄바꿈으로 렌더 — 노드 실측 크기가
           // 편집기와 일치해야 미리보기에서 재측정 시 위치가 어긋나거나 깜빡이지 않는다.
-          <div className="w-full whitespace-pre-wrap break-words text-center text-zinc-800">
+          <div
+            className="w-full whitespace-pre-wrap break-words text-zinc-800"
+            style={{ textAlign: align }}
+          >
             {d.label}
           </div>
         )}

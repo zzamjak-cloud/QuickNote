@@ -144,6 +144,17 @@ describe("형식 정규화", () => {
     expect(out.nodes[0].data.shape).toBe("text");
     expect(out.nodes[0].data.label).toBe("메모");
   });
+  it("align 은 유효 값만 보존하고 잘못된 값은 버린다", () => {
+    const out = parseFlowchart({
+      nodes: [
+        { id: "a", position: { x: 0, y: 0 }, data: { shape: "text", align: "right" } },
+        { id: "b", position: { x: 0, y: 0 }, data: { shape: "text", align: "middle" } },
+      ],
+      edges: [],
+    });
+    expect(out.nodes[0].data.align).toBe("right");
+    expect(out.nodes[1].data.align).toBeUndefined();
+  });
   it("id 없는 노드는 버린다", () => {
     const out = parseFlowchart({
       nodes: [{ position: { x: 0, y: 0 }, data: {} }],

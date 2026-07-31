@@ -18,6 +18,9 @@ export type FlowchartNodeShape =
   | "document" // 문서
   | "text"; // 텍스트 전용(도형 없음)
 
+// 텍스트 정렬(텍스트 전용 도형에서 사용). 미지정 시 기본값: 텍스트 도형=left, 그 외=center
+export type FlowchartTextAlign = "left" | "center" | "right";
+
 // 도형에 연결할 링크 — 외부 웹 URL 또는 내부 페이지 멘션
 export type FlowchartNodeLink =
   | { type: "url"; url: string }
@@ -30,6 +33,8 @@ export type FlowchartNodeData = {
   shape: FlowchartNodeShape;
   /** 배경색(hex 또는 CSS 색). 미지정 시 기본 테마색 */
   color?: string;
+  /** 텍스트 정렬(텍스트 전용 도형) */
+  align?: FlowchartTextAlign;
   /** 연결된 링크(외부 URL / 내부 페이지) */
   link?: FlowchartNodeLink;
 };
@@ -134,6 +139,12 @@ function coerceNode(raw: unknown): FlowchartNode | null {
     ? (shapeRaw as FlowchartNodeShape)
     : "rectangle";
   const link = coerceLink(dataRaw.link);
+  const align: FlowchartTextAlign | undefined =
+    dataRaw.align === "left" ||
+    dataRaw.align === "center" ||
+    dataRaw.align === "right"
+      ? dataRaw.align
+      : undefined;
   const node: FlowchartNode = {
     id,
     type: "shape",
@@ -142,6 +153,7 @@ function coerceNode(raw: unknown): FlowchartNode | null {
       label: typeof dataRaw.label === "string" ? dataRaw.label : "",
       shape,
       ...(typeof dataRaw.color === "string" ? { color: dataRaw.color } : {}),
+      ...(align ? { align } : {}),
       ...(link ? { link } : {}),
     },
     ...(typeof n.width === "number" ? { width: n.width } : {}),
