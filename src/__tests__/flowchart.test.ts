@@ -134,6 +134,16 @@ describe("형식 정규화", () => {
     });
     expect(out.nodes[0].data.shape).toBe("rectangle");
   });
+  it("text shape 는 유효 도형으로 보존한다", () => {
+    const out = parseFlowchart({
+      nodes: [
+        { id: "t", position: { x: 0, y: 0 }, data: { shape: "text", label: "메모" } },
+      ],
+      edges: [],
+    });
+    expect(out.nodes[0].data.shape).toBe("text");
+    expect(out.nodes[0].data.label).toBe("메모");
+  });
   it("id 없는 노드는 버린다", () => {
     const out = parseFlowchart({
       nodes: [{ position: { x: 0, y: 0 }, data: {} }],

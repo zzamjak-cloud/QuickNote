@@ -15,7 +15,8 @@ export type FlowchartNodeShape =
   | "parallelogram" // 입출력(data)
   | "hexagon" // 준비(preparation)
   | "cylinder" // 데이터베이스
-  | "document"; // 문서
+  | "document" // 문서
+  | "text"; // 텍스트 전용(도형 없음)
 
 // 도형에 연결할 링크 — 외부 웹 URL 또는 내부 페이지 멘션
 export type FlowchartNodeLink =
@@ -87,6 +88,7 @@ const VALID_SHAPES: ReadonlySet<string> = new Set<FlowchartNodeShape>([
   "hexagon",
   "cylinder",
   "document",
+  "text",
 ]);
 
 export function emptyFlowchart(): FlowchartData {

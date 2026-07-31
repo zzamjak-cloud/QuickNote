@@ -12,7 +12,8 @@
 - `src/components/flowchart/FlowchartStaticPreview.tsx` — **문서 내 읽기전용 미리보기(정적 SVG)**. 도형 외곽선·베지어 엣지·라벨·링크아이콘을 직접 SVG 로 그림(React Flow 미사용)
 - `src/components/flowchart/edges.ts` — React Flow 엣지 시각 속성(`edgeVisual`, `defaultEdgeOptions`, `rfEdgeFromData`)
 - `src/components/flowchart/FlowchartBlockView.tsx` — NodeView. 미리보기(SVG) 렌더·헤더·마이그레이션·동기화·히스토리·전체보기 진입
-- `src/components/flowchart/FlowchartEditorModal.tsx` — 편집 모달(팔레트·캔버스·툴바·중심 스냅·자동저장·우클릭 메뉴)
+- `src/components/flowchart/FlowchartEditorModal.tsx` — 편집 모달(팔레트·캔버스·툴바·중심 스냅·자동저장·우클릭 메뉴·액션 단위 undo/redo·Ctrl+D 복제·엣지 재연결)
+- `src/lib/flowchart/openFullPageEdit.ts` — 피크 내 플로우차트 더블클릭 → 전체 페이지 전환 후 편집 모달 자동 오픈 브릿지(이벤트 + pending 예약)
 - `src/components/flowchart/FlowchartLinkDialog.tsx` — 도형 링크(웹 URL / 페이지 멘션) 편집
 - `src/components/flowchart/FlowchartFullViewModal.tsx` — 전체보기(줌·팬·Fit, 읽기전용)
 - `src/components/flowchart/FlowchartHistoryDialog.tsx` — 버전 히스토리(우측 사이드바, 서버 권위 + 로컬 fallback)
@@ -38,7 +39,7 @@
 FlowchartData = { version, nodes: FlowchartNode[], edges: FlowchartEdge[], viewport? }
 FlowchartNode = { id, type:"shape", position{x,y}, data: { label, shape, color?, link? }, width?, height? }
 FlowchartEdge = { id, source, target, sourceHandle?, targetHandle?, label?, color? }
-FlowchartNodeShape = rectangle|roundRectangle|terminator|ellipse|diamond|parallelogram|hexagon|cylinder|document
+FlowchartNodeShape = rectangle|roundRectangle|terminator|ellipse|diamond|parallelogram|hexagon|cylinder|document|text
 FlowchartNodeLink = { type:"url", url } | { type:"page", pageId, label? }
 FlowchartRecord = { id, workspaceId, title, data, updatedAt(epoch ms), deletedAt? }  // 공유 저장소·서버 레코드
 ```
@@ -65,6 +66,7 @@ FlowchartRecord = { id, workspaceId, title, data, updatedAt(epoch ms), deletedAt
 | `box` | 사각형·둥근사각형·터미널·원형 | CSS `border`+`border-radius`. 테두리 두께 항상 균일, 왜곡 없음 |
 | `parallelogram` | 평행사변형 | `transform: skewX` + CSS border |
 | `svg` | 마름모·육각형·원통·문서 | SVG path/polygon, `preserveAspectRatio="xMidYMid meet"`(비율 보존, 안 찌그러짐), `vector-effect="non-scaling-stroke"`(선 두께 균일) |
+| `text` | 텍스트 전용 | 배경/테두리 없음(색 지정 시 배경만). 편집기에선 선택·호버 시 점선으로 영역 표시. 미리보기 SVG 도 외곽선 생략 |
 
 - 각 도형은 고유 `aspect` 를 노드에 `aspect-ratio` 로 강제 → 도형다운 비율 유지.
 - **마름모는 polygon**(대각선이 수평/수직 정렬)이라 폭이 넓어져도 대칭. 회전 정사각형 방식은 비정사각형에서 기울어진 직사각형처럼 보여 폐기함.
@@ -75,8 +77,10 @@ FlowchartRecord = { id, workspaceId, title, data, updatedAt(epoch ms), deletedAt
 - 기본 타입 **bezier**(곡선 유지). `edgeVisual(color)` 가 style/markerEnd(ArrowClosed)/label 스타일 일괄 제공.
 - **`sourceHandle`/`targetHandle` 저장 필수** — 없으면 React Flow(편집기·전체보기)·SVG 미리보기 모두 임의/추론 핸들로 붙어 화살표가 꼬인다.
 - React Flow(편집기·전체보기) **양쪽 모두 `ConnectionMode.Loose`** — 핸들이 전부 `type="source"` 라 Strict 모드면 타겟 핸들을 못 찾아 엣지가 통째로 렌더 안 됨. (SVG 미리보기는 React Flow 미사용이라 무관, 직접 path 로 그림.)
-- 편집기 `connectionRadius={48}` + 연결 중 핸들 확대·드롭 대상 헤일로(`useConnection`).
+- 편집기 `connectionRadius={48}` + 연결 중 핸들 확대·드롭 대상 헤일로(`useConnection`). **핸들은 평소 숨김, 노드 호버 시에만 표시**(연결 드래그 중엔 항상 표시).
 - 엣지 라벨("성공"/"실패")·선 색상은 엣지 선택 시 툴바에서 편집, `edge.data.color` 에 보관.
+- **선택 피드백**: 선택된 엣지는 굵기 3 + 글로우 + 점선 애니메이션(`animated`).
+- **재연결**: 엣지 선택 후 시작/끝점 앵커를 드래그해 다른 정점으로 이동(`onReconnect` + `reconnectEdge`, `reconnectRadius={20}`).
 
 ## 미리보기 (FlowchartStaticPreview) — 정적 SVG
 
@@ -95,6 +99,15 @@ FlowchartRecord = { id, workspaceId, title, data, updatedAt(epoch ms), deletedAt
 - 도형 우클릭(`onNodeContextMenu`) → "링크 추가/편집/제거" 컨텍스트 메뉴.
 - `FlowchartLinkDialog`: "웹 링크"(URL, 스킴 없으면 `https://` 보정) / "페이지 연결"(`loadMergedMentionItems` 페이지 검색).
 - **페이지 멘션 id 는 `p:` 접두**(`mentionItems`) — `stripPagePrefix` 로 실제 페이지 id 저장. 미적용 시 피크가 페이지를 못 찾음("불러오지 못했습니다").
+
+## 편집기 단축키·undo
+
+- **Ctrl/Cmd+D**: 선택 도형(과 그 사이 화살표) 복제 — 복제본이 선택 상태로 남아 연속 복제 가능.
+- **Ctrl/Cmd+Z / Ctrl/Cmd+Shift+Z(또는 Y)**: **액션 단위** 실행취소/다시실행. React Flow 엔 내장 히스토리가 없어 편집 모달이 자체 스택(past/future, 최대 100)을 가진다. **스택 수명 = 모달 세션**: 모달을 열 때 빈 스택으로 시작하고 닫으면(Inner 언마운트) 함께 소멸한다(미persist). 각 액션(생성·드래그 이동·연결·재연결·색상·라벨·링크·삭제·복제) **직전** 상태를 snapshot; 타이핑은 coalesceKey 로 **선택이 유지되는 동안 전부 한 액션**으로 합치고, 다른 도형 선택/선택 해제(onSelectionChange) 순간 세션이 끝난다(블록 단위 기록). 키보드 Delete 삭제는 `onBeforeDelete` 에서 기록. 라벨 textarea 는 controlled 라 네이티브 텍스트 undo 가 안 먹으므로 입력 필드 포커스 중에도 전역 핸들러가 처리한다.
+
+## 피크에서의 편집 진입
+
+DB 항목 피크(`data-qn-peek-editor` 컨테이너) 안에서 플로우차트를 더블클릭하면 곧바로 모달을 열지 않고, `requestFlowchartEditOnFullPage`(openFullPageEdit.ts)가 ① 편집 예약(pending, TTL 15s) ② `FLOWCHART_OPEN_FULL_PAGE_EVENT` 발행 → DatabaseRowPeek 이 `openFullPage()` 로 전체 페이지 전환 → 전체 페이지에서 마운트된 블록이 `consumePendingFlowchartEdit` 로 예약을 소비해 편집 모달을 자동으로 연다.
 
 ## 자동 저장·전체보기·버전 히스토리
 

@@ -25,6 +25,10 @@ import { useWorkspaceStore } from "../../store/workspaceStore";
 import { useIsMobile } from "../../hooks/useViewport";
 import { newId } from "../../lib/id";
 import {
+  consumePendingFlowchartEdit,
+  requestFlowchartEditOnFullPage,
+} from "../../lib/flowchart/openFullPageEdit";
+import {
   fetchFlowchartApi,
   pushFlowchartApi,
   saveFlowchartVersionApi,
@@ -101,9 +105,28 @@ export function FlowchartBlockView(props: NodeViewProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [flowchartId, editor.isEditable]);
 
+  // 피크(항목 미리보기) 내부 여부 식별용 래퍼 ref
+  const wrapperRef = useRef<HTMLDivElement>(null);
+
   const openEditor = useCallback(() => {
-    if (canEdit) setEditing(true);
-  }, [canEdit]);
+    if (!canEdit) return;
+    // 피크 안이면: 전체 페이지로 전환한 뒤 편집 모달이 열리도록 예약한다.
+    const inPeek = Boolean(
+      wrapperRef.current?.closest("[data-qn-peek-editor]"),
+    );
+    if (inPeek && flowchartId) {
+      requestFlowchartEditOnFullPage(flowchartId);
+      return;
+    }
+    setEditing(true);
+  }, [canEdit, flowchartId]);
+
+  // 피크 → 전체 페이지 전환 직후: 예약된 편집 요청이 있으면 편집 모달을 자동으로 연다.
+  useEffect(() => {
+    if (!canEdit || !flowchartId) return;
+    if (wrapperRef.current?.closest("[data-qn-peek-editor]")) return;
+    if (consumePendingFlowchartEdit(flowchartId)) setEditing(true);
+  }, [canEdit, flowchartId]);
 
   // 미리보기에서 링크가 연결된 도형 클릭 → 외부=새 탭, 내부=피크
   const onNodeLink = useCallback(
@@ -187,6 +210,7 @@ export function FlowchartBlockView(props: NodeViewProps) {
   return (
     <NodeViewWrapper
       as="div"
+      ref={wrapperRef}
       data-flowchart-block="true"
       className={`group/flowchart my-2 overflow-hidden rounded-lg border ${
         selected

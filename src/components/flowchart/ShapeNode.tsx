@@ -57,9 +57,12 @@ function ShapeNodeImpl({ id, data, selected }: NodeProps) {
   const borderW = selected ? 2 : 1.5;
   const cssBorder = `${borderW}px solid ${stroke}`;
   // 도형별 고유 비율을 강제해 찌그러짐을 막는다. 비율 없는 도형(직사각형류)만 자유.
+  // 텍스트 전용 노드는 더 작게 시작한다.
   const sizeClass = meta.aspect
     ? "min-w-[104px]"
-    : "min-h-[56px] min-w-[112px]";
+    : meta.kind === "text"
+      ? "min-h-[32px] min-w-[72px]"
+      : "min-h-[56px] min-w-[112px]";
   const aspectStyle = meta.aspect
     ? { aspectRatio: String(meta.aspect) }
     : undefined;
@@ -71,6 +74,20 @@ function ShapeNodeImpl({ id, data, selected }: NodeProps) {
       <div
         className="absolute inset-0"
         style={{ background: fill, border: cssBorder, borderRadius: meta.radius }}
+      />
+    );
+  } else if (meta.kind === "text") {
+    // 텍스트 전용 — 도형 배경 없음. 선택 시(편집기에선 호버 시에도) 점선으로 영역만 표시.
+    shapeLayer = (
+      <div
+        className={`absolute inset-0 rounded-md border border-dashed ${
+          selected
+            ? "border-sky-500"
+            : editable
+              ? "border-transparent group-hover/qnshape:border-zinc-300 dark:group-hover/qnshape:border-zinc-600"
+              : "border-transparent"
+        }`}
+        style={d.color ? { background: d.color } : undefined}
       />
     );
   } else if (meta.kind === "parallelogram") {
@@ -103,16 +120,16 @@ function ShapeNodeImpl({ id, data, selected }: NodeProps) {
     );
   }
 
-  // 핸들 클래스 — 연결 드래그 중에는 크게+글로우, 평소엔 작게(호버 시 확대)
+  // 핸들 클래스 — 연결 드래그 중에는 크게+글로우, 평소엔 숨김(노드 호버 시에만 표시).
   const handleClass = !editable
     ? "!opacity-0 !pointer-events-none"
     : connecting
       ? "!z-20 !h-4 !w-4 !border-2 !border-white !bg-sky-500 !shadow-[0_0_0_5px_rgba(14,165,233,0.3)]"
-      : "!z-10 !h-2.5 !w-2.5 !border !border-white !bg-sky-400 transition-all hover:!h-4 hover:!w-4 hover:!bg-sky-500 hover:!shadow-[0_0_0_4px_rgba(14,165,233,0.25)]";
+      : "!z-10 !h-2.5 !w-2.5 !border !border-white !bg-sky-400 !opacity-0 transition-all group-hover/qnshape:!opacity-100 hover:!h-4 hover:!w-4 hover:!bg-sky-500 hover:!shadow-[0_0_0_4px_rgba(14,165,233,0.25)]";
 
   return (
     <div
-      className={`relative flex items-center justify-center ${sizeClass} ${
+      className={`group/qnshape relative flex items-center justify-center ${sizeClass} ${
         // 읽기전용 미리보기에서 링크가 있는 도형만 클릭 가능함을 커서로 표시
         d.hasLink && !editable ? "cursor-pointer" : ""
       }`}

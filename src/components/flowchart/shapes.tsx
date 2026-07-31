@@ -15,6 +15,7 @@ import {
   Database,
   FileText,
   Pill,
+  Type,
 } from "lucide-react";
 import type { FlowchartNodeShape } from "../../types/flowchart";
 
@@ -26,7 +27,7 @@ export type ShapeGeometryProps = {
   vectorEffect: "non-scaling-stroke";
 };
 
-export type ShapeKind = "box" | "parallelogram" | "svg";
+export type ShapeKind = "box" | "parallelogram" | "svg" | "text";
 
 type ShapeMeta = {
   shape: FlowchartNodeShape;
@@ -139,6 +140,14 @@ export const FLOWCHART_SHAPES: ShapeMeta[] = [
         {...p}
       />
     ),
+  },
+  {
+    // 도형 없이 텍스트만 배치 — 배경/테두리 없이 라벨만 그린다.
+    shape: "text",
+    label: "텍스트",
+    icon: Type,
+    kind: "text",
+    padClass: "px-2 py-1",
   },
 ];
 

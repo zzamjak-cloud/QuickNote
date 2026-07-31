@@ -17,6 +17,7 @@ import {
   Controls,
   MiniMap,
   addEdge,
+  reconnectEdge,
   useNodesState,
   useEdgesState,
   useReactFlow,
@@ -140,8 +141,78 @@ function FlowchartEditorInner({
   const reactFlowId = useId();
   const { screenToFlowPosition, getViewport } = useReactFlow();
 
+  // ── 실행취소/다시실행 (액션 단위) ──
+  // 각 액션(생성·이동·연결·재연결·색상·라벨·링크·삭제·복제)의 "직전" 상태를 past 에 쌓고
+  // Ctrl+Z / Ctrl+Shift+Z(또는 Ctrl+Y) 로 한 액션씩 되돌린다.
+  // 타이핑(라벨 입력)은 같은 coalesceKey 가 유지되는 동안 한 액션으로 합치고,
+  // 선택이 바뀌거나 해제되는 순간(=onSelectionChange) 세션을 끝낸다 → 블록 단위 기록.
+  const nodesRef = useRef(nodes);
+  nodesRef.current = nodes;
+  const edgesRef = useRef(edges);
+  edgesRef.current = edges;
+  const historyRef = useRef<{
+    past: string[];
+    future: string[];
+    lastKey: string | null;
+  }>({ past: [], future: [], lastKey: null });
+
+  const captureState = useCallback(
+    () => JSON.stringify({ nodes: nodesRef.current, edges: edgesRef.current }),
+    [],
+  );
+
+  const snapshot = useCallback(
+    (coalesceKey?: string) => {
+      const h = historyRef.current;
+      // 같은 타이핑 세션이 이어지는 동안은 추가 기록 없이 합친다.
+      if (coalesceKey && h.lastKey === coalesceKey) return;
+      h.past.push(captureState());
+      if (h.past.length > 100) h.past.shift();
+      h.future = [];
+      h.lastKey = coalesceKey ?? null;
+    },
+    [captureState],
+  );
+
+  const restoreState = useCallback(
+    (serialized: string) => {
+      try {
+        const s = JSON.parse(serialized) as {
+          nodes: RfNode[];
+          edges: RfEdge[];
+        };
+        setNodes(s.nodes);
+        setEdges(s.edges);
+        setSelectedNodeIds(s.nodes.filter((n) => n.selected).map((n) => n.id));
+        setSelectedEdgeIds(s.edges.filter((e) => e.selected).map((e) => e.id));
+      } catch {
+        // 손상된 스냅샷은 무시
+      }
+    },
+    [setNodes, setEdges],
+  );
+
+  const undo = useCallback(() => {
+    const h = historyRef.current;
+    const prev = h.past.pop();
+    if (prev === undefined) return;
+    h.future.push(captureState());
+    h.lastKey = null;
+    restoreState(prev);
+  }, [captureState, restoreState]);
+
+  const redo = useCallback(() => {
+    const h = historyRef.current;
+    const next = h.future.pop();
+    if (next === undefined) return;
+    h.past.push(captureState());
+    h.lastKey = null;
+    restoreState(next);
+  }, [captureState, restoreState]);
+
   const onConnect = useCallback(
-    (conn: Connection) =>
+    (conn: Connection) => {
+      snapshot();
       setEdges((eds) =>
         addEdge(
           {
@@ -152,19 +223,30 @@ function FlowchartEditorInner({
           },
           eds,
         ),
-      ),
-    [setEdges],
+      );
+    },
+    [snapshot, setEdges],
+  );
+
+  // 이미 연결된 화살표를 선택한 뒤 시작/끝점을 드래그해 다른 정점으로 옮긴다.
+  const onReconnect = useCallback(
+    (oldEdge: RfEdge, conn: Connection) => {
+      snapshot();
+      setEdges((eds) => reconnectEdge(oldEdge, conn, eds));
+    },
+    [snapshot, setEdges],
   );
 
   const onLabelChange = useCallback(
     (id: string, label: string) => {
+      snapshot(`label:${id}`);
       setNodes((nds) =>
         nds.map((n) =>
           n.id === id ? { ...n, data: { ...n.data, label } } : n,
         ),
       );
     },
-    [setNodes],
+    [snapshot, setNodes],
   );
 
   // 편집용 콜백을 주입한 렌더 노드 (저장 상태에는 포함하지 않음)
@@ -200,6 +282,7 @@ function FlowchartEditorInner({
 
   const applyLink = useCallback(
     (nodeId: string, link: FlowchartNodeLink | null) => {
+      snapshot();
       setNodes((nds) =>
         nds.map((n) => {
           if (n.id !== nodeId) return n;
@@ -210,7 +293,7 @@ function FlowchartEditorInner({
         }),
       );
     },
-    [setNodes],
+    [snapshot, setNodes],
   );
 
   const ctxNodeLink = useMemo<FlowchartNodeLink | undefined>(() => {
@@ -227,6 +310,7 @@ function FlowchartEditorInner({
 
   const addShape = useCallback(
     (shape: FlowchartNodeShape) => {
+      snapshot();
       // 캔버스 중앙 근처에 배치
       const center = screenToFlowPosition({
         x: window.innerWidth / 2,
@@ -243,13 +327,18 @@ function FlowchartEditorInner({
       };
       setNodes((nds) => [...nds, node]);
     },
-    [screenToFlowPosition, setNodes],
+    [snapshot, screenToFlowPosition, setNodes],
   );
 
   const onSelectionChange = useCallback((params: OnSelectionChangeParams) => {
     setSelectedNodeIds(params.nodes.map((n) => n.id));
     setSelectedEdgeIds(params.edges.map((e) => e.id));
+    // 다른 도형 선택/선택 해제 순간 타이핑 세션 종료 → 다음 입력은 새 히스토리 1건
+    historyRef.current.lastKey = null;
   }, []);
+
+  // 드래그 시작 시점 상태를 기록 → 이동이 액션 단위로 되돌려진다.
+  const onNodeDragStart = useCallback(() => snapshot(), [snapshot]);
 
   // 드래그가 끝나면 옮긴 도형들의 "중심"을 격자에 스냅 → 연결 정점이 서로 정렬된다.
   const onNodeDragStop = useCallback(
@@ -269,6 +358,7 @@ function FlowchartEditorInner({
   const applyColor = useCallback(
     (color?: string) => {
       if (selectedNodeIds.length === 0) return;
+      snapshot();
       const sel = new Set(selectedNodeIds);
       setNodes((nds) =>
         nds.map((n) =>
@@ -276,12 +366,13 @@ function FlowchartEditorInner({
         ),
       );
     },
-    [selectedNodeIds, setNodes],
+    [selectedNodeIds, snapshot, setNodes],
   );
 
   const applyEdgeColor = useCallback(
     (color?: string) => {
       if (selectedEdgeIds.length === 0) return;
+      snapshot();
       const sel = new Set(selectedEdgeIds);
       setEdges((eds) =>
         eds.map((e) =>
@@ -291,24 +382,26 @@ function FlowchartEditorInner({
         ),
       );
     },
-    [selectedEdgeIds, setEdges],
+    [selectedEdgeIds, snapshot, setEdges],
   );
 
   const setEdgeLabel = useCallback(
     (label: string) => {
       if (selectedEdgeIds.length === 0) return;
+      snapshot(`edgeLabel:${selectedEdgeIds.join(",")}`);
       const sel = new Set(selectedEdgeIds);
       setEdges((eds) =>
         eds.map((e) => (sel.has(e.id) ? { ...e, label } : e)),
       );
     },
-    [selectedEdgeIds, setEdges],
+    [selectedEdgeIds, snapshot, setEdges],
   );
 
   const deleteSelected = useCallback(() => {
     const nodeSel = new Set(selectedNodeIds);
     const edgeSel = new Set(selectedEdgeIds);
     if (nodeSel.size === 0 && edgeSel.size === 0) return;
+    snapshot();
     setNodes((nds) => nds.filter((n) => !nodeSel.has(n.id)));
     setEdges((eds) =>
       eds.filter(
@@ -320,7 +413,77 @@ function FlowchartEditorInner({
     );
     setSelectedNodeIds([]);
     setSelectedEdgeIds([]);
-  }, [selectedNodeIds, selectedEdgeIds, setNodes, setEdges]);
+  }, [selectedNodeIds, selectedEdgeIds, snapshot, setNodes, setEdges]);
+
+  // Ctrl+D — 선택 도형(과 그 사이 화살표) 복제. 복제본을 선택 상태로 두어 연속 복제가 가능하다.
+  const duplicateSelection = useCallback(() => {
+    if (selectedNodeIds.length === 0) return;
+    snapshot();
+    const sel = new Set(selectedNodeIds);
+    const idMap = new Map<string, string>();
+    const clones: RfNode[] = [];
+    for (const n of nodesRef.current) {
+      if (!sel.has(n.id)) continue;
+      const nid = createFlowchartId("n");
+      idMap.set(n.id, nid);
+      clones.push({
+        ...n,
+        id: nid,
+        position: { x: n.position.x + GRID * 2, y: n.position.y + GRID * 2 },
+        selected: true,
+        data: { ...n.data },
+      });
+    }
+    // 선택 도형끼리 잇는 화살표도 함께 복제
+    const edgeClones: RfEdge[] = edgesRef.current
+      .filter((e) => idMap.has(e.source) && idMap.has(e.target))
+      .map((e) => ({
+        ...e,
+        id: createFlowchartId("e"),
+        source: idMap.get(e.source) as string,
+        target: idMap.get(e.target) as string,
+        selected: false,
+      }));
+    setNodes((nds) => [
+      ...nds.map((n) => (n.selected ? { ...n, selected: false } : n)),
+      ...clones,
+    ]);
+    setEdges((eds) => [
+      ...eds.map((e) => (e.selected ? { ...e, selected: false } : e)),
+      ...edgeClones,
+    ]);
+    setSelectedNodeIds(clones.map((c) => c.id));
+    setSelectedEdgeIds([]);
+  }, [selectedNodeIds, snapshot, setNodes, setEdges]);
+
+  // 단축키: Ctrl/Cmd+D 복제 · Ctrl/Cmd+Z 실행취소 · Ctrl/Cmd+Shift+Z / Ctrl/Cmd+Y 다시실행.
+  // 라벨 textarea 는 controlled 라 네이티브 텍스트 undo 가 동작하지 않으므로,
+  // 입력 필드 포커스 중에도 액션 단위 히스토리로 일괄 처리한다.
+  const duplicateRef = useRef(duplicateSelection);
+  duplicateRef.current = duplicateSelection;
+  const undoRef = useRef(undo);
+  undoRef.current = undo;
+  const redoRef = useRef(redo);
+  redoRef.current = redo;
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey)) return;
+      const key = e.key.toLowerCase();
+      if (key === "d") {
+        e.preventDefault();
+        duplicateRef.current();
+      } else if (key === "z") {
+        e.preventDefault();
+        if (e.shiftKey) redoRef.current();
+        else undoRef.current();
+      } else if (key === "y") {
+        e.preventDefault();
+        redoRef.current();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, []);
 
   const buildData = useCallback((): FlowchartData => {
     return {
@@ -367,6 +530,24 @@ function FlowchartEditorInner({
     }, 60_000);
     return () => window.clearInterval(timer);
   }, []);
+
+  // 선택된 엣지는 굵기·글로우·점선 애니메이션으로 선택 상태를 시각화한다.
+  const rfEdges = useMemo<RfEdge[]>(
+    () =>
+      edges.map((e) => {
+        if (!e.selected) return e;
+        return {
+          ...e,
+          animated: true,
+          style: {
+            ...e.style,
+            strokeWidth: 3,
+            filter: "drop-shadow(0 0 3px rgba(14,165,233,0.9))",
+          },
+        };
+      }),
+    [edges],
+  );
 
   const hasNodeSelection = selectedNodeIds.length > 0;
   const hasEdgeSelection = selectedEdgeIds.length > 0;
@@ -477,7 +658,8 @@ function FlowchartEditorInner({
           ))}
           <p className="mt-2 px-1 text-[11px] leading-relaxed text-zinc-400">
             도형 테두리에서 끌어 다른 도형에 연결하세요. 글자는 클릭 후 바로
-            입력합니다.
+            입력합니다. Ctrl+D 복제 · Ctrl+Z 실행취소 · 화살표 선택 후 끝점을
+            드래그하면 다른 정점으로 옮길 수 있습니다.
           </p>
         </div>
 
@@ -486,14 +668,23 @@ function FlowchartEditorInner({
           <ReactFlow
             id={reactFlowId}
             nodes={rfNodes}
-            edges={edges}
+            edges={rfEdges}
             nodeTypes={nodeTypes}
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
             onConnect={onConnect}
+            onReconnect={onReconnect}
+            // 선택된 엣지 끝점의 재연결 앵커를 잡기 쉽게 반경을 넉넉히
+            reconnectRadius={20}
             onSelectionChange={onSelectionChange}
             onNodeContextMenu={onNodeContextMenu}
+            onNodeDragStart={onNodeDragStart}
             onNodeDragStop={onNodeDragStop}
+            // 키보드 Delete/Backspace 삭제도 액션 단위 히스토리에 기록
+            onBeforeDelete={async () => {
+              snapshot();
+              return true;
+            }}
             onPaneClick={() => setCtxMenu(null)}
             connectionMode={ConnectionMode.Loose}
             // 드롭 판정 반경을 넉넉히 — 핸들에 정확히 맞추지 않아도 가까운 핸들에 연결

@@ -50,6 +50,7 @@ import { useAiStore } from "../../store/aiStore";
 import { isAiProxyConfigured } from "../../lib/ai/aiClient";
 import { buildPageAiContext } from "../../lib/ai/contextBuilder";
 import { CLEAR_BOX_SELECTION_EVENT } from "../../hooks/boxSelect/constants";
+import { FLOWCHART_OPEN_FULL_PAGE_EVENT } from "../../lib/flowchart/openFullPageEdit";
 import {
   bindPageScrollMemory,
   restorePageScrollPosition,
@@ -185,6 +186,17 @@ export function DatabaseRowPeek() {
     window.dispatchEvent(new Event(CLEAR_BOX_SELECTION_EVENT));
     requestAnimationFrame(activateFullPage);
   };
+
+  // 피크 본문 속 플로우차트 더블클릭 → 전체 페이지 전환 요청(이벤트) 수신.
+  // openFullPage 는 렌더마다 새로 만들어지는 클로저라 ref 로 최신본을 참조한다.
+  const openFullPageRef = useRef(openFullPage);
+  openFullPageRef.current = openFullPage;
+  useEffect(() => {
+    const handler = () => openFullPageRef.current();
+    window.addEventListener(FLOWCHART_OPEN_FULL_PAGE_EVENT, handler);
+    return () => window.removeEventListener(FLOWCHART_OPEN_FULL_PAGE_EVENT, handler);
+  }, []);
+
   const databaseId = page?.databaseId;
   const bundle = useDatabaseStore((s) => (databaseId ? s.databases[databaseId] : undefined));
   const showToast = useUiStore((s) => s.showToast);

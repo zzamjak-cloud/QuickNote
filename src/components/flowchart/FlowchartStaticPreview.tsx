@@ -74,6 +74,11 @@ function shapeOutline(
         </g>
       );
     }
+    case "text":
+      // 텍스트 전용 — 배경색이 지정된 경우에만 라운드 박스를 그린다(테두리 없음)
+      return fill === "transparent" ? null : (
+        <rect x={0} y={0} width={w} height={h} rx={6} fill={fill} stroke="none" />
+      );
     case "document":
       return (
         <path
@@ -212,7 +217,8 @@ export function FlowchartStaticPreview({ data, onNodeLink }: Props) {
       {data.nodes.map((n) => {
         const b = boxes.get(n.id);
         if (!b) return null;
-        const fill = n.data.color ?? "#ffffff";
+        const fill =
+          n.data.color ?? (n.data.shape === "text" ? "transparent" : "#ffffff");
         const link = n.data.link;
         return (
           <g
