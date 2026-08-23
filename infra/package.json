@@ -2,6 +2,8 @@
   "name": "quicknote-infra",
   "version": "3.0.0",
   "private": true,
+  "author": "Loadcomplete",
+  "license": "GPL-3.0-only",
   "description": "QuickNote AWS 인프라 (Cognito + 화이트리스트 Lambda)",
   "bin": {
     "quicknote-infra": "bin/quicknote.js"

@@ -2,6 +2,8 @@
   "name": "post-confirmation-lambda",
   "version": "1.0.0",
   "type": "module",
+  "author": "Loadcomplete",
+  "license": "GPL-3.0-only",
   "main": "index.ts",
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.0.0",

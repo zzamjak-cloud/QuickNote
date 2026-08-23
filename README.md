@@ -189,4 +189,7 @@ npm run build
 
 ## 라이선스
 
-MIT
+QuickNote는 GNU General Public License v3.0 전용(`GPL-3.0-only`)으로 배포한다.
+
+저작권은 Loadcomplete에 있으며, 배포·수정·상업적 이용은 `LICENSE`의 GPL v3 조건을 준수해야 한다.
+파생 저작물 또는 재배포본은 GPL v3에 따라 해당 소스 코드를 공개하고 동일한 라이선스 조건을 유지해야 한다.
