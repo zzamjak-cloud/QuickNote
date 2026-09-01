@@ -1,5 +1,5 @@
-// OpenAI Chat Completions(SSE 스트리밍) 호출 — gemini.ts 와 동일한 인터페이스.
-// 시스템 프롬프트(지침+컨텍스트)를 첫 system 메시지에 고정 배치 → OpenAI 자동 prompt caching 적중.
+// OpenRouter Chat Completions(SSE 스트리밍) 호출 — OpenAI 호환 wire format.
+// 파일명은 기존 import 경로 호환을 위해 유지한다.
 import { ProviderError, type GeminiStreamResult } from "./gemini";
 import { openaiTools, type AiToolCall, type AiWireMessage } from "./tools";
 
@@ -34,6 +34,7 @@ type OpenAiSseChunk = {
     finish_reason?: string | null;
   }>;
   usage?: { prompt_tokens?: number; completion_tokens?: number } | null;
+  error?: { message?: string; code?: number | string };
 };
 
 function toOpenAiMessages(messages: AiWireMessage[]): OpenAiMessage[] {
@@ -74,7 +75,7 @@ function toOpenAiMessages(messages: AiWireMessage[]): OpenAiMessage[] {
   return out;
 }
 
-export async function streamOpenAiChat(args: {
+export async function streamOpenRouterChat(args: {
   apiKey: string;
   model: string;
   systemPrompt: string;
@@ -89,8 +90,7 @@ export async function streamOpenAiChat(args: {
     model: args.model,
     stream: true,
     stream_options: { include_usage: true },
-    // GPT-5 계열은 max_tokens 대신 max_completion_tokens 사용
-    max_completion_tokens: 32_768,
+    max_tokens: 32_768,
     messages: [
       { role: "system", content: args.systemPrompt },
       ...toOpenAiMessages(args.messages),
@@ -100,11 +100,13 @@ export async function streamOpenAiChat(args: {
     body.tools = openaiTools();
   }
 
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
+  const res = await fetch("https://openrouter.ai/api/v1/chat/completions", {
     method: "POST",
     headers: {
       "content-type": "application/json",
       authorization: `Bearer ${args.apiKey}`,
+      "HTTP-Referer": "https://quick-note-khaki.vercel.app",
+      "X-OpenRouter-Title": "QuickNote",
     },
     body: JSON.stringify(body),
     signal: args.signal,
@@ -113,7 +115,7 @@ export async function streamOpenAiChat(args: {
   if (!res.ok || !res.body) {
     const retryAfter = Number(res.headers.get("retry-after")) || null;
     const errBody = await res.text().catch(() => "");
-    console.error("openai upstream error", res.status, errBody.slice(0, 300));
+    console.error("openrouter upstream error", res.status, errBody.slice(0, 300));
     throw new ProviderError(`AI 제공사 오류 (${res.status})`, res.status, retryAfter);
   }
 
@@ -145,15 +147,23 @@ export async function streamOpenAiChat(args: {
     pending.clear();
   };
 
-  const consumeLine = (line: string) => {
-    if (!line.startsWith("data:")) return;
+  const consumeLine = (line: string): boolean => {
+    if (!line.startsWith("data:")) return false;
     const payload = line.slice(5).trim();
-    if (!payload || payload === "[DONE]") return;
+    if (!payload) return false;
+    if (payload === "[DONE]") return true;
     let chunk: OpenAiSseChunk;
     try {
       chunk = JSON.parse(payload) as OpenAiSseChunk;
     } catch {
-      return;
+      return false;
+    }
+    if (chunk.error) {
+      const status =
+        typeof chunk.error.code === "number" && chunk.error.code >= 400
+          ? chunk.error.code
+          : 502;
+      throw new ProviderError(chunk.error.message || "OpenRouter 스트리밍 오류", status, null);
     }
     const choice = chunk.choices?.[0];
     if (choice?.delta?.content) args.onDelta(choice.delta.content);
@@ -170,8 +180,10 @@ export async function streamOpenAiChat(args: {
       result.inputTokens = chunk.usage.prompt_tokens ?? result.inputTokens;
       result.outputTokens = chunk.usage.completion_tokens ?? result.outputTokens;
     }
+    return false;
   };
 
+  let streamDone = false;
   try {
     for (;;) {
       const { done, value } = await reader.read();
@@ -179,15 +191,17 @@ export async function streamOpenAiChat(args: {
       buffer += decoder.decode(value, { stream: true });
       let idx: number;
       while ((idx = buffer.indexOf("\n")) >= 0) {
-        consumeLine(buffer.slice(0, idx).trimEnd());
+        streamDone = consumeLine(buffer.slice(0, idx).trimEnd());
         buffer = buffer.slice(idx + 1);
+        if (streamDone) break;
       }
+      if (streamDone) break;
     }
   } finally {
     // 오류·중단 경로에서도 upstream 연결 해제(토큰 소모 중지)
     reader.cancel().catch(() => {});
   }
-  consumeLine(buffer.trimEnd());
+  if (!streamDone) consumeLine(buffer.trimEnd());
   flushTools();
   if (result.toolCalls.length > 0 && !result.finishReason) {
     result.finishReason = "tool_calls";

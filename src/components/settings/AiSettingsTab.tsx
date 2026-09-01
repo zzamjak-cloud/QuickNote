@@ -1,4 +1,4 @@
-// 설정 > AI 탭 (developer 전용) — 제공사별 API 키 동시 등록, 활성화, 기본 모델, 월 한도·사용량.
+// 설정 > AI 탭 (developer 전용) — OpenRouter 통합 키, 활성화, 기본 모델, 월 한도·사용량.
 // 키 원문은 저장 직후에도 다시 볼 수 없다(마스킹만 표시).
 import { useEffect, useState } from "react";
 import { KeyRound, Trash2 } from "lucide-react";
@@ -42,9 +42,7 @@ export function AiSettingsTab() {
   const [usage, setUsage] = useState<WorkspaceAiUsage | null>(null);
   const [loading, setLoading] = useState(true);
   const [keyInputs, setKeyInputs] = useState<Record<AiProvider, string>>({
-    gemini: "",
-    anthropic: "",
-    openai: "",
+    openrouter: "",
   });
   const [quotaDraft, setQuotaDraft] = useState("0");
   const [busy, setBusy] = useState(false);
@@ -136,12 +134,12 @@ export function AiSettingsTab() {
         </p>
       )}
 
-      {/* 제공사별 API 키 — 동시에 등록 가능, 채팅에서 모델만 선택 */}
+      {/* OpenRouter 통합 API 키 */}
       <section className="space-y-4">
         <div>
           <h3 className="text-sm font-semibold">API 키</h3>
           <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-            제공사별 키를 각각 등록해 두면, 채팅에서 모델을 자유롭게 바꿔 쓸 수 있습니다.
+            OpenRouter 통합 키 하나로 Gemini, Claude, OpenAI 모델을 사용할 수 있습니다.
             키는 서버에 암호화 저장되며 다시 조회할 수 없습니다.{" "}
             <strong>키·활성화 설정은 QuickNote 전체(모든 워크스페이스)에서 공유됩니다.</strong>
           </p>
@@ -179,13 +177,7 @@ export function AiSettingsTab() {
                   onChange={(e) =>
                     setKeyInputs((s) => ({ ...s, [p.id]: e.target.value }))
                   }
-                  placeholder={
-                    status?.hasKey
-                      ? "새 키 입력 시 교체"
-                      : p.id === "anthropic"
-                        ? "sk-ant-…"
-                        : "AIza…"
-                  }
+                  placeholder={status?.hasKey ? "새 키 입력 시 교체" : "sk-or-v1-…"}
                   autoComplete="off"
                   className="flex-1 rounded-md border border-zinc-200 bg-white px-3 py-2 text-sm outline-none focus:border-violet-400 dark:border-zinc-700 dark:bg-zinc-900"
                 />
@@ -237,7 +229,7 @@ export function AiSettingsTab() {
         </button>
       </section>
 
-      {/* 기본 모델 — 키가 있는 제공사 모델만 */}
+      {/* 기본 모델 — OpenRouter 키 등록 시 전체 화이트리스트 노출 */}
       <section className="space-y-2">
         <h3 className="text-sm font-semibold">기본 모델</h3>
         {models.length === 0 ? (
@@ -350,7 +342,7 @@ export function AiSettingsTab() {
         title="API 키 삭제"
         message={
           clearTarget
-            ? `${AI_PROVIDERS.find((p) => p.id === clearTarget)?.label ?? clearTarget} 키를 삭제합니다. 해당 제공사 모델은 더 이상 사용할 수 없습니다.`
+            ? `${AI_PROVIDERS.find((p) => p.id === clearTarget)?.label ?? clearTarget} 키를 삭제합니다. 모든 AI 모델을 더 이상 사용할 수 없습니다.`
             : ""
         }
         confirmLabel="삭제"

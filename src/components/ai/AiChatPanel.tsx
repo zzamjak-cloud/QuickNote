@@ -341,13 +341,10 @@ export function AiChatPanel() {
       showToast("워크스페이스를 찾을 수 없습니다");
       return;
     }
-    // 번역은 항상 고속(빠름·저비용) 모델로 고정한다. 단, 키가 등록된 제공사 안에서 선택해
-    // 키 없는 제공사로 바뀌지 않게 한다: 현재 모델의 제공사 > 키 있는 첫 제공사 > 워크스페이스 기본.
+    // 번역은 현재 OpenRouter 모델과 같은 원제공사의 고속 모델을 우선한다.
     const curProvider = providerForModel(effectiveModel);
     const translateProvider =
-      curProvider && keyedProviders.includes(curProvider)
-        ? curProvider
-        : keyedProviders[0] ?? wsConfig?.provider;
+      curProvider ?? providerForModel(wsConfig?.defaultModel ?? "");
     const translateModel = defaultModelForProvider(translateProvider);
     setTranslating(label);
     try {

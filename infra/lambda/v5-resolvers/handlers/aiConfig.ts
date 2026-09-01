@@ -1,4 +1,4 @@
-// 워크스페이스 AI 설정 리졸버 — 제공사별 API 키를 keys 맵에 KMS 암호화 저장.
+// 워크스페이스 AI 설정 리졸버 — OpenRouter 통합 API 키를 KMS 암호화 저장.
 // 조회는 원문을 반환하지 않는다(providers[].hasKey / apiKeyMasked 만).
 import {
   DynamoDBDocumentClient,
@@ -17,25 +17,29 @@ import type { Tables } from "./member";
 
 const kms = new KMSClient({});
 
-/** 서버가 허용하는 AI 제공사·모델 화이트리스트. 클라이언트 src/lib/ai/models.ts 와 동기 유지. */
-export const AI_PROVIDERS = ["gemini", "anthropic", "openai"] as const;
+/** API 키를 저장하는 통합 제공사. */
+export const AI_PROVIDERS = ["openrouter"] as const;
 export type AiProvider = (typeof AI_PROVIDERS)[number];
 
-export const AI_MODELS_BY_PROVIDER: Record<AiProvider, readonly string[]> = {
+/** OpenRouter 모델 slug의 원제공사. */
+export type AiModelProvider = "gemini" | "anthropic" | "openai";
+
+/** 서버 모델 화이트리스트. 클라이언트 src/lib/ai/models.ts 와 동기 유지. */
+export const AI_MODELS_BY_PROVIDER: Record<AiModelProvider, readonly string[]> = {
   gemini: [
-    "gemini-3.6-flash",
-    "gemini-3.5-flash",
-    "gemini-3.5-flash-lite",
-    "gemini-3.1-pro-preview",
+    "google/gemini-3.6-flash",
+    "google/gemini-3.5-flash",
+    "google/gemini-3.5-flash-lite",
+    "google/gemini-3.1-pro-preview",
   ],
-  anthropic: ["claude-haiku-4-5", "claude-sonnet-5"],
-  openai: ["gpt-5-mini", "gpt-5.1"],
+  anthropic: ["anthropic/claude-haiku-4.5", "anthropic/claude-sonnet-5"],
+  openai: ["openai/gpt-5-mini", "openai/gpt-5.1"],
 };
 
-export const AI_DEFAULT_MODEL_BY_PROVIDER: Record<AiProvider, string> = {
-  gemini: "gemini-3.6-flash",
-  anthropic: "claude-haiku-4-5",
-  openai: "gpt-5-mini",
+export const AI_DEFAULT_MODEL_BY_PROVIDER: Record<AiModelProvider, string> = {
+  gemini: "google/gemini-3.6-flash",
+  anthropic: "anthropic/claude-haiku-4.5",
+  openai: "openai/gpt-5-mini",
 };
 
 export function isAiProvider(v: string): v is AiProvider {
@@ -43,11 +47,27 @@ export function isAiProvider(v: string): v is AiProvider {
 }
 
 /** 모델 ID → 제공사. 화이트리스트에 없으면 null. */
-export function providerForModel(model: string): AiProvider | null {
-  for (const p of AI_PROVIDERS) {
+export function providerForModel(model: string): AiModelProvider | null {
+  for (const p of Object.keys(AI_MODELS_BY_PROVIDER) as AiModelProvider[]) {
     if (AI_MODELS_BY_PROVIDER[p].includes(model)) return p;
   }
   return null;
+}
+
+const LEGACY_MODEL_IDS: Record<string, string> = {
+  "gemini-3.6-flash": "google/gemini-3.6-flash",
+  "gemini-3.5-flash": "google/gemini-3.5-flash",
+  "gemini-3.5-flash-lite": "google/gemini-3.5-flash-lite",
+  "gemini-3.1-pro-preview": "google/gemini-3.1-pro-preview",
+  "claude-haiku-4-5": "anthropic/claude-haiku-4.5",
+  "claude-sonnet-5": "anthropic/claude-sonnet-5",
+  "gpt-5-mini": "openai/gpt-5-mini",
+  "gpt-5.1": "openai/gpt-5.1",
+};
+
+/** 저장된 직접 제공사 모델 ID를 대응하는 OpenRouter slug로 승격한다. */
+export function normalizeModelId(model: string): string {
+  return LEGACY_MODEL_IDS[model] ?? model;
 }
 
 /** 월 토큰 한도 상한(입력+출력 합산). 0 = 무제한. */
@@ -62,8 +82,8 @@ type AiConfigItem = {
   provider?: string;
   apiKeyEnc?: string;
   apiKeyLast4?: string;
-  /** 제공사별 암호화 키. 클라이언트 응답에 절대 포함 금지. */
-  keys?: Partial<Record<AiProvider, StoredKey>>;
+  /** 통합 키. 레거시 직접 제공사 슬롯을 읽기 위해 string 키도 허용한다. */
+  keys?: Partial<Record<string, StoredKey>>;
   defaultModel?: string;
   monthlyTokenLimit?: number;
   updatedAt?: string;
@@ -88,19 +108,18 @@ export type WorkspaceAiConfigGql = {
   updatedAt: string | null;
 };
 
-/** 레거시 apiKeyEnc 를 keys 맵에 병합(응답·검증용, DDB 쓰기는 별도). */
+/** OpenRouter 슬롯만 반환한다. 직접 제공사 키는 OpenRouter 키로 재사용할 수 없다. */
 export function resolveKeysMap(
   item: Pick<AiConfigItem, "keys" | "apiKeyEnc" | "apiKeyLast4" | "provider"> | undefined,
 ): Partial<Record<AiProvider, StoredKey>> {
-  const out: Partial<Record<AiProvider, StoredKey>> = { ...(item?.keys ?? {}) };
-  if (item?.apiKeyEnc) {
-    const p: AiProvider =
-      item.provider && isAiProvider(item.provider) ? item.provider : "gemini";
-    if (!out[p]?.enc) {
-      out[p] = { enc: item.apiKeyEnc, last4: item.apiKeyLast4 ?? "" };
-    }
+  const slot = item?.keys?.openrouter;
+  if (slot?.enc) return { openrouter: slot };
+  if (item?.apiKeyEnc && item.provider === "openrouter") {
+    return {
+      openrouter: { enc: item.apiKeyEnc, last4: item.apiKeyLast4 ?? "" },
+    };
   }
-  return out;
+  return {};
 }
 
 export function providersWithKeys(
@@ -110,7 +129,10 @@ export function providersWithKeys(
 }
 
 function allowedModelsForKeys(keys: Partial<Record<AiProvider, StoredKey>>): string[] {
-  return providersWithKeys(keys).flatMap((p) => [...AI_MODELS_BY_PROVIDER[p]]);
+  if (!keys.openrouter?.enc) return [];
+  return (Object.keys(AI_MODELS_BY_PROVIDER) as AiModelProvider[]).flatMap((provider) => [
+    ...AI_MODELS_BY_PROVIDER[provider],
+  ]);
 }
 
 function pickDefaultModel(
@@ -118,9 +140,9 @@ function pickDefaultModel(
   keys: Partial<Record<AiProvider, StoredKey>>,
 ): string {
   const allowed = allowedModelsForKeys(keys);
-  if (item?.defaultModel && allowed.includes(item.defaultModel)) return item.defaultModel;
-  const first = providersWithKeys(keys)[0];
-  return first ? AI_DEFAULT_MODEL_BY_PROVIDER[first] : AI_DEFAULT_MODEL_BY_PROVIDER.gemini;
+  const savedModel = item?.defaultModel ? normalizeModelId(item.defaultModel) : null;
+  if (savedModel && allowed.includes(savedModel)) return savedModel;
+  return AI_DEFAULT_MODEL_BY_PROVIDER.gemini;
 }
 
 /** DDB 아이템 → GraphQL 응답. 키 원문/암호문은 여기서 걸러진다. */
@@ -137,17 +159,15 @@ export function aiConfigToGql(
       apiKeyMasked: slot?.enc ? `****${slot.last4}` : null,
     };
   });
-  const withKey = providersWithKeys(keys);
   const defaultModel = pickDefaultModel(item, keys);
-  const compatProvider =
-    providerForModel(defaultModel) ?? withKey[0] ?? ("gemini" as AiProvider);
-  const compatMasked = providers.find((p) => p.provider === compatProvider)?.apiKeyMasked ?? null;
+  const compatProvider: AiProvider = "openrouter";
+  const compatMasked = providers[0]?.apiKeyMasked ?? null;
 
   return {
     workspaceId,
     enabled: item?.enabled === true,
     provider: compatProvider,
-    hasKey: withKey.length > 0,
+    hasKey: Boolean(keys.openrouter?.enc),
     apiKeyMasked: compatMasked,
     providers,
     defaultModel,
@@ -272,14 +292,16 @@ export async function setWorkspaceAiKey(
     last4: apiKey.slice(-4),
   };
 
-  // keys 맵 전체를 병합 후 통째로 SET — 중첩 경로 SET 은 부모 맵이 없으면(신규 아이템·
-  // 레거시 아이템) ValidationException 이 나고, 레거시 apiKeyEnc 만 REMOVE 하면 타 제공사
-  // 레거시 키가 마이그레이션 없이 유실되므로 resolveKeysMap 병합 결과를 그대로 쓴다.
+  // 통합 키 맵을 통째로 SET해 레거시 직접 제공사 슬롯도 함께 정리한다.
   const nextKeys = { ...prevKeys, [provider]: slot };
-  // 키가 처음 등록되면 defaultModel 을 그 제공사 기본값으로 맞춤(기존 기본이 없으면).
-  const needDefault =
-    wasEmpty ||
-    !(prev?.defaultModel && allowedModelsForKeys(nextKeys).includes(prev.defaultModel));
+  const normalizedPrevModel = prev?.defaultModel
+    ? normalizeModelId(prev.defaultModel)
+    : null;
+  const nextDefault =
+    normalizedPrevModel && allowedModelsForKeys(nextKeys).includes(normalizedPrevModel)
+      ? normalizedPrevModel
+      : AI_DEFAULT_MODEL_BY_PROVIDER.gemini;
+  const needDefault = wasEmpty || prev?.defaultModel !== nextDefault;
 
   const r = await args.doc.send(
     new UpdateCommand({
@@ -295,7 +317,7 @@ export async function setWorkspaceAiKey(
       ExpressionAttributeValues: {
         ":keys": nextKeys,
         ":t": new Date().toISOString(),
-        ...(needDefault ? { ":m": AI_DEFAULT_MODEL_BY_PROVIDER[provider] } : {}),
+        ...(needDefault ? { ":m": nextDefault } : {}),
       },
       ReturnValues: "ALL_NEW",
     }),
@@ -379,7 +401,7 @@ export async function updateWorkspaceAiSettings(
   if (typeof args.defaultModel === "string") {
     const allowed = allowedModelsForKeys(keys);
     if (!allowed.includes(args.defaultModel)) {
-      badRequest(`지원하지 않는 모델(또는 키 미등록 제공사): ${args.defaultModel}`);
+      badRequest(`지원하지 않는 OpenRouter 모델(또는 키 미등록): ${args.defaultModel}`);
     }
     sets.push("defaultModel = :m");
     values[":m"] = args.defaultModel;

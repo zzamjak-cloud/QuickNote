@@ -17,14 +17,13 @@ import {
   AI_DEFAULT_MODEL_BY_PROVIDER,
   AI_MODELS_BY_PROVIDER,
   GLOBAL_AI_CONFIG_ID,
-  providerForModel,
+  normalizeModelId,
   providersWithKeys,
   resolveKeysMap,
-  type AiProvider,
+  type AiModelProvider,
 } from "../v5-resolvers/handlers/aiConfig";
-import { streamGeminiChat, ProviderError } from "./gemini";
-import { streamAnthropicChat } from "./anthropic";
-import { streamOpenAiChat } from "./openai";
+import { ProviderError } from "./gemini";
+import { streamOpenRouterChat } from "./openai";
 import {
   buildSystemPromptParts,
   AI_ACTIONS,
@@ -302,7 +301,7 @@ async function authorize(
         apiKeyEnc?: string;
         apiKeyLast4?: string;
         provider?: string;
-        keys?: Partial<Record<AiProvider, { enc: string; last4: string }>>;
+        keys?: Partial<Record<string, { enc: string; last4: string }>>;
         defaultModel?: string;
         monthlyTokenLimit?: number;
       }
@@ -314,11 +313,14 @@ async function authorize(
     return { ok: false, status: 403, error: "이 워크스페이스에서 AI 가 비활성화되어 있습니다" };
   }
 
-  const allowedModels = withKey.flatMap((p) => [...AI_MODELS_BY_PROVIDER[p]]);
+  const allowedModels = (Object.keys(AI_MODELS_BY_PROVIDER) as AiModelProvider[]).flatMap(
+    (provider) => [...AI_MODELS_BY_PROVIDER[provider]],
+  );
+  const savedModel = item.defaultModel ? normalizeModelId(item.defaultModel) : null;
   const defaultModel =
-    item.defaultModel && allowedModels.includes(item.defaultModel)
-      ? item.defaultModel
-      : AI_DEFAULT_MODEL_BY_PROVIDER[withKey[0] ?? "gemini"];
+    savedModel && allowedModels.includes(savedModel)
+      ? savedModel
+      : AI_DEFAULT_MODEL_BY_PROVIDER.gemini;
 
   return {
     ok: true,
@@ -576,19 +578,19 @@ export const handler = awslambda.streamifyResponse<FnUrlEvent>(
         return;
       }
 
-      // 요청 모델 → 제공사 → 해당 키. 키가 있는 제공사 모델만 허용.
-      const keyedProviders = providersWithKeys(auth.keys);
-      const allowedModels = keyedProviders.flatMap((p) => [...AI_MODELS_BY_PROVIDER[p]]);
+      // OpenRouter 키 하나로 화이트리스트의 모든 원제공사 모델을 호출한다.
+      const allowedModels = (Object.keys(AI_MODELS_BY_PROVIDER) as AiModelProvider[]).flatMap(
+        (provider) => [...AI_MODELS_BY_PROVIDER[provider]],
+      );
       const model =
         req.model && allowedModels.includes(req.model) ? req.model : auth.defaultModel;
-      const provider = providerForModel(model);
-      if (!provider || !auth.keys[provider]?.enc) {
+      if (!auth.keys.openrouter?.enc) {
         respondJson(responseStream, 403, {
-          error: "선택한 모델용 API 키가 등록되어 있지 않습니다",
+          error: "OpenRouter API 키가 등록되어 있지 않습니다",
         });
         return;
       }
-      const apiKey = await decryptApiKey(auth.keys[provider]!.enc);
+      const apiKey = await decryptApiKey(auth.keys.openrouter.enc);
 
       const { instructions: baseInstructions, contextBlock } = buildSystemPromptParts(
         valid.action,
@@ -598,8 +600,6 @@ export const handler = awslambda.streamifyResponse<FnUrlEvent>(
       const instructions = valid.enableTools
         ? `${baseInstructions}\n\n${TOOLS_SYSTEM_HINT}`
         : baseInstructions;
-      // Gemini 는 단일 systemInstruction 문자열(지침+컨텍스트 고정 프리픽스) —
-      // Anthropic 은 contextBlock 에 ephemeral cache_control
       const systemPrompt = contextBlock
         ? `${instructions}\n\n${contextBlock}`
         : instructions;
@@ -629,12 +629,7 @@ export const handler = awslambda.streamifyResponse<FnUrlEvent>(
           onDelta: (text: string) => sseWrite(stream, { delta: text }),
           onToolCall,
         };
-        const result =
-          provider === "anthropic"
-            ? await streamAnthropicChat({ ...common, instructions, contextBlock })
-            : provider === "openai"
-              ? await streamOpenAiChat({ ...common, systemPrompt })
-              : await streamGeminiChat({ ...common, systemPrompt });
+        const result = await streamOpenRouterChat({ ...common, systemPrompt });
         sseWrite(stream, {
           done: true,
           finishReason: result.finishReason,
