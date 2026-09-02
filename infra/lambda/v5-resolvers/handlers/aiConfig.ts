@@ -27,7 +27,7 @@ export type AiModelProvider = "gemini" | "anthropic" | "openai";
 /** 서버 모델 화이트리스트. 클라이언트 src/lib/ai/models.ts 와 동기 유지. */
 export const AI_MODELS_BY_PROVIDER: Record<AiModelProvider, readonly string[]> = {
   gemini: [
-    "google/gemini-3.6-flash",
+    "google/gemini-3.8-flash",
     "google/gemini-3.5-flash",
     "google/gemini-3.5-flash-lite",
     "google/gemini-3.1-pro-preview",
@@ -37,7 +37,7 @@ export const AI_MODELS_BY_PROVIDER: Record<AiModelProvider, readonly string[]> =
 };
 
 export const AI_DEFAULT_MODEL_BY_PROVIDER: Record<AiModelProvider, string> = {
-  gemini: "google/gemini-3.6-flash",
+  gemini: "google/gemini-3.8-flash",
   anthropic: "anthropic/claude-haiku-4.5",
   openai: "openai/gpt-5-mini",
 };
@@ -55,7 +55,7 @@ export function providerForModel(model: string): AiModelProvider | null {
 }
 
 const LEGACY_MODEL_IDS: Record<string, string> = {
-  "gemini-3.6-flash": "google/gemini-3.6-flash",
+  "gemini-3.8-flash": "google/gemini-3.8-flash",
   "gemini-3.5-flash": "google/gemini-3.5-flash",
   "gemini-3.5-flash-lite": "google/gemini-3.5-flash-lite",
   "gemini-3.1-pro-preview": "google/gemini-3.1-pro-preview",

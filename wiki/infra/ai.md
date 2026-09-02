@@ -19,7 +19,7 @@ QuickNote의 Gemini, Claude, OpenAI 모델 호출은 OpenRouter 단일 API 키�
 
 ## 모델 화이트리스트
 
-- Google: `google/gemini-3.6-flash`(기본), `google/gemini-3.5-flash`,
+- Google: `google/gemini-3.8-flash`(기본), `google/gemini-3.5-flash`,
   `google/gemini-3.5-flash-lite`, `google/gemini-3.1-pro-preview`
 - Anthropic: `anthropic/claude-haiku-4.5`, `anthropic/claude-sonnet-5`
 - OpenAI: `openai/gpt-5-mini`, `openai/gpt-5.1`
@@ -38,6 +38,14 @@ OpenRouter의 OpenAI 호환 SSE를 사용하며 다음 계약을 유지한다.
 - HTTP 200 이후 `data` 이벤트의 `error`도 공급사 오류로 처리한다.
 - usage 전용 마지막 청크가 `finish_reason`을 반복해도 도구 호출을 한 번만 확정한다.
 - 클라이언트 연결이 끊기면 upstream reader를 취소해 불필요한 토큰 소모를 막는다.
+- `max_tokens`는 64,000으로 고정한다. 화이트리스트 전 모델이 허용하는 최댓값이며 상한은
+  Claude Haiku 4.5(64,000)가 결정한다. Gemini 3.x는 65,536까지 가능하지만 모델별 분기
+  대신 공통 상한을 쓴다. 화이트리스트에 출력 한도가 더 낮은 모델을 추가하면 이 값도
+  함께 낮춰야 한다.
+
+공급사 어댑터는 `lambda/ai-proxy/openai.ts`(OpenRouter) 하나뿐이다. 공통 계약인
+`ProviderError`와 `AiStreamResult`는 `lambda/ai-proxy/provider.ts`에 있다. 직접 제공사
+호출 어댑터(`gemini.ts`, `anthropic.ts`)는 OpenRouter 전환으로 제거했다.
 
 OpenRouter 호출은 Lambda에서만 발생한다. Tauri/WebView는 기존 AI Lambda Function URL에만
 접속하므로 `src-tauri/tauri.conf.json`의 CSP에 `openrouter.ai`를 추가하지 않는다.
@@ -45,7 +53,7 @@ OpenRouter 호출은 Lambda에서만 발생한다. Tauri/WebView는 기존 AI La
 ## 레거시 마이그레이션
 
 기존 직접 제공사 모델 ID는 조회와 요청 시 대응하는 OpenRouter slug로 정규화한다. 예:
-`gemini-3.6-flash` → `google/gemini-3.6-flash`.
+`gemini-3.8-flash` → `google/gemini-3.8-flash`.
 
 기존 Gemini/OpenAI/Anthropic API 키는 OpenRouter 키가 아니므로 자동 변환하거나 재사용하지
 않는다. 설정에서 OpenRouter 키를 새로 등록해야 하며, 등록 시 레거시 직접 제공사 키 슬롯을

@@ -22,7 +22,7 @@ import {
   resolveKeysMap,
   type AiModelProvider,
 } from "../v5-resolvers/handlers/aiConfig";
-import { ProviderError } from "./gemini";
+import { ProviderError } from "./provider";
 import { streamOpenRouterChat } from "./openai";
 import {
   buildSystemPromptParts,

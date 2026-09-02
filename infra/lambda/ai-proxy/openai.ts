@@ -1,6 +1,6 @@
 // OpenRouter Chat Completions(SSE 스트리밍) 호출 — OpenAI 호환 wire format.
 // 파일명은 기존 import 경로 호환을 위해 유지한다.
-import { ProviderError, type GeminiStreamResult } from "./gemini";
+import { ProviderError, type AiStreamResult } from "./provider";
 import { openaiTools, type AiToolCall, type AiWireMessage } from "./tools";
 
 type OpenAiContentPart =
@@ -85,12 +85,15 @@ export async function streamOpenRouterChat(args: {
   signal?: AbortSignal;
   onDelta: (text: string) => void;
   onToolCall?: (call: AiToolCall) => void;
-}): Promise<GeminiStreamResult> {
+}): Promise<AiStreamResult> {
   const body: Record<string, unknown> = {
     model: args.model,
     stream: true,
     stream_options: { include_usage: true },
-    max_tokens: 32_768,
+    // 취합·표 생성 등 긴 출력 대응. 화이트리스트 전 모델이 허용하는 최댓값이며
+    // 상한은 Claude Haiku 4.5(64,000)가 결정한다. Gemini 3.x 는 65,536 까지
+    // 가능하지만 모델별 분기 대신 공통 상한을 쓴다.
+    max_tokens: 64_000,
     messages: [
       { role: "system", content: args.systemPrompt },
       ...toOpenAiMessages(args.messages),
@@ -119,7 +122,7 @@ export async function streamOpenRouterChat(args: {
     throw new ProviderError(`AI 제공사 오류 (${res.status})`, res.status, retryAfter);
   }
 
-  const result: GeminiStreamResult = {
+  const result: AiStreamResult = {
     inputTokens: 0,
     outputTokens: 0,
     finishReason: null,

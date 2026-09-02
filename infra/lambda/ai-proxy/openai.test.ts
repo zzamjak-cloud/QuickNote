@@ -53,7 +53,7 @@ describe("OpenRouter 스트리밍 요청", () => {
     const toolCalls: unknown[] = [];
     const result = await streamOpenRouterChat({
       apiKey: "test-key",
-      model: "google/gemini-3.6-flash",
+      model: "google/gemini-3.8-flash",
       systemPrompt: "테스트 지침",
       messages: [{ role: "user", content: "페이지를 읽어줘" }],
       enableTools: true,
@@ -67,10 +67,10 @@ describe("OpenRouter 스트리밍 요청", () => {
     expect(openRouterTitle).toBe("QuickNote");
     const requestBody = JSON.parse(requestBodyJson) as Record<string, unknown>;
     expect(requestBody).toMatchObject({
-      model: "google/gemini-3.6-flash",
+      model: "google/gemini-3.8-flash",
       stream: true,
       stream_options: { include_usage: true },
-      max_tokens: 32_768,
+      max_tokens: 64_000,
     });
     expect(Array.isArray(requestBody.tools)).toBe(true);
     expect(deltas).toEqual(["안녕"]);
