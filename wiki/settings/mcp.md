@@ -8,9 +8,11 @@
 
 | 도구 | 명령 | 로그인 |
 |---|---|---|
-| Claude Code | `claude mcp add --transport http -s user quicknote <URL>` | Claude Code 세션에서 `/mcp` → quicknote → Authenticate |
-| Codex CLI | `codex mcp add quicknote --url <URL>` | add 단계에서 OAuth 를 자동 감지해 브라우저 로그인이 열린다(실측). 안 열렸으면 `codex mcp login quicknote` |
-| 둘 다 | 위 두 명령을 `&&` 로 연결한 결합 명령 | 각각 위와 같음 |
+| Claude Code | `claude mcp add --transport http -s user quicknote "<URL>"` | Claude Code 세션에서 `/mcp` → quicknote → Authenticate |
+| Codex CLI | `codex mcp add quicknote --url "<URL>"` | add 단계에서 OAuth 를 자동 감지해 브라우저 로그인이 열린다(실측). 안 열렸으면 `codex mcp login quicknote` |
+| 둘 다 | 위 두 명령을 `&&` 로 연결한 결합 명령 | 각각 위와 같음. Windows PowerShell 5.1 은 `&&` 미지원 → 하나씩 실행(PowerShell 7+ 는 가능) |
+
+- URL 은 큰따옴표로 감싼다 — 같은 명령이 zsh·bash·PowerShell 에서 모두 동작한다(따옴표 안에 셸 특수문자 없음).
 
 - 로그인·승인하면 그 PC 가 탭의 **"연결된 앱"** 목록에 앱 이름(clientName, 예: Claude Code·Codex)·연결/마지막 사용 시각과 함께 나타난다. PC 마다 따로 연결하고 "연결 해제"로 따로 끊는다(OAuth family 폐기).
 - Claude.ai 웹 커넥터는 조직 관리자 등록이 필요하다(아래 OAuth 절 참고).
@@ -18,12 +20,18 @@
 
 ## PAT 연결 (대안 — "고급: 개인 액세스 토큰(PAT)")
 
-OAuth 를 지원하지 않는 클라이언트(Cursor 등)·자동화용. 기본 접힘(토글 헤더에 활성 PAT 개수 표시), 펼치면 발급 폼과 PAT 목록. 발급 패널 스니펫은 **셸 명령에 원문을 넣지 않는다**(셸 히스토리 노출 방지):
+OAuth 를 지원하지 않는 클라이언트(Cursor 등)·자동화용. 기본 접힘(토글 헤더에 활성 PAT 개수 표시, 패널은 항상 렌더하고 `hidden` 으로 숨김 — `aria-controls` 대상 유지), 펼치면 발급 폼과 PAT 목록. 발급 패널 스니펫(`mcpPatSnippets.ts`)은 **셸 명령에 원문을 넣지 않는다**(셸 히스토리 노출 방지). 셸 탭(기본: Windows 브라우저 → PowerShell, 그 외 zsh):
 
-1. `~/.zshenv` 에 `export QUICKNOTE_MCP_TOKEN="<원문>"` — 편집기로 추가하고 `chmod 600 ~/.zshenv`, 새 터미널.
-2. Claude Code: `claude mcp add-json -s user quicknote '{"type":"http","url":"<URL>","headers":{"Authorization":"Bearer ${QUICKNOTE_MCP_TOKEN}"}}'`(작은따옴표 — 셸이 아닌 Claude Code 가 치환).
-3. Codex: `codex mcp add quicknote --url <URL> --bearer-token-env-var QUICKNOTE_MCP_TOKEN`.
-4. Cursor 등 JSON 설정 파일 스니펫은 원문 포함(파일이므로 히스토리 무관).
+| 셸 | 환경변수 등록(원문 포함) | Claude Code |
+|---|---|---|
+| macOS·Linux (zsh) | 편집기로 `~/.zshenv` 에 `export QUICKNOTE_MCP_TOKEN="<원문>"`, `chmod 600`, 새 터미널 | `claude mcp add-json -s user quicknote '{"type":"http","url":"<URL>","headers":{"Authorization":"Bearer ${QUICKNOTE_MCP_TOKEN}"}}'` |
+| bash | 같은 줄을 `~/.bashrc` 에 | zsh 와 같음 |
+| Windows PowerShell | `setx QUICKNOTE_MCP_TOKEN "<원문>"` 후 새 터미널·앱 재시작(기록에 안 남기려면 시스템 속성 > 환경 변수) | `claude mcp add --transport http -s user quicknote "<URL>" --header 'Authorization: Bearer ${QUICKNOTE_MCP_TOKEN}'` |
+
+- POSIX 는 작은따옴표 — 셸이 아니라 Claude Code 가 `${VAR}` 를 확장한다(user 범위에서 확장·연결·툴 호출 실측 확인).
+- PowerShell 은 add-json 을 쓰지 않는다: 5.1 과 npm `.cmd` 셸 경유 실행은 네이티브 인자 안의 큰따옴표(JSON)를 깨뜨린다. `add --header` 는 내부 큰따옴표가 없어 버전과 무관하게 같은 설정(`headers.Authorization = "Bearer ${QUICKNOTE_MCP_TOKEN}"`)을 저장한다. 작은따옴표라 PowerShell 이 `${…}` 를 변수로 확장하지 않는다.
+- Codex(모든 셸): `codex mcp add quicknote --url "<URL>" --bearer-token-env-var QUICKNOTE_MCP_TOKEN`.
+- Cursor 등 JSON 설정 파일 스니펫은 원문 포함(파일이므로 히스토리 무관).
 
 ## 관련 파일
 
@@ -248,6 +256,7 @@ CORS(`*`)는 메타데이터·register·token·revoke 에만. `/authorize`·`/ca
 
 서버 OAuth: `infra/lambda/mcp-server/__tests__/oauth.test.ts` — 메타데이터·DCR 검증·authorize 파라미터·쿠키 바인딩·CSRF·PKCE·코드 단일 사용·refresh 회전/재사용 감지·qn_oat_ 의 scope/워크스페이스 인가·`/revoke`·설정 탭 family 폐기.
 
+`src/components/settings/__tests__/mcpPatSnippets.test.ts` — 셸 기본값, 셸 명령 원문 미포함, POSIX add-json JSON 유효성.
 `src/components/settings/__tests__/McpAdminAndPolicy.test.tsx` — 관리자 섹션 노출·강제/일괄 폐기·관리자 폐기 표시·정책 선택·발급 폼 정책 반영.
-`src/components/settings/__tests__/McpSettingsTab.test.tsx` — 빠른 연결 섹션 렌더·명령 복사·토큰 미포함, URL 미설정 시 안내만, 연결된 앱 그룹(앱 이름·마지막 사용·연결 해제), PAT 영역 기본 접힘·펼침, 목록 렌더, 발급 시 원문 1회 표시·닫으면 제거·셸 스니펫에 원문 없음, 읽기+쓰기 경고·write scope 발급, 폐기 mutation 호출, URL 미설정 자리표시자.
+`src/components/settings/__tests__/McpSettingsTab.test.tsx` — 빠른 연결 섹션 렌더·명령 복사·토큰 미포함, URL 미설정 시 안내만, 연결된 앱 그룹(앱 이름·마지막 사용·연결 해제), PAT 영역 기본 접힘·펼침(`hidden`·aria-controls), 셸별 탭(zsh·bash·PowerShell), 목록 렌더, 발급 시 원문 1회 표시·닫으면 제거·셸 스니펫에 원문 없음, 읽기+쓰기 경고·write scope 발급, 폐기 mutation 호출, URL 미설정 자리표시자.
 서버: `infra/lambda/mcp-server/__tests__/{updatePage,pageOps,collabWriter,concurrency,guards,queryDatabase,dbWrite,publish,edgeAndCost,adminPolicy,handler.e2e}.test.ts`, CloudFront: `infra/lib/mcp-edge-construct.test.ts`(엣지 함수 코드 직접 실행·배포 설정).

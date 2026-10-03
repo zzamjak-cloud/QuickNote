@@ -169,7 +169,8 @@ describe("McpSettingsTab", () => {
     expect(within(appsSection).getByText(/마지막 사용 2026/)).toBeTruthy();
     expect(within(appsSection).queryByText("…")).toBeNull();
     // PAT 는 연결된 앱에 섞이지 않고 접힌 고급 영역에만 있다
-    expect(screen.queryByText("노트북 Claude")).toBeNull();
+    expect(within(appsSection).queryByText("노트북 Claude")).toBeNull();
+    expect(screen.getByText("노트북 Claude").closest("[hidden]")).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Codex 연결 해제" }));
     fireEvent.click(await screen.findByRole("button", { name: "연결 해제" }));
@@ -192,17 +193,22 @@ describe("McpSettingsTab", () => {
     const toggle = screen.getByRole("button", { name: /고급: 개인 액세스 토큰/ });
     await screen.findByText("연결된 앱이 없습니다");
 
+    // 접혀 있어도 패널은 렌더되어 aria-controls 가 실제 요소를 가리킨다
+    const panel = document.getElementById(toggle.getAttribute("aria-controls") ?? "");
+    expect(panel).toBeTruthy();
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(panel?.hidden).toBe(true);
     expect(toggle.textContent).toContain("활성 1개");
     expect(screen.queryByRole("button", { name: "토큰 발급" })).toBeNull();
-    expect(screen.queryByText("노트북 Claude")).toBeNull();
 
     fireEvent.click(toggle);
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(panel?.hidden).toBe(false);
     expect(screen.getByRole("button", { name: "토큰 발급" })).toBeTruthy();
     expect(screen.getByText("노트북 Claude")).toBeTruthy();
 
     fireEvent.click(toggle);
+    expect(panel?.hidden).toBe(true);
     expect(screen.queryByRole("button", { name: "토큰 발급" })).toBeNull();
   });
 
@@ -214,8 +220,8 @@ describe("McpSettingsTab", () => {
 
     const section = screen.getByRole("region", { name: "Claude Code·Codex 연결" });
     expect(within(section).getByRole("heading", { name: "Claude Code·Codex 연결 (권장)" })).toBeTruthy();
-    const claude = `claude mcp add --transport http -s user quicknote ${MCP_URL}`;
-    const codex = `codex mcp add quicknote --url ${MCP_URL}`;
+    const claude = `claude mcp add --transport http -s user quicknote "${MCP_URL}"`;
+    const codex = `codex mcp add quicknote --url "${MCP_URL}"`;
     expect(within(section).getByText(claude)).toBeTruthy();
     expect(within(section).getByText(codex)).toBeTruthy();
     expect(within(section).getByText("codex mcp login quicknote")).toBeTruthy();
@@ -256,7 +262,38 @@ describe("McpSettingsTab", () => {
     fireEvent.click(screen.getByRole("button", { name: "토큰 발급" }));
 
     const snippet = await screen.findByText(/codex mcp add quicknote --url/);
-    expect(snippet.textContent).toContain("--url <MCP 서버 URL> --bearer-token-env-var");
+    expect(snippet.textContent).toContain('--url "<MCP 서버 URL>" --bearer-token-env-var');
+  });
+
+  it("PAT 스니펫을 셸별 탭(zsh·bash·PowerShell)으로 나누고 셸 명령에는 원문을 넣지 않는다", async () => {
+    vi.stubEnv("VITE_MCP_SERVER_URL", MCP_URL);
+    respond({
+      listMcpTokens: () => [],
+      createMcpToken: () => ({ ...baseToken, token: PLAINTEXT }),
+    });
+    render(<McpSettingsTab />);
+    openPat();
+    await screen.findByText("발급된 토큰이 없습니다");
+    fireEvent.change(screen.getByPlaceholderText(/내 노트북/), { target: { value: "x" } });
+    fireEvent.click(screen.getByRole("button", { name: "토큰 발급" }));
+
+    const zshTab = await screen.findByRole("tab", { name: "macOS·Linux (zsh)" });
+    expect(zshTab.getAttribute("aria-selected")).toBe("true");
+    expect(screen.getByText("~/.zshenv 에 추가")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("tab", { name: "bash" }));
+    expect(screen.getByText("~/.bashrc 에 추가")).toBeTruthy();
+    expect(screen.getByText(`export QUICKNOTE_MCP_TOKEN="${PLAINTEXT}"`)).toBeTruthy();
+    expect(screen.getByText(/claude mcp add-json -s user quicknote/)).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Windows PowerShell" }));
+    expect(screen.getByText(`setx QUICKNOTE_MCP_TOKEN "${PLAINTEXT}"`)).toBeTruthy();
+    expect(screen.getByText(/새 터미널을 열고/)).toBeTruthy();
+    const psClaude = within(screen.getByRole("tabpanel")).getByText(/claude mcp add --transport http/).textContent ?? "";
+    expect(psClaude).toBe(
+      `claude mcp add --transport http -s user quicknote "${MCP_URL}" --header 'Authorization: Bearer \${QUICKNOTE_MCP_TOKEN}'`,
+    );
+    expect(within(screen.getByRole("tabpanel")).getByText(/--bearer-token-env-var/).textContent).not.toContain(PLAINTEXT);
   });
 
   it("MCP 서버 URL 이 있으면 스니펫에 그대로 넣는다", async () => {

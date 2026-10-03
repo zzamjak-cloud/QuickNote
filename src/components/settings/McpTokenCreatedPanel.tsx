@@ -1,10 +1,10 @@
-// 발급 직후 1회 표시 패널 — 토큰 원문과 클라이언트별 연결 스니펫. 닫으면 원문은 상태에서 제거된다.
-// 셸 명령에는 원문을 넣지 않고 환경변수(QUICKNOTE_MCP_TOKEN)를 참조한다 — 셸 히스토리에 토큰이 남지 않게.
+// 발급 직후 1회 표시 패널 — 토큰 원문과 셸별 연결 스니펫. 닫으면 원문은 상태에서 제거된다.
+import { useState } from "react";
 import { TriangleAlert } from "lucide-react";
 import { McpCommandBlock, McpCopyButton } from "./McpCommandBlock";
+import { buildPatSnippets, defaultPatShell, PAT_SHELLS, type PatShell } from "./mcpPatSnippets";
 
 export const MCP_URL_PLACEHOLDER = "<MCP 서버 URL>";
-export const MCP_TOKEN_ENV = "QUICKNOTE_MCP_TOKEN";
 
 type Props = {
   token: string;
@@ -12,39 +12,9 @@ type Props = {
   onClose: () => void;
 };
 
-function buildSnippets(url: string, token: string) {
-  const claudeJson = JSON.stringify({ type: "http", url, headers: { Authorization: `Bearer \${${MCP_TOKEN_ENV}}` } });
-  return [
-    {
-      id: "zshenv",
-      label: "~/.zshenv 에 추가",
-      text: `export ${MCP_TOKEN_ENV}="${token}"`,
-      hint: "터미널에 붙여 넣지 말고 편집기로 ~/.zshenv 에 추가한 뒤 chmod 600 ~/.zshenv, 새 터미널을 여세요.",
-    },
-    {
-      id: "claude-code",
-      label: "Claude Code",
-      text: `claude mcp add-json -s user quicknote '${claudeJson}'`,
-    },
-    {
-      id: "codex",
-      label: "Codex CLI",
-      text: `codex mcp add quicknote --url ${url} --bearer-token-env-var ${MCP_TOKEN_ENV}`,
-    },
-    {
-      id: "json",
-      label: "Cursor / 기타 (JSON)",
-      text: JSON.stringify(
-        { mcpServers: { quicknote: { url, headers: { Authorization: `Bearer ${token}` } } } },
-        null,
-        2,
-      ),
-    },
-  ];
-}
-
 export function McpTokenCreatedPanel({ token, serverUrl, onClose }: Props) {
   const url = serverUrl || MCP_URL_PLACEHOLDER;
+  const [shell, setShell] = useState<PatShell>(() => defaultPatShell(navigator.userAgent));
 
   return (
     <section
@@ -75,9 +45,32 @@ export function McpTokenCreatedPanel({ token, serverUrl, onClose }: Props) {
         </p>
       )}
 
-      {buildSnippets(url, token).map((s) => (
-        <McpCommandBlock key={s.id} label={s.label} text={s.text} hint={s.hint} />
-      ))}
+      <div role="tablist" aria-label="셸 선택" className="flex flex-wrap gap-1">
+        {PAT_SHELLS.map((sh) => (
+          <button
+            key={sh.id}
+            type="button"
+            role="tab"
+            id={`mcp-pat-tab-${sh.id}`}
+            aria-selected={shell === sh.id}
+            aria-controls="mcp-pat-snippets"
+            onClick={() => setShell(sh.id)}
+            className={`min-h-[44px] rounded-md border px-2 text-xs md:min-h-0 md:py-1 ${
+              shell === sh.id
+                ? "border-violet-400 bg-violet-100 text-violet-800 dark:border-violet-600 dark:bg-violet-900/40 dark:text-violet-200"
+                : "border-zinc-200 hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-800"
+            }`}
+          >
+            {sh.label}
+          </button>
+        ))}
+      </div>
+
+      <div id="mcp-pat-snippets" role="tabpanel" aria-labelledby={`mcp-pat-tab-${shell}`} className="space-y-4">
+        {buildPatSnippets(shell, url, token).map((s) => (
+          <McpCommandBlock key={s.id} label={s.label} text={s.text} hint={s.hint} />
+        ))}
+      </div>
 
       <button
         type="button"

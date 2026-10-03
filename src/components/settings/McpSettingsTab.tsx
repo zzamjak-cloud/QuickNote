@@ -126,31 +126,29 @@ export function McpSettingsTab() {
             <span className="ml-1 text-xs font-normal text-zinc-500 dark:text-zinc-400">활성 {activePatCount}개</span>
           )}
         </button>
-        {patOpen && (
-          <div id="mcp-pat-panel" className="space-y-6">
-            <div className="space-y-3">
-              <p className="text-xs text-zinc-500 dark:text-zinc-400">
-                OAuth 를 지원하지 않는 클라이언트(Cursor 등)나 자동화용입니다. 토큰은 내 권한 범위 안에서만 동작하며,
-                서버에는 해시만 저장됩니다.
-              </p>
-              {createdToken ? (
-                <McpTokenCreatedPanel token={createdToken} serverUrl={serverUrl} onClose={() => setCreatedToken(null)} />
-              ) : (
-                <McpTokenCreateForm key={formKey} busy={busy} onSubmit={(i) => void handleCreate(i)} />
-              )}
-            </div>
-            <div className="space-y-3">
-              <h4 className="text-sm font-semibold">발급된 토큰</h4>
-              {loading ? (
-                <p className="text-sm text-zinc-400">토큰 목록을 불러오는 중…</p>
-              ) : pats.length === 0 ? (
-                <p className="text-sm text-zinc-400">발급된 토큰이 없습니다</p>
-              ) : (
-                <McpTokenList tokens={pats} {...listProps} />
-              )}
-            </div>
+        <div id="mcp-pat-panel" hidden={!patOpen} className="space-y-6">
+          <div className="space-y-3">
+            <p className="text-xs text-zinc-500 dark:text-zinc-400">
+              OAuth 를 지원하지 않는 클라이언트(Cursor 등)나 자동화용입니다. 토큰은 내 권한 범위 안에서만 동작하며,
+              서버에는 해시만 저장됩니다.
+            </p>
+            {createdToken ? (
+              <McpTokenCreatedPanel token={createdToken} serverUrl={serverUrl} onClose={() => setCreatedToken(null)} />
+            ) : (
+              <McpTokenCreateForm key={formKey} busy={busy} onSubmit={(i) => void handleCreate(i)} />
+            )}
           </div>
-        )}
+          <div className="space-y-3">
+            <h4 className="text-sm font-semibold">발급된 토큰</h4>
+            {loading ? (
+              <p className="text-sm text-zinc-400">토큰 목록을 불러오는 중…</p>
+            ) : pats.length === 0 ? (
+              <p className="text-sm text-zinc-400">발급된 토큰이 없습니다</p>
+            ) : (
+              <McpTokenList tokens={pats} {...listProps} />
+            )}
+          </div>
+        </div>
       </section>
 
       {personalWorkspace && (

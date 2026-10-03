@@ -1,10 +1,11 @@
 // 설정 > AI 연결(MCP) 맨 위 — Claude Code·Codex 를 OAuth 로 연결하는 명령 안내.
 // 명령에는 토큰이 들어가지 않는다: 등록 후 브라우저 로그인으로 PC 별 "연결된 앱"이 생긴다.
+// URL 은 큰따옴표로 감싼다 — POSIX 셸·PowerShell 모두 같은 명령으로 동작한다.
 import { McpCommandBlock } from "./McpCommandBlock";
 
 function buildQuickConnectCommands(url: string) {
-  const claude = `claude mcp add --transport http -s user quicknote ${url}`;
-  const codex = `codex mcp add quicknote --url ${url}`;
+  const claude = `claude mcp add --transport http -s user quicknote "${url}"`;
+  const codex = `codex mcp add quicknote --url "${url}"`;
   return {
     claude,
     codex,
@@ -49,7 +50,11 @@ export function McpQuickConnectSection({ serverUrl }: Props) {
             label="Codex 로그인 (자동으로 열리지 않았을 때)"
             text={cmd.codexLogin}
           />
-          <McpCommandBlock label="두 도구 한 번에 등록" text={cmd.combined} />
+          <McpCommandBlock
+            label="두 도구 한 번에 등록"
+            text={cmd.combined}
+            hint="Windows PowerShell 5.1 은 && 를 지원하지 않으니 위 명령을 하나씩 실행하세요(PowerShell 7 이상은 그대로 가능)."
+          />
           <ul className="list-disc space-y-1 pl-4 text-xs text-zinc-500 dark:text-zinc-400">
             <li>로그인하면 이 PC 가 아래 "연결된 앱" 목록에 나타납니다.</li>
             <li>PC 마다 따로 연결하고, 따로 해제할 수 있습니다.</li>
