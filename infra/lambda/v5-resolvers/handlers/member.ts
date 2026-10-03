@@ -72,6 +72,8 @@ export type Tables = {
   WorkspaceAiConfig?: string;
   /** AI 사용량 집계·rate limit 테이블 (ai-proxy 가 기록, PK=pk SK=sk) */
   AiUsage?: string;
+  /** MCP Personal Access Token 테이블 (mcp-server Lambda 와 공용, PK=tokenHash) */
+  McpTokens?: string;
 };
 
 export type CreateMemberInput = {

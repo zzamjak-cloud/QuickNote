@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
-import { Building, Building2, Download, Folder, HardDrive, Sparkles, User, Users, UsersRound, X } from "lucide-react";
+import { Building, Building2, Download, Folder, HardDrive, Plug, Sparkles, User, Users, UsersRound, X } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import pkg from "../../../package.json";
 import { useAuthStore } from "../../store/authStore";
@@ -30,12 +30,17 @@ const AiSettingsTab = lazy(() =>
   import("./AiSettingsTab").then((m) => ({ default: m.AiSettingsTab })),
 );
 
+// AI 연결(MCP) 토큰 탭 — 일부 사용자만 쓰므로 lazy.
+const McpSettingsTab = lazy(() =>
+  import("./McpSettingsTab").then((m) => ({ default: m.McpSettingsTab })),
+);
+
 type Props = {
   open: boolean;
   onClose: () => void;
 };
 
-type TabId = "profile" | "notionImport" | "members" | "projects" | "teams" | "organizations" | "workspaces" | "assets" | "ai";
+type TabId = "profile" | "notionImport" | "members" | "projects" | "teams" | "organizations" | "workspaces" | "assets" | "ai" | "mcp";
 
 type TabDef = { id: TabId; label: string; title: string; icon: LucideIcon };
 
@@ -69,6 +74,8 @@ export function SettingsModal({ open, onClose }: Props) {
     if (role === "developer") {
       list.push({ id: "ai", label: "AI", title: "AI 설정", icon: Sparkles });
     }
+    // MCP 토큰은 본인 권한 범위 안에서만 동작하므로 전 역할에 노출
+    list.push({ id: "mcp", label: "AI 연결 (MCP)", title: "AI 연결 (MCP)", icon: Plug });
     // Notion 가져오기는 일회성·일부 사용자 전용 — 가장 하단 배치
     list.push({ id: "notionImport", label: "Notion 가져오기", title: "Notion 가져오기", icon: Download });
     return list;
@@ -217,6 +224,7 @@ export function SettingsModal({ open, onClose }: Props) {
                 <AdminAssetsTab onClose={onClose} />
               )}
               {tab === "ai" && role === "developer" && <AiSettingsTab />}
+              {tab === "mcp" && <McpSettingsTab />}
             </Suspense>
           </div>
         </section>

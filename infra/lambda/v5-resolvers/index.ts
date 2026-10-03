@@ -150,6 +150,7 @@ import {
   getPagePublishStatus,
 } from "./handlers/publishedPage";
 import { getPublishAnalytics } from "./handlers/publishAnalytics";
+import { createMcpToken, listMcpTokens, revokeMcpToken } from "./handlers/mcpToken";
 import type { Tables, UpdateMemberInput } from "./handlers/member";
 
 const ddb = new DynamoDBClient({});
@@ -186,6 +187,7 @@ const tables: Tables = {
   DatabaseRowMembers: process.env.DATABASE_ROW_MEMBERS_TABLE_NAME,
   WorkspaceAiConfig: process.env.WORKSPACE_AI_CONFIG_TABLE_NAME,
   AiUsage: process.env.AI_USAGE_TABLE_NAME,
+  McpTokens: process.env.MCP_TOKENS_TABLE_NAME,
 };
 
 type AppsyncEvent = {
@@ -1009,6 +1011,11 @@ const RESOLVERS: Record<
       workspaceId: event.arguments.workspaceId as string,
       month: event.arguments.month as string | null | undefined,
     }),
+  // ---------- MCP 토큰 ----------
+  listMcpTokens: async (_event, base) => await listMcpTokens(base),
+  createMcpToken: async (event, base) => await createMcpToken({ ...base, input: event.arguments.input }),
+  revokeMcpToken: async (event, base) =>
+    await revokeMcpToken({ ...base, tokenId: event.arguments.tokenId as string }),
 };
 
 export async function handler(event: AppsyncEvent): Promise<unknown> {

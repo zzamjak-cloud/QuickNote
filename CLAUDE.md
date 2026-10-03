@@ -37,6 +37,7 @@
 | DB 뷰/셀/필터 수정 | `wiki/database/` |
 | DB 그룹화(표시설정) | `wiki/database/grouping.md` |
 | 자산 관리 탭·캐싱 | `wiki/settings/assets.md` |
+| MCP 토큰·외부 AI 연결 | `wiki/settings/mcp.md` |
 | 노션 가져오기(이미지 누락·인코딩·진행률) | `wiki/settings/notion-import.md` |
 | 플로우차트(도형·화살표·공유 동기화·링크·히스토리·전체보기) | `wiki/flowchart/overview.md` |
 | PWA 설치·Service Worker·업데이트·오프라인 정합 | `wiki/pwa/overview.md` |

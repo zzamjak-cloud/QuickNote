@@ -18,6 +18,7 @@ import * as kms from "aws-cdk-lib/aws-kms";
 import * as eventScheduler from "aws-cdk-lib/aws-scheduler";
 import { createSyncTable, type ModelTable } from "./sync/ddb-table-factory";
 import { DYNAMODB_TABLE_ENCRYPTION } from "./sync/table-encryption";
+import { DEFAULT_COLLAB_ROOM_EPOCH } from "./collab-epoch";
 
 // DynamoDB 는 한 번의 업데이트에 GSI 를 하나만 생성/삭제할 수 있다.
 // 그래서 Pages 테이블 GSI 는 누적 단계로 하나씩 추가한다(아래 순서대로 cdk deploy 반복).
@@ -1155,6 +1156,117 @@ export function response(ctx) {
     });
     new cdk.CfnOutput(this, "AiProxyUrl", { value: aiProxyUrl.url });
 
+    // MCP Personal Access Token — 원문은 발급 응답에만, 테이블에는 SHA-256 해시(PK)만 저장.
+    const mcpTokensTable = new dynamodb.Table(this, "McpTokensTable", {
+      tableName: `${envPrefix}quicknote-mcp-tokens`,
+      partitionKey: { name: "tokenHash", type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
+      encryption: DYNAMODB_TABLE_ENCRYPTION,
+      removalPolicy: cdk.RemovalPolicy.RETAIN,
+    });
+    mcpTokensTable.addGlobalSecondaryIndex({
+      indexName: "byMember",
+      partitionKey: { name: "memberId", type: dynamodb.AttributeType.STRING },
+      sortKey: { name: "createdAt", type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+    new cdk.CfnOutput(this, "McpTokensTableName", { value: mcpTokensTable.tableName });
+
+    // 협업 룸 epoch — 클라 번들의 VITE_COLLAB_ROOM_EPOCH(Vercel env·GitHub Secret, 미지정 시
+    // src/lib/collab/collabConfig.ts 기본값)와 반드시 같아야 MCP 가 같은 Y 룸을 읽는다.
+    // 클라 epoch 을 bump 하면 여기(-c collabRoomEpoch=… 또는 COLLAB_ROOM_EPOCH env, 기본값)도 함께 올릴 것.
+    const collabRoomEpoch =
+      process.env.COLLAB_ROOM_EPOCH ??
+      (this.node.tryGetContext("collabRoomEpoch") as string | undefined) ??
+      DEFAULT_COLLAB_ROOM_EPOCH;
+
+    // rt-ydoc 테이블은 RealtimeCollabStack 소유(그 스택이 이 스택을 참조해 역참조 시 순환) —
+    // 명명 규칙으로 이름·ARN 을 구성한다(realtime-collab-stack.ts 의 tableName 과 동기).
+    const rtYdocTableName = `${envPrefix}quicknote-rt-ydoc`;
+    const rtYdocUpdatesTableName = `${envPrefix}quicknote-rt-ydoc-updates`;
+    const rtTableArn = (name: string) =>
+      cdk.Stack.of(this).formatArn({ service: "dynamodb", resource: "table", resourceName: name });
+
+    // 원격 MCP 서버(읽기 P1) — 인증은 Lambda 내부 Bearer PAT 검증(Function URL 은 NONE).
+    const mcpServerFn = new lambdaNode.NodejsFunction(this, "McpServerFn", {
+      entry: path.join(__dirname, "..", "lambda", "mcp-server", "index.ts"),
+      runtime: lambda.Runtime.NODEJS_22_X,
+      handler: "handler",
+      memorySize: 512,
+      timeout: cdk.Duration.seconds(30),
+      logRetention: logs.RetentionDays.ONE_MONTH,
+      // 남용 시 폭발 반경 제한
+      reservedConcurrentExecutions: 20,
+      environment: {
+        MEMBERS_TABLE_NAME: this.membersTable.tableName,
+        TEAMS_TABLE_NAME: this.teamsTable.tableName,
+        MEMBER_TEAMS_TABLE_NAME: this.memberTeamsTable.tableName,
+        WORKSPACES_TABLE_NAME: this.workspacesTable.tableName,
+        WORKSPACE_ACCESS_TABLE_NAME: this.workspaceAccessTable.tableName,
+        PAGES_TABLE_NAME: this.pageTable.table.tableName,
+        DATABASES_TABLE_NAME: this.databaseTable.table.tableName,
+        COMMENTS_TABLE_NAME: this.commentTable.table.tableName,
+        MCP_TOKENS_TABLE_NAME: mcpTokensTable.tableName,
+        MCP_RATE_LIMIT_TABLE_NAME: aiUsageTable.tableName,
+        // realtime/yjsStore 가 모듈 로드 시 읽는 env 이름 그대로.
+        YDOC_TABLE: rtYdocTableName,
+        YDOC_UPDATES_TABLE: rtYdocUpdatesTableName,
+        COLLAB_ROOM_EPOCH: collabRoomEpoch,
+      },
+      bundling: {
+        format: lambdaNode.OutputFormat.ESM,
+        minify: true,
+        target: "node20",
+        sourceMap: false,
+        externalModules: ["@aws-sdk/*"],
+        // ESM 번들 안의 CJS 의존성(ajv 등)이 require 를 호출할 수 있게 한다.
+        banner: "import { createRequire as __qnCreateRequire } from 'module'; const require = __qnCreateRequire(import.meta.url);",
+      },
+    });
+    this.membersTable.grantReadData(mcpServerFn);
+    this.teamsTable.grantReadData(mcpServerFn);
+    this.memberTeamsTable.grantReadData(mcpServerFn);
+    this.workspacesTable.grantReadData(mcpServerFn);
+    this.workspaceAccessTable.grantReadData(mcpServerFn);
+    this.pageTable.table.grantReadData(mcpServerFn);
+    this.databaseTable.table.grantReadData(mcpServerFn);
+    this.commentTable.table.grantReadData(mcpServerFn);
+    // 토큰 테이블: 해시 단건 조회 + lastUsedAt 갱신만. UpdateItem 은 속성 조건으로 lastUsedAt 외 변경을 막고,
+    // ReturnValues 로 다른 속성을 읽어내지 못하게 한다(폐기·범위 필드 위변조 차단).
+    mcpServerFn.addToRolePolicy(
+      new iam.PolicyStatement({ actions: ["dynamodb:GetItem"], resources: [mcpTokensTable.tableArn] }),
+    );
+    mcpServerFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["dynamodb:UpdateItem"],
+        resources: [mcpTokensTable.tableArn],
+        conditions: {
+          "ForAllValues:StringEquals": { "dynamodb:Attributes": ["tokenHash", "lastUsedAt"] },
+          StringEqualsIfExists: { "dynamodb:ReturnValues": ["NONE", "UPDATED_OLD", "UPDATED_NEW"] },
+        },
+      }),
+    );
+    // ai-usage 테이블: MCP 분당 카운터(pk=mcp-rl#…) 항목의 UpdateItem 만 — AI 사용량 항목은 손대지 못한다.
+    mcpServerFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["dynamodb:UpdateItem"],
+        resources: [aiUsageTable.tableArn],
+        conditions: { "ForAllValues:StringLike": { "dynamodb:LeadingKeys": ["mcp-rl#*"] } },
+      }),
+    );
+    mcpServerFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["dynamodb:GetItem", "dynamodb:Query"],
+        resources: [rtTableArn(rtYdocTableName), rtTableArn(rtYdocUpdatesTableName)],
+      }),
+    );
+    const mcpServerUrl = mcpServerFn.addFunctionUrl({
+      authType: lambda.FunctionUrlAuthType.NONE,
+      invokeMode: lambda.InvokeMode.BUFFERED,
+    });
+    new cdk.CfnOutput(this, "McpServerUrl", { value: `${mcpServerUrl.url}mcp` });
+
     const v5ResolversFn = new lambdaNode.NodejsFunction(this, "V5ResolversFn", {
       entry: path.join(__dirname, "..", "lambda", "v5-resolvers", "index.ts"),
       runtime: lambda.Runtime.NODEJS_22_X,
@@ -1192,6 +1304,7 @@ export function response(ctx) {
         CUSTOM_ICONS_TABLE_NAME: customIconsTable.tableName,
         WORKSPACE_AI_CONFIG_TABLE_NAME: workspaceAiConfigTable.tableName,
         AI_USAGE_TABLE_NAME: aiUsageTable.tableName,
+        MCP_TOKENS_TABLE_NAME: mcpTokensTable.tableName,
         AI_KMS_KEY_ARN: aiKmsKey.keyArn,
         TEMPLATE_AUTOMATION_SCHEDULE_GROUP_NAME: templateAutomationScheduleGroupName,
         TEMPLATE_AUTOMATION_RUNNER_ARN: templateAutomationRunnerFn.functionArn,
@@ -1236,6 +1349,7 @@ export function response(ctx) {
     workspaceAiConfigTable.grantReadWriteData(v5ResolversFn);
     aiUsageTable.grantReadData(v5ResolversFn); // 사용량 조회(읽기 전용 — 기록은 ai-proxy)
     aiKmsKey.grantEncrypt(v5ResolversFn); // 키 등록(암호화)만 — 복호화는 ai-proxy 전용
+    mcpTokensTable.grantReadWriteData(v5ResolversFn); // MCP 토큰 발급·조회·폐기
     v5ResolversFn.addToRolePolicy(
       new iam.PolicyStatement({
         actions: [
@@ -1600,6 +1714,11 @@ export function response(ctx) {
     v5Ds.createResolver("MutationclearWorkspaceAiKey", { typeName: "Mutation", fieldName: "clearWorkspaceAiKey" });
     v5Ds.createResolver("MutationupdateWorkspaceAiSettings", { typeName: "Mutation", fieldName: "updateWorkspaceAiSettings" });
     v5Ds.createResolver("QuerygetWorkspaceAiUsage", { typeName: "Query", fieldName: "getWorkspaceAiUsage" });
+
+    // MCP Personal Access Token
+    v5Ds.createResolver("QuerylistMcpTokens", { typeName: "Query", fieldName: "listMcpTokens" });
+    v5Ds.createResolver("MutationcreateMcpToken", { typeName: "Mutation", fieldName: "createMcpToken" });
+    v5Ds.createResolver("MutationrevokeMcpToken", { typeName: "Mutation", fieldName: "revokeMcpToken" });
 
     // v5 데이터 마이그레이션 Lambda (v4 ownerId -> v5 workspace/member 필드 보강)
     const v5MigrationFn = new lambdaNode.NodejsFunction(this, "V5MigrationFn", {

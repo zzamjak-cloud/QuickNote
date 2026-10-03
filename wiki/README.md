@@ -41,6 +41,7 @@ AI 탐색용 위키 인덱스. 작업 전 해당 파일을 먼저 읽으면 소�
 | DB 뷰 설정(필터 상태 등) | `database/databaseViewPrefsStore.md` |
 | DB 유틸 함수 | `database/lib-database.md` |
 | 자산 관리 탭·캐싱 | `settings/assets.md` |
+| MCP 토큰·외부 AI 연결 | `settings/mcp.md` |
 | 노션 가져오기(자식 페이지 멘션·웹 링크·이미지·인코딩·진행률) | `settings/notion-import.md` |
 | 동기화 버그·흐름 | `sync/architecture.md` → `sync/engine.md` |
 | outbox 쌓임·뮤테이션 미전송 | `sync/engine.md` → `sync/outbox.md` |
@@ -211,6 +212,7 @@ AI 탐색용 위키 인덱스. 작업 전 해당 파일을 먼저 읽으면 소�
 | 파일 | 내용 |
 |------|------|
 | `assets.md` | 자산 관리 탭 — 세션 캐시(새로고침 전용 갱신)·클라이언트 필터·삭제 |
+| `mcp.md` | AI 연결(MCP) 탭 — 개인 액세스 토큰 발급(원문 1회 표시)·폐기·연결 스니펫 |
 
 ### 기타
 | 경로 | 내용 |
