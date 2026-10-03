@@ -1,7 +1,7 @@
 {
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "QuickNote",
-  "version": "5.7.8",
+  "version": "5.8.0",
   "identifier": "com.loadcomplete.quicknote",
   "build": {
     "frontendDist": "../dist",
