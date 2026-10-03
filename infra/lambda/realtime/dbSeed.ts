@@ -16,7 +16,7 @@ function parseJson<T>(v: unknown, fallback: T): T {
 }
 
 // JSON → Y 깊은 변환(클라 dbBundleYjs 와 동일 규칙).
-function jsonToY(value: unknown): unknown {
+export function jsonToY(value: unknown): unknown {
   if (Array.isArray(value)) { const a = new Y.Array(); a.push(value.map(jsonToY)); return a; }
   if (value !== null && typeof value === "object") {
     const m = new Y.Map(); for (const [k, v] of Object.entries(value)) m.set(k, jsonToY(v)); return m;

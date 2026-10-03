@@ -5,6 +5,7 @@ import {
   UpdateCommand,
 } from "@aws-sdk/lib-dynamodb";
 import {
+  ResolverError,
   forbidden,
   notFound,
   requireWorkspaceAccess,
@@ -51,6 +52,8 @@ export async function upsertRecord(args: {
   caller: Member;
   tableName: string;
   input: Record<string, unknown>;
+  /** 지정 시 기존 항목의 updatedAt 이 이 값일 때만 Put(서버 측 낙관적 동시성 — MCP 쓰기 전용). 불일치는 Conflict. */
+  expectedUpdatedAt?: string;
 }): Promise<Record<string, unknown>> {
   const input = args.input as unknown as BaseRecord;
   await requireWorkspaceAccess({
@@ -72,12 +75,20 @@ export async function upsertRecord(args: {
           ...args.input,
           createdByMemberId: input.createdByMemberId || args.caller.memberId,
         },
-        ConditionExpression: "attribute_not_exists(workspaceId) OR workspaceId = :w",
-        ExpressionAttributeValues: { ":w": input.workspaceId },
+        ConditionExpression: args.expectedUpdatedAt === undefined
+          ? "attribute_not_exists(workspaceId) OR workspaceId = :w"
+          : "(attribute_not_exists(workspaceId) OR workspaceId = :w) AND updatedAt = :eu",
+        ExpressionAttributeValues: {
+          ":w": input.workspaceId,
+          ...(args.expectedUpdatedAt === undefined ? {} : { ":eu": args.expectedUpdatedAt }),
+        },
       }),
     );
   } catch (err) {
     if ((err as { name?: string })?.name === "ConditionalCheckFailedException") {
+      if (args.expectedUpdatedAt !== undefined) {
+        throw new ResolverError("레코드가 그 사이 변경되었습니다", "Conflict");
+      }
       forbidden("다른 워크스페이스의 레코드는 수정할 수 없습니다");
     }
     throw err;

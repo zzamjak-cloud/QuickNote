@@ -3,6 +3,7 @@
 import { z } from "zod";
 import { requireWorkspace } from "../access";
 import type { McpContext } from "../context";
+import { databasePaths } from "../dbPath";
 import { batchGetByKey } from "../ddb";
 import { ancestorTitles, scanMetasAcross, type PageMeta } from "../pageScan";
 import { blockTexts, findSnippet, normalizeForMatch, parseDocJson } from "../text";
@@ -105,9 +106,11 @@ async function fullPageIds(ctx: McpContext, metas: PageMeta[]): Promise<Set<stri
   return new Set(items.filter((it) => it.fullPageDatabaseId).map((it) => String(it.id)));
 }
 
+type PathIndex = { byId: Map<string, PageMeta>; dbPaths: Map<string, string[]> };
+
 function toResult(
   meta: PageMeta,
-  byId: Map<string, PageMeta>,
+  paths: PathIndex,
   extra: { match: "title" | "body"; snippet: string | null; fullPage: boolean },
 ): SearchResult {
   const type: SearchResultType = meta.databaseId ? "database-row" : extra.fullPage ? "full-page-database" : "page";
@@ -115,7 +118,7 @@ function toResult(
     id: meta.id,
     title: meta.title || "Untitled",
     workspaceId: meta.workspaceId,
-    path: ancestorTitles(meta, byId),
+    path: meta.databaseId ? paths.dbPaths.get(meta.databaseId) ?? [] : ancestorTitles(meta, paths.byId),
     type,
     snippet: extra.snippet,
     updatedAt: meta.updatedAt,
@@ -140,10 +143,13 @@ export async function searchTool(ctx: McpContext, raw: SearchInput) {
     candidates.length > 0 ? findBodyHits(ctx, candidates, queryNorm, remaining) : Promise.resolve([]),
   ]);
 
+  const rowDbIds = [...titleHits, ...bodyHits.map((h) => h.meta)].map((m) => m.databaseId ?? "");
+  const paths: PathIndex = { byId, dbPaths: await databasePaths(ctx, rowDbIds, live) };
+
   return {
     results: [
-      ...titleHits.map((m) => toResult(m, byId, { match: "title", snippet: null, fullPage: fullPages.has(m.id) })),
-      ...bodyHits.map((h) => toResult(h.meta, byId, { match: "body", snippet: h.snippet, fullPage: h.fullPage })),
+      ...titleHits.map((m) => toResult(m, paths, { match: "title", snippet: null, fullPage: fullPages.has(m.id) })),
+      ...bodyHits.map((h) => toResult(h.meta, paths, { match: "body", snippet: h.snippet, fullPage: h.fullPage })),
     ],
     scannedPages: scan.metas.length,
     bodySearchedPages: candidates.length,

@@ -15,6 +15,12 @@ export const TABLES: McpTables = {
   Comments: "comments",
   McpTokens: "mcp-tokens",
   RateLimit: "ai-usage",
+  PageHistory: "page-history",
+  AssetUsage: "asset-usage",
+  ImageAssets: "image-assets",
+  Schedules: "schedules",
+  DatabaseRowMembers: "db-row-members",
+  Notifications: "notifications",
 };
 
 export function member(overrides: Partial<Member> = {}): Member {

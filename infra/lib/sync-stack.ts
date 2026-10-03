@@ -19,6 +19,7 @@ import * as eventScheduler from "aws-cdk-lib/aws-scheduler";
 import { createSyncTable, type ModelTable } from "./sync/ddb-table-factory";
 import { DYNAMODB_TABLE_ENCRYPTION } from "./sync/table-encryption";
 import { DEFAULT_COLLAB_ROOM_EPOCH } from "./collab-epoch";
+import { collabWsEndpointParamName, mcpServerRoleName } from "./mcp-collab-wiring";
 
 // DynamoDB 는 한 번의 업데이트에 GSI 를 하나만 생성/삭제할 수 있다.
 // 그래서 Pages 테이블 GSI 는 누적 단계로 하나씩 추가한다(아래 순서대로 cdk deploy 반복).
@@ -1185,10 +1186,18 @@ export function response(ctx) {
     // 명명 규칙으로 이름·ARN 을 구성한다(realtime-collab-stack.ts 의 tableName 과 동기).
     const rtYdocTableName = `${envPrefix}quicknote-rt-ydoc`;
     const rtYdocUpdatesTableName = `${envPrefix}quicknote-rt-ydoc-updates`;
+    const rtConnectionsTableName = `${envPrefix}quicknote-rt-connections`;
     const rtTableArn = (name: string) =>
       cdk.Stack.of(this).formatArn({ service: "dynamodb", resource: "table", resourceName: name });
 
-    // 원격 MCP 서버(읽기 P1) — 인증은 Lambda 내부 Bearer PAT 검증(Function URL 은 NONE).
+    // 고정 이름 역할 — RealtimeCollabStack 이 이 이름으로 WS ManageConnections 정책을 붙인다(mcp-collab-wiring.ts).
+    const mcpServerRole = new iam.Role(this, "McpServerRole", {
+      roleName: mcpServerRoleName(envPrefix),
+      assumedBy: new iam.ServicePrincipal("lambda.amazonaws.com"),
+      managedPolicies: [iam.ManagedPolicy.fromAwsManagedPolicyName("service-role/AWSLambdaBasicExecutionRole")],
+    });
+
+    // 원격 MCP 서버(읽기 P1 + 쓰기 P2) — 인증은 Lambda 내부 Bearer PAT 검증(Function URL 은 NONE).
     const mcpServerFn = new lambdaNode.NodejsFunction(this, "McpServerFn", {
       entry: path.join(__dirname, "..", "lambda", "mcp-server", "index.ts"),
       runtime: lambda.Runtime.NODEJS_22_X,
@@ -1198,6 +1207,7 @@ export function response(ctx) {
       logRetention: logs.RetentionDays.ONE_MONTH,
       // 남용 시 폭발 반경 제한
       reservedConcurrentExecutions: 20,
+      role: mcpServerRole,
       environment: {
         MEMBERS_TABLE_NAME: this.membersTable.tableName,
         TEAMS_TABLE_NAME: this.teamsTable.tableName,
@@ -1209,10 +1219,20 @@ export function response(ctx) {
         COMMENTS_TABLE_NAME: this.commentTable.table.tableName,
         MCP_TOKENS_TABLE_NAME: mcpTokensTable.tableName,
         MCP_RATE_LIMIT_TABLE_NAME: aiUsageTable.tableName,
-        // realtime/yjsStore 가 모듈 로드 시 읽는 env 이름 그대로.
+        // 쓰기 툴이 재사용하는 upsertPage·softDeletePage·upsertComment 의 부수 효과 테이블.
+        PAGE_HISTORY_TABLE_NAME: pageHistoryTable.tableName,
+        ASSET_USAGE_TABLE_NAME: assetUsageTable.tableName,
+        IMAGE_ASSETS_TABLE_NAME: this.imageAssetTable.table.tableName,
+        SCHEDULES_TABLE_NAME: schedulesTable.tableName,
+        DATABASE_ROW_MEMBERS_TABLE_NAME: databaseRowMembersTable.tableName,
+        NOTIFICATIONS_TABLE_NAME: notificationTable.tableName,
+        APPSYNC_GRAPHQL_URL: api.graphqlUrl,
+        // realtime/yjsStore·connections 가 모듈 로드 시 읽는 env 이름 그대로.
         YDOC_TABLE: rtYdocTableName,
         YDOC_UPDATES_TABLE: rtYdocUpdatesTableName,
+        CONNECTIONS_TABLE: rtConnectionsTableName,
         COLLAB_ROOM_EPOCH: collabRoomEpoch,
+        COLLAB_WS_ENDPOINT_PARAM: collabWsEndpointParamName(envPrefix),
       },
       bundling: {
         format: lambdaNode.OutputFormat.ESM,
@@ -1229,9 +1249,24 @@ export function response(ctx) {
     this.memberTeamsTable.grantReadData(mcpServerFn);
     this.workspacesTable.grantReadData(mcpServerFn);
     this.workspaceAccessTable.grantReadData(mcpServerFn);
-    this.pageTable.table.grantReadData(mcpServerFn);
+    // 쓰기 툴: Pages·Comments 쓰기 + upsertPage/softDeletePage/upsertComment 부수 효과 테이블.
+    this.pageTable.table.grantReadWriteData(mcpServerFn);
     this.databaseTable.table.grantReadData(mcpServerFn);
-    this.commentTable.table.grantReadData(mcpServerFn);
+    this.commentTable.table.grantReadWriteData(mcpServerFn);
+    pageHistoryTable.grantReadWriteData(mcpServerFn);
+    assetUsageTable.grantReadWriteData(mcpServerFn);
+    this.imageAssetTable.table.grantReadWriteData(mcpServerFn);
+    schedulesTable.grantReadWriteData(mcpServerFn);
+    databaseRowMembersTable.grantReadWriteData(mcpServerFn);
+    notificationTable.grantReadWriteData(mcpServerFn);
+    mcpServerFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["appsync:GraphQL"],
+        resources: [
+          `arn:${cdk.Aws.PARTITION}:appsync:${cdk.Aws.REGION}:${cdk.Aws.ACCOUNT_ID}:apis/${api.apiId}/types/Mutation/fields/publishPageChanged`,
+        ],
+      }),
+    );
     // 토큰 테이블: 해시 단건 조회 + lastUsedAt 갱신만. UpdateItem 은 속성 조건으로 lastUsedAt 외 변경을 막고,
     // ReturnValues 로 다른 속성을 읽어내지 못하게 한다(폐기·범위 필드 위변조 차단).
     mcpServerFn.addToRolePolicy(
@@ -1247,18 +1282,39 @@ export function response(ctx) {
         },
       }),
     );
-    // ai-usage 테이블: MCP 분당 카운터(pk=mcp-rl#…) 항목의 UpdateItem 만 — AI 사용량 항목은 손대지 못한다.
+    // ai-usage 테이블: MCP 분당 카운터(pk=mcp-rl#…)·일일 쓰기 카운터(pk=mcp-wd#…) 항목의 UpdateItem 만 — AI 사용량 항목은 손대지 못한다.
     mcpServerFn.addToRolePolicy(
       new iam.PolicyStatement({
         actions: ["dynamodb:UpdateItem"],
         resources: [aiUsageTable.tableArn],
-        conditions: { "ForAllValues:StringLike": { "dynamodb:LeadingKeys": ["mcp-rl#*"] } },
+        conditions: { "ForAllValues:StringLike": { "dynamodb:LeadingKeys": ["mcp-rl#*", "mcp-wd#*"] } },
+      }),
+    );
+    // 협업 룸(rt-*): 상태 로드(Get/Query) + update append(Put) + 압축(rt-ydoc Put, 로그 BatchWrite 삭제)
+    // + 브로드캐스트 대상 조회(byPageId Query)·끊긴 연결 정리(Delete). WS ManageConnections 는 Realtime 스택이 부여.
+    mcpServerFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:Query", "dynamodb:BatchWriteItem"],
+        resources: [rtTableArn(rtYdocTableName), rtTableArn(rtYdocUpdatesTableName)],
       }),
     );
     mcpServerFn.addToRolePolicy(
       new iam.PolicyStatement({
-        actions: ["dynamodb:GetItem", "dynamodb:Query"],
-        resources: [rtTableArn(rtYdocTableName), rtTableArn(rtYdocUpdatesTableName)],
+        actions: ["dynamodb:Query"],
+        resources: [`${rtTableArn(rtConnectionsTableName)}/index/byPageId`],
+      }),
+    );
+    mcpServerFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["dynamodb:DeleteItem"],
+        resources: [rtTableArn(rtConnectionsTableName)],
+      }),
+    );
+    // epoch 불일치 가드(epochGuard.ts): room 키 표본 Scan(Limit 100, 키 projection) — 10분 캐시.
+    mcpServerFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["dynamodb:Scan"],
+        resources: [rtYdocTableName, rtYdocUpdatesTableName, rtConnectionsTableName].map(rtTableArn),
       }),
     );
     const mcpServerUrl = mcpServerFn.addFunctionUrl({

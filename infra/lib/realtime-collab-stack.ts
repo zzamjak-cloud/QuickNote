@@ -6,9 +6,11 @@ import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as nodejs from "aws-cdk-lib/aws-lambda-nodejs";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as logs from "aws-cdk-lib/aws-logs";
+import * as ssm from "aws-cdk-lib/aws-ssm";
 // WebSocket L2 구문은 aws-cdk-lib 2.252 의 stable 패키지에 포함되어 있다.
 import * as apigw from "aws-cdk-lib/aws-apigatewayv2";
 import * as integ from "aws-cdk-lib/aws-apigatewayv2-integrations";
+import { collabWsEndpointParamName, mcpServerRoleName } from "./mcp-collab-wiring";
 
 export interface RealtimeCollabStackProps extends cdk.StackProps {
   /** 리소스 이름 접두사. dev 환경은 "dev-", live 환경은 "" */
@@ -191,6 +193,33 @@ export class QuicknoteRealtimeCollabStack extends cdk.Stack {
 
     // sync 핸들러가 @connections API 로 클라이언트에 메시지를 push 할 수 있도록 허용.
     api.grantManageConnections(syncFn);
+
+    // MCP 서버(SyncStack)의 본문 쓰기 브로드캐스트용 — 엔드포인트 게시 + 고정 이름 역할에 최소 권한 부착.
+    // SyncStack 이 이 스택의 API id 를 참조하면 순환이 되므로 명명 규칙으로 잇는다(mcp-collab-wiring.ts).
+    const wsEndpointParam = new ssm.StringParameter(this, "CollabWsManagementEndpoint", {
+      parameterName: collabWsEndpointParamName(envPrefix),
+      stringValue: stage.callbackUrl,
+      description: "협업 WS @connections 관리 엔드포인트(MCP 서버 브로드캐스트용)",
+    });
+    new iam.Policy(this, "McpServerCollabBroadcastPolicy", {
+      roles: [iam.Role.fromRoleName(this, "McpServerRole", mcpServerRoleName(envPrefix))],
+      statements: [
+        new iam.PolicyStatement({
+          actions: ["execute-api:ManageConnections"],
+          resources: [
+            cdk.Stack.of(this).formatArn({
+              service: "execute-api",
+              resource: api.apiId,
+              resourceName: `${stage.stageName}/*/@connections/*`,
+            }),
+          ],
+        }),
+        new iam.PolicyStatement({
+          actions: ["ssm:GetParameter"],
+          resources: [wsEndpointParam.parameterArn],
+        }),
+      ],
+    });
 
     new cdk.CfnOutput(this, "CollabWsUrl", { value: stage.url });
   }

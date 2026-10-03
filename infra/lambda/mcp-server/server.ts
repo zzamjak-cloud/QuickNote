@@ -1,9 +1,9 @@
-// MCP 서버 구성 — 읽기 툴 등록 + 툴 호출별 감사 로그(구조화 JSON 한 줄).
+// MCP 서버 구성 — 읽기 툴 등록(쓰기 툴은 serverWrite.ts). 감사 로그는 toolRunner.runTool 이 남긴다.
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
-import { ZodError } from "zod";
 import { QFM_SYNTAX_GUIDE } from "../../../src/lib/docModel/markdown";
-import { ToolError, type McpContext } from "./context";
+import type { McpContext } from "./context";
+import { registerWriteTools } from "./serverWrite";
+import { runTool } from "./toolRunner";
 import { getCommentsInputShape, getCommentsTool } from "./tools/comments";
 import { fetchInputShape, fetchTool } from "./tools/fetch";
 import { listWorkspacesTool } from "./tools/listWorkspaces";
@@ -13,48 +13,6 @@ import { getUsersInputShape, getUsersTool } from "./tools/users";
 export const MCP_SERVER_INFO = { name: "quicknote", version: "1.0.0" };
 
 const READ_ONLY = { readOnlyHint: true, destructiveHint: false, openWorldHint: false } as const;
-
-function textResult(value: unknown): CallToolResult {
-  const text = typeof value === "string" ? value : JSON.stringify(value, null, 2);
-  return { content: [{ type: "text", text }] };
-}
-
-function errorResult(message: string): CallToolResult {
-  return { content: [{ type: "text", text: message }], isError: true };
-}
-
-/** 툴 실행 래퍼: 결과 직렬화·오류 매핑·감사 로그. 내부 오류 상세는 응답에 싣지 않는다. */
-async function runTool(
-  ctx: McpContext,
-  tool: string,
-  ids: Record<string, unknown>,
-  fn: () => Promise<unknown>,
-): Promise<CallToolResult> {
-  const started = Date.now();
-  let ok = false;
-  try {
-    const result = textResult(await fn());
-    ok = true;
-    return result;
-  } catch (err) {
-    if (err instanceof ToolError) return errorResult(err.message);
-    if (err instanceof ZodError) return errorResult(`Invalid input: ${err.issues.map((i) => i.message).join(", ")}`);
-    console.error("mcp tool 실패", tool, err);
-    return errorResult("Internal error");
-  } finally {
-    console.info(
-      JSON.stringify({
-        evt: "mcp.tool",
-        tool,
-        tokenId: ctx.token.tokenId,
-        memberId: ctx.caller.memberId,
-        ids,
-        ms: Date.now() - started,
-        ok,
-      }),
-    );
-  }
-}
 
 export function buildMcpServer(ctx: McpContext): McpServer {
   const server = new McpServer(MCP_SERVER_INFO);
@@ -111,5 +69,6 @@ export function buildMcpServer(ctx: McpContext): McpServer {
     async (args) => runTool(ctx, "get_comments", { pageId: args.pageId }, () => getCommentsTool(ctx, args)),
   );
 
+  registerWriteTools(server, ctx);
   return server;
 }

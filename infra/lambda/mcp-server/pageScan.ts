@@ -10,6 +10,8 @@ export type PageMeta = {
   databaseId: string | null;
   updatedAt: string;
   deleted: boolean;
+  /** 형제 정렬 키(Pages.order 는 숫자 문자열). */
+  order: number;
 };
 
 export type MetaScanResult = { metas: PageMeta[]; truncated: boolean };
@@ -30,6 +32,7 @@ export function toPageMeta(item: Record<string, unknown>): PageMeta {
     databaseId: str(item.databaseId),
     updatedAt: typeof item.updatedAt === "string" ? item.updatedAt : "",
     deleted: str(item.deletedAt) !== null,
+    order: Number.isFinite(Number(item.order)) ? Number(item.order) : 0,
   };
 }
 
@@ -48,7 +51,9 @@ export async function scanWorkspaceMetas(args: {
         IndexName: "byWorkspaceMetaUpdatedAt",
         KeyConditionExpression: "workspaceId = :w",
         ExpressionAttributeValues: { ":w": args.workspaceId },
-        ProjectionExpression: "id, workspaceId, title, parentId, databaseId, updatedAt, deletedAt",
+        // order 는 DynamoDB 예약어라 별칭으로 읽는다.
+        ProjectionExpression: "id, workspaceId, title, parentId, databaseId, updatedAt, deletedAt, #o",
+        ExpressionAttributeNames: { "#o": "order" },
         ScanIndexForward: false,
         Limit: Math.min(1000, args.budget - metas.length),
         ExclusiveStartKey: lastKey,

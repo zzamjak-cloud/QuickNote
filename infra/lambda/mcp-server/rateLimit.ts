@@ -29,3 +29,42 @@ export async function checkTokenRateLimit(args: {
   if (count <= (args.limit ?? MCP_RATE_LIMIT_RPM)) return null;
   return 60 - Math.floor((nowMs % 60_000) / 1000);
 }
+
+export const MCP_DAILY_WRITE_LIMIT = 500;
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+export type DailyWriteResult = { ok: true } | { ok: false; limit: number; resetAt: string };
+
+/** env MCP_DAILY_WRITE_LIMIT(양의 정수) > 기본 500. */
+export function dailyWriteLimit(): number {
+  const n = Number(process.env.MCP_DAILY_WRITE_LIMIT);
+  return Number.isInteger(n) && n > 0 ? n : MCP_DAILY_WRITE_LIMIT;
+}
+
+/** 토큰별 일일(UTC) 쓰기 카운터 — 쓰는 페이지 수(units)만큼 증가, 한도 초과 시 다음 UTC 자정을 돌려준다. */
+export async function consumeDailyWrite(args: {
+  doc: DynamoDBDocumentClient;
+  tableName: string;
+  tokenId: string;
+  units?: number;
+  limit?: number;
+  nowMs?: number;
+}): Promise<DailyWriteResult> {
+  const nowMs = args.nowMs ?? Date.now();
+  const day = new Date(nowMs).toISOString().slice(0, 10);
+  const r = await args.doc.send(
+    new UpdateCommand({
+      TableName: args.tableName,
+      Key: { pk: `mcp-wd#${args.tokenId}#${day}`, sk: "writes" },
+      UpdateExpression: "ADD cnt :inc SET expiresAt = :exp",
+      ExpressionAttributeValues: {
+        ":inc": Math.max(1, Math.floor(args.units ?? 1)),
+        ":exp": Math.floor(nowMs / 1000) + 2 * 24 * 60 * 60, // TTL 2일
+      },
+      ReturnValues: "ALL_NEW",
+    }),
+  );
+  const limit = args.limit ?? dailyWriteLimit();
+  if (Number(r.Attributes?.cnt ?? 0) <= limit) return { ok: true };
+  return { ok: false, limit, resetAt: new Date((Math.floor(nowMs / DAY_MS) + 1) * DAY_MS).toISOString() };
+}

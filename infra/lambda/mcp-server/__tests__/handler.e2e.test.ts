@@ -6,7 +6,9 @@ import { createHandler, MAX_REQUEST_BODY_BYTES } from "../index";
 import { createFakeDdb } from "./fakeDdb";
 import { baseTables, TABLES, tokenRecord } from "./fixtures";
 
-vi.mock("../../realtime/yjsStore", () => ({ loadPageState: vi.fn(async () => new Uint8Array([0, 0])) }));
+vi.mock("../../realtime/yjsStore", async () => (await import("./collabMocks")).yjsStoreMock);
+vi.mock("../wsBroadcast", async () => (await import("./collabMocks")).broadcastMock);
+vi.mock("../../template-automation/runner", async () => (await import("./collabMocks")).publishMock);
 
 function setup(tokenOverrides = {}) {
   const token = generateMcpToken();
@@ -50,7 +52,10 @@ describe("MCP handler e2e", () => {
 
     const list = await handler(event({ jsonrpc: "2.0", id: 2, method: "tools/list" }, { token }));
     const tools = JSON.parse(String(list.body)).result.tools.map((t: { name: string }) => t.name);
-    expect(tools.sort()).toEqual(["fetch", "get_comments", "get_users", "list_workspaces", "search"]);
+    expect(tools.sort()).toEqual([
+      "create_comment", "create_pages", "duplicate_page", "fetch", "get_comments", "get_users",
+      "list_workspaces", "move_pages", "search", "trash_page", "update_page",
+    ]);
 
     const search = await handler(event({
       jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "search", arguments: { query: "hello" } },
@@ -115,6 +120,64 @@ describe("MCP handler e2e", () => {
     const res = await handler({ ...event(null, { token }), body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "x", params: { pad: "x".repeat(MAX_REQUEST_BODY_BYTES) } }) });
     expect(res.statusCode).toBe(413);
     expect(fake.calls).toHaveLength(0);
+  });
+
+  it("쓰기 왕복: create_pages → update_page(append·replace_range) → fetch, read 토큰은 isError", async () => {
+    const { token, handler } = setup({ scopes: ["read", "write"] });
+    const call = async (id: number, name: string, args: unknown) => {
+      const res = await handler(event({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } }, { token }));
+      return JSON.parse(String(res.body)).result as { isError?: boolean; content: { text: string }[] };
+    };
+    const created = await call(10, "create_pages", {
+      parent: { pageId: "p1" },
+      pages: [{ title: "Meeting", content: "# Agenda\n\n- item one" }],
+    });
+    expect(created.isError).toBeFalsy();
+    const newId = JSON.parse(created.content[0].text).pages[0].id as string;
+
+    const appended = await call(11, "update_page", { pageId: newId, content: { mode: "append", markdown: "Decision: ship" } });
+    expect(appended.isError).toBeFalsy();
+    const ranged = await call(12, "update_page", {
+      pageId: newId,
+      content: { mode: "replace_range", markdown: "## Agenda v2", rangeStart: "Agenda", rangeEnd: "Agenda" },
+    });
+    expect(JSON.parse(ranged.content[0].text)).toMatchObject({ contentChanged: true, bodySource: "room" });
+
+    const fetched = await call(13, "fetch", { id: newId });
+    expect(fetched.content[0].text).toContain("bodySource: collab");
+    expect(fetched.content[0].text).toMatch(/## Agenda v2[\s\S]*- item one[\s\S]*Decision: ship/);
+    expect(fetched.content[0].text).toContain("path: Hello page");
+
+    const readOnly = setup();
+    const denied = await readOnly.handler(event({
+      jsonrpc: "2.0", id: 14, method: "tools/call", params: { name: "trash_page", arguments: { pageId: "p1" } },
+    }, { token: readOnly.token }));
+    const deniedResult = JSON.parse(String(denied.body)).result;
+    expect(deniedResult.isError).toBe(true);
+    expect(deniedResult.content[0].text).toBe("token lacks write scope");
+  });
+
+  it("일일 쓰기 상한 초과는 툴 오류(리셋 시각 안내), 읽기 툴은 영향 없음", async () => {
+    process.env.MCP_DAILY_WRITE_LIMIT = "1";
+    try {
+      const { token, handler } = setup({ scopes: ["read", "write"] });
+      const call = async (id: number, name: string, args: unknown) =>
+        JSON.parse(String((await handler(event({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } }, { token }))).body)).result;
+      expect((await call(20, "update_page", { pageId: "p1", title: "One" })).isError).toBeFalsy();
+      const second = await call(21, "update_page", { pageId: "p1", title: "Two" });
+      expect(second.isError).toBe(true);
+      expect(second.content[0].text).toMatch(/Daily write limit reached .*Resets at/);
+      expect((await call(22, "fetch", { id: "p1" })).isError).toBeFalsy();
+      // move_pages 는 옮기는 페이지 수만큼 차감 — 새 토큰(상한 1)으로 2개 이동은 거부
+      const other = setup({ scopes: ["read", "write"], tokenId: "tok-2" });
+      const moved = JSON.parse(String((await other.handler(event({
+        jsonrpc: "2.0", id: 23, method: "tools/call",
+        params: { name: "move_pages", arguments: { pageIds: ["p1", "p1x"], newParent: { workspaceId: "ws-a" } } },
+      }, { token: other.token }))).body)).result;
+      expect(moved.content[0].text).toMatch(/Daily write limit reached/);
+    } finally {
+      delete process.env.MCP_DAILY_WRITE_LIMIT;
+    }
   });
 
   it("분당 한도 초과 시 429", async () => {

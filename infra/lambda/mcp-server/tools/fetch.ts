@@ -3,6 +3,7 @@ import { z } from "zod";
 import { docToQfm } from "../../../../src/lib/docModel/markdown";
 import { NOT_ACCESSIBLE, requireWorkspace } from "../access";
 import { ToolError, type McpContext } from "../context";
+import { databasePaths } from "../dbPath";
 import { getItem } from "../ddb";
 import { loadPageBody } from "../pageBody";
 import { ancestorTitles, scanWorkspaceMetas, MAX_SCANNED_METAS, type PageMeta } from "../pageScan";
@@ -74,7 +75,9 @@ async function renderPage(ctx: McpContext, page: Record<string, unknown>, cursor
   ]);
   const byId = new Map(scan.metas.map((m) => [m.id, m]));
   const self = byId.get(pageId);
-  const path = self ? ancestorTitles(self, byId) : [];
+  const path = rowDb
+    ? (await databasePaths(ctx, [String(rowDb.id)], scan.metas)).get(String(rowDb.id)) ?? []
+    : self ? ancestorTitles(self, byId) : [];
   const type = page.databaseId ? "database-row" : homeDb ? "full-page-database" : "page";
   const header = [
     "---",

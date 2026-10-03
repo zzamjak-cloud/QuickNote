@@ -87,7 +87,7 @@ describe("search", () => {
     expect(titleRank("My plan", "plan")).toBe(2);
     expect(titleRank("Other", "plan")).toBeNull();
     const meta = (id: string, title: string, updatedAt: string): PageMeta => ({
-      id, title, updatedAt, workspaceId: "ws-a", parentId: null, databaseId: null, deleted: false,
+      id, title, updatedAt, workspaceId: "ws-a", parentId: null, databaseId: null, deleted: false, order: 0,
     });
     const ranked = rankTitleMatches(
       [meta("c", "My plan", "3"), meta("b1", "Planning", "1"), meta("b2", "Plan B", "2"), meta("a", "plan", "0")],
@@ -208,6 +208,27 @@ describe("fetch", () => {
     tables.pages = [page("big", { doc: JSON.stringify(docOf(...Array.from({ length: 3000 }, () => "x".repeat(100)))) })];
     const out = await fetchTool(makeCtx(tables).ctx, { id: "big" });
     expect(out).toContain("[truncated: output exceeded 200KB");
+  });
+});
+
+describe("DB 행 경로", () => {
+  it("search·fetch 의 DB 행 path 는 DB 홈 페이지의 조상 / DB 제목(인라인 DB 는 DB 제목만)", async () => {
+    const tables = baseTables();
+    tables.pages = [
+      page("root", { title: "Projects" }),
+      page("home", { title: "Tasks", parentId: "root", fullPageDatabaseId: "db1" }),
+      page("r1", { title: "Fix bug", databaseId: "db1" }),
+      page("r2", { title: "Fix docs", databaseId: "db2" }),
+    ];
+    tables.databases = [
+      { id: "db1", workspaceId: "ws-a", title: "Tasks", columns: "[]" },
+      { id: "db2", workspaceId: "ws-a", title: "Inline DB", columns: "[]" },
+    ];
+    const { ctx } = makeCtx(tables);
+    const r = await searchTool(ctx, { query: "fix", workspaceId: "ws-a" });
+    const paths = Object.fromEntries(r.results.map((x) => [x.id, x.path]));
+    expect(paths).toEqual({ r1: ["Projects", "Tasks"], r2: ["Inline DB"] });
+    await expect(fetchTool(ctx, { id: "r1" })).resolves.toContain("path: Projects / Tasks");
   });
 });
 

@@ -12,6 +12,13 @@ export type McpTables = Tables & {
   McpTokens: string;
   /** 토큰별 분당 호출 카운터(ai-usage 테이블 공용, pk=mcp-rl#tokenId). */
   RateLimit: string;
+  // 쓰기 툴이 재사용하는 upsertPage·upsertComment 의 부수 효과(히스토리·자산·색인·알림) 테이블.
+  PageHistory: string;
+  AssetUsage: string;
+  ImageAssets: string;
+  Schedules: string;
+  DatabaseRowMembers: string;
+  Notifications: string;
 };
 
 export type McpContext = {
@@ -55,6 +62,12 @@ export function tablesFromEnv(): McpTables {
     Comments: env("COMMENTS_TABLE_NAME"),
     McpTokens: env("MCP_TOKENS_TABLE_NAME"),
     RateLimit: env("MCP_RATE_LIMIT_TABLE_NAME"),
+    PageHistory: env("PAGE_HISTORY_TABLE_NAME"),
+    AssetUsage: env("ASSET_USAGE_TABLE_NAME"),
+    ImageAssets: env("IMAGE_ASSETS_TABLE_NAME"),
+    Schedules: env("SCHEDULES_TABLE_NAME"),
+    DatabaseRowMembers: env("DATABASE_ROW_MEMBERS_TABLE_NAME"),
+    Notifications: env("NOTIFICATIONS_TABLE_NAME"),
   };
 }
 

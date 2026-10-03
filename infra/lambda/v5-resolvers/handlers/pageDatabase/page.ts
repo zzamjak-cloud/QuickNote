@@ -401,6 +401,8 @@ export async function upsertPage(args: {
   tables: Tables;
   caller: Member;
   input: Record<string, unknown>;
+  /** upsertRecord 참고 — 기존 updatedAt 조건부 저장(MCP 전용). AppSync 경로는 넘기지 않는다. */
+  expectedUpdatedAt?: string;
 }): Promise<Record<string, unknown>> {
   if (!args.tables.Pages) badRequest("Pages table 미설정");
   const input: Record<string, unknown> = { ...args.input };

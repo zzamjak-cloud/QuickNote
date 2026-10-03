@@ -71,6 +71,13 @@ cd infra && npx cdk deploy QuicknoteSyncStack
 - `npx cdk deploy QuicknoteSyncStack`(플래그 없음)은 live Lambda/스키마를 갱신한다. dev 검증 목적이었다면 잘못 나간 것.
 - 증상: dev 웹에서 백엔드 수정이 반영 안 됨 + live Lambda 만 갱신됨.
 
+**MCP 서버 ↔ 협업 스택 결합(순서 고정: Sync → Realtime)** — `RealtimeCollabStack` 이 `Role.fromRoleName`
+으로 SyncStack 의 고정 이름 역할(`{envPrefix}quicknote-mcp-server`)에 WS 브로드캐스트 정책을 붙인다
+(`infra/lib/mcp-collab-wiring.ts`, 상세 `settings/mcp.md`).
+- `cdk deploy --all`(dev 자동 배포 `deploy:dev` 포함)은 교차참조 의존으로 Sync 가 먼저라 안전하다. **Realtime 만 단독 배포**할 때는 그 역할이 이미 있어야 한다(없으면 Policy 생성 실패).
+- `fromRoleName` 은 CFN 의존이 없다 → **MCP 역할 이름을 바꾸거나 함수를 다른 역할로 옮기면** Realtime 스택을 재배포할 때까지 정책이 옛 이름에 붙어 브로드캐스트가 끊긴다(쓰기는 성공·실시간 반영만 누락). 역할 이름 변경 시 두 스택을 연달아 배포할 것.
+- Realtime 스택을 삭제·교체하면 SSM 파라미터와 정책이 같이 사라져 MCP 브로드캐스트가 조용히 생략된다(로그 `WS 관리 엔드포인트 미설정`).
+
 CDK 완료 전 프론트 push 하면 AppSync 뮤테이션 실패 → 데이터 손실 위험
 
 **AI 설정(WorkspaceAiConfig)은 워크스페이스별**이다. "키가 사라졌다" 신고가 오면 코드/서버 의심 전에 **현재 워크스페이스가 키를 등록한 워크스페이스인지부터 확인**할 것 (2026-07-12 소동: 다른 워크스페이스 진입이 원인, 데이터 정상).

@@ -21,6 +21,7 @@ export function McpTokenCreateForm({ busy, onSubmit }: Props) {
   const [name, setName] = useState("");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [expiry, setExpiry] = useState("90");
+  const [access, setAccess] = useState<"read" | "write">("read");
 
   // 스케줄러 가상 워크스페이스·삭제된 워크스페이스는 MCP 범위 대상이 아니다.
   const selectable = workspaces.filter(
@@ -39,7 +40,7 @@ export function McpTokenCreateForm({ busy, onSubmit }: Props) {
     if (!trimmedName || busy) return;
     onSubmit({
       name: trimmedName,
-      scopes: ["read"],
+      scopes: access === "write" ? ["read", "write"] : ["read"],
       workspaceIds: selectedIds,
       expiresInDays: EXPIRY_OPTIONS.find((o) => o.value === expiry)?.days ?? null,
     });
@@ -69,14 +70,30 @@ export function McpTokenCreateForm({ busy, onSubmit }: Props) {
         <legend className="text-xs font-medium text-zinc-600 dark:text-zinc-300">권한</legend>
         <div className="flex flex-col gap-2 sm:flex-row sm:gap-4">
           <label className="flex min-h-[44px] items-center gap-2 text-sm md:min-h-0">
-            <input type="radio" name="mcp-scope" checked readOnly />
+            <input
+              type="radio"
+              name="mcp-scope"
+              checked={access === "read"}
+              onChange={() => setAccess("read")}
+            />
             읽기
           </label>
-          <label className="flex min-h-[44px] items-center gap-2 text-sm text-zinc-400 md:min-h-0">
-            <input type="radio" name="mcp-scope" disabled />
-            읽기+쓰기 <span className="text-xs">(곧 지원)</span>
+          <label className="flex min-h-[44px] items-center gap-2 text-sm md:min-h-0">
+            <input
+              type="radio"
+              name="mcp-scope"
+              checked={access === "write"}
+              onChange={() => setAccess("write")}
+            />
+            읽기+쓰기
           </label>
         </div>
+        {access === "write" && (
+          <p role="note" className="rounded-md bg-amber-50 px-2 py-1.5 text-xs text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+            AI가 편집 권한이 있는 워크스페이스에서 페이지를 만들고, 고치고, 휴지통으로 옮길 수 있습니다.
+            영구 삭제는 할 수 없고, 본문 전체를 바꾸기 전에는 버전 히스토리에 저장됩니다.
+          </p>
+        )}
       </fieldset>
 
       <fieldset className="space-y-1">
