@@ -8,6 +8,7 @@ import { authenticate } from "./auth";
 import { defaultDocClient, missingTables, tablesFromEnv, type McpContext, type McpTables } from "./context";
 import { checkTokenRateLimit } from "./rateLimit";
 import { buildMcpServer } from "./server";
+import { resourceMetadataFor, routeOAuth, type OAuthRouterDeps } from "./oauth/router";
 
 type Result = Exclude<APIGatewayProxyResultV2, string>;
 
@@ -71,6 +72,8 @@ export type HandlerDeps = {
   doc?: DynamoDBDocumentClient;
   tables?: McpTables;
   collabRoomEpoch?: string;
+  /** OAuth 파사드 의존성(테스트 주입). 미지정이면 env 설정. */
+  oauth?: Partial<Omit<OAuthRouterDeps, "doc" | "tables">>;
 };
 
 async function serveMcp(event: APIGatewayProxyEventV2, body: string | undefined, ctx: McpContext): Promise<Result> {
@@ -90,6 +93,14 @@ async function serveMcp(event: APIGatewayProxyEventV2, body: string | undefined,
 
 export function createHandler(deps: HandlerDeps = {}) {
   return async (event: APIGatewayProxyEventV2): Promise<Result> => {
+    // OAuth 2.1 파사드(메타데이터·DCR·authorize·token) — 같은 Function URL origin 에서 처리한다.
+    const oauthResult = await routeOAuth(event, {
+      doc: deps.doc ?? defaultDocClient(),
+      tables: deps.tables ?? tablesFromEnv(),
+      ...deps.oauth,
+    });
+    if (oauthResult) return oauthResult;
+
     const method = event.requestContext.http.method.toUpperCase();
     if (event.rawPath !== MCP_PATH) return jsonRpcError(404, -32000, "Not found");
     if (method !== "POST") return jsonRpcError(405, -32000, "Method not allowed", { allow: "POST" });
@@ -109,9 +120,12 @@ export function createHandler(deps: HandlerDeps = {}) {
     try {
       const auth = await authenticate({ doc, tables, authorization: header(event, "authorization") });
       if (!auth.ok) {
-        return jsonRpcError(401, -32001, `Unauthorized: ${auth.reason}`, {
-          "www-authenticate": 'Bearer realm="quicknote", error="invalid_token"',
-        });
+        // RFC 9728 §5.1: OAuth 클라이언트가 보호 리소스 메타데이터를 찾을 수 있게 한다.
+        const metadataUrl = resourceMetadataFor(event, deps.oauth);
+        const challenge = metadataUrl
+          ? `Bearer realm="quicknote", resource_metadata="${metadataUrl}", error="invalid_token"`
+          : 'Bearer realm="quicknote", error="invalid_token"';
+        return jsonRpcError(401, -32001, `Unauthorized: ${auth.reason}`, { "www-authenticate": challenge });
       }
       const retryAfter = await checkTokenRateLimit({ doc, tableName: tables.RateLimit, tokenId: auth.token.tokenId });
       if (retryAfter !== null) {

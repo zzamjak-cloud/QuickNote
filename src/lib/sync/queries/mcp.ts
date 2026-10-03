@@ -1,7 +1,7 @@
 // MCP 개인 액세스 토큰 GraphQL 쿼리/뮤테이션. 토큰 원문은 CREATE 응답에만 존재한다.
 
 const MCP_TOKEN_FIELDS = `
-  tokenId name scopes workspaceIds tokenHint createdAt expiresAt lastUsedAt revokedAt
+  tokenId kind name scopes workspaceIds tokenHint createdAt expiresAt lastUsedAt revokedAt
 `;
 
 export const LIST_MCP_TOKENS = `

@@ -711,6 +711,8 @@ type WorkspaceAiUsage {
 """MCP Personal Access Token 메타. 원문 토큰과 해시는 포함하지 않는다."""
 type McpToken {
   tokenId: ID!
+  """pat = 개인 액세스 토큰, oauth = OAuth 로 연결된 앱(name = 클라이언트 이름, 폐기 시 연결 해제)."""
+  kind: String
   name: String!
   """read | write"""
   scopes: [String!]!

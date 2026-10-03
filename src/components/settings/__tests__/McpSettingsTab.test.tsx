@@ -133,6 +133,26 @@ describe("McpSettingsTab", () => {
     expect(revokeCall?.[0].variables).toEqual({ tokenId: "t1" });
   });
 
+  it("OAuth 연결 앱은 '연결된 앱' 배지로 보여 주고 연결 해제로 폐기한다", async () => {
+    const app = { ...baseToken, tokenId: "fam-1", kind: "oauth", name: "Claude", tokenHint: "", scopes: ["read", "write"] };
+    respond({
+      listMcpTokens: () => [app],
+      revokeMcpToken: (vars) => ({ ...app, tokenId: vars.tokenId, revokedAt: "2026-10-03T00:00:00.000Z" }),
+    });
+    render(<McpSettingsTab />);
+
+    expect(await screen.findByText("Claude")).toBeTruthy();
+    expect(screen.getByText("연결된 앱")).toBeTruthy();
+    expect(screen.queryByText("…")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Claude 연결 해제" }));
+    fireEvent.click(await screen.findByRole("button", { name: "폐기" }));
+
+    expect(await screen.findByText("폐기됨")).toBeTruthy();
+    expect(graphqlMock).toHaveBeenCalledWith(
+      expect.objectContaining({ variables: { tokenId: "fam-1" } }),
+    );
+  });
+
   it("MCP 서버 URL 이 없으면 스니펫에 자리표시자를 쓴다", async () => {
     respond({
       listMcpTokens: () => [],

@@ -1,4 +1,5 @@
-// Bearer PAT 인증 — 해시 조회 → 폐기·만료 검사 → 소유 Member 활성 검사 → lastUsedAt 스로틀 갱신.
+// Bearer 인증 — PAT(qn_pat_) 또는 OAuth access token(qn_oat_) 해시 조회 → 폐기·만료 검사
+// → 소유 Member 활성 검사 → lastUsedAt 스로틀 갱신. OAuth 는 grant family 레코드가 토큰 역할을 한다.
 import { GetCommand, UpdateCommand, type DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import type { Member } from "../v5-resolvers/handlers/_auth";
 import {
@@ -8,6 +9,7 @@ import {
   type McpTokenRecord,
 } from "../_shared/mcpToken";
 import type { McpTables } from "./context";
+import { isOAuthAccessToken, loadOAuthAccessToken } from "./oauth/accessToken";
 
 /** lastUsedAt 쓰기 간격 — 매 요청 쓰기를 피한다. */
 export const LAST_USED_WRITE_INTERVAL_MS = 5 * 60 * 1000;
@@ -55,15 +57,24 @@ export async function authenticate(args: {
   const now = args.now ?? new Date();
   const raw = extractBearer(args.authorization);
   if (!raw) return { ok: false, reason: "missing bearer token" };
-  if (!isMcpTokenFormat(raw)) return { ok: false, reason: "invalid token" };
 
-  const tokenRes = await args.doc.send(
-    new GetCommand({ TableName: args.tables.McpTokens, Key: { tokenHash: hashMcpToken(raw) } }),
-  );
-  const token = tokenRes.Item as McpTokenRecord | undefined;
-  if (!token) return { ok: false, reason: "invalid token" };
-  if (!isMcpTokenActive(token, now.toISOString())) {
-    return { ok: false, reason: token.revokedAt ? "token revoked" : "token expired" };
+  let token: McpTokenRecord;
+  if (isOAuthAccessToken(raw)) {
+    const oauth = await loadOAuthAccessToken({ doc: args.doc, table: args.tables.McpTokens, raw, nowIso: now.toISOString() });
+    if (!oauth.ok) return oauth;
+    token = oauth.token;
+  } else {
+    if (!isMcpTokenFormat(raw)) return { ok: false, reason: "invalid token" };
+    const tokenRes = await args.doc.send(
+      new GetCommand({ TableName: args.tables.McpTokens, Key: { tokenHash: hashMcpToken(raw) } }),
+    );
+    const pat = tokenRes.Item as McpTokenRecord | undefined;
+    // OAuth family 레코드는 해시 키가 아니라 PAT 원문으로는 조회될 수 없지만, 종류도 함께 확인한다.
+    if (!pat || (pat.kind ?? "pat") !== "pat") return { ok: false, reason: "invalid token" };
+    if (!isMcpTokenActive(pat, now.toISOString())) {
+      return { ok: false, reason: pat.revokedAt ? "token revoked" : "token expired" };
+    }
+    token = pat;
   }
 
   // _auth.getCallerMember 와 같은 기준: status === "active" 만 허용(removed 등 거부).

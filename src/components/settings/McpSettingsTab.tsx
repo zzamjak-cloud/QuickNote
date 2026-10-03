@@ -80,7 +80,7 @@ export function McpSettingsTab() {
     try {
       const updated = await revokeMcpTokenApi(target.tokenId);
       setTokens((prev) => prev.map((t) => (t.tokenId === updated.tokenId ? updated : t)));
-      showToast("토큰을 폐기했습니다");
+      showToast(target.kind === "oauth" ? "앱 연결을 해제했습니다" : "토큰을 폐기했습니다");
     } catch (e) {
       showToast(e instanceof Error ? e.message : "토큰 폐기에 실패했습니다", { kind: "error" });
     } finally {
@@ -97,6 +97,10 @@ export function McpSettingsTab() {
             Claude Code·Cursor 같은 외부 AI 가 MCP 로 내 페이지·데이터베이스를 읽을 수 있게 합니다.
             토큰은 내 권한 범위 안에서만 동작하며, 서버에는 해시만 저장됩니다.
           </p>
+          <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+            Claude.ai 는 토큰 없이 연결할 수 있습니다: 설정 &gt; 커넥터 &gt; 사용자 지정 커넥터 추가에 MCP 서버 URL 을
+            넣고 로그인·승인하면 아래 목록에 "연결된 앱"으로 표시됩니다.
+          </p>
         </div>
         {createdToken ? (
           <McpTokenCreatedPanel
@@ -110,7 +114,7 @@ export function McpSettingsTab() {
       </section>
 
       <section className="space-y-3">
-        <h3 className="text-sm font-semibold">발급된 토큰</h3>
+        <h3 className="text-sm font-semibold">발급된 토큰 · 연결된 앱</h3>
         {loading ? (
           <p className="text-sm text-zinc-400">토큰 목록을 불러오는 중…</p>
         ) : tokens.length === 0 ? (
@@ -127,7 +131,13 @@ export function McpSettingsTab() {
                 <div className="min-w-0 flex-1 space-y-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="truncate text-sm font-medium">{t.name}</span>
-                    <span className="font-mono text-xs text-zinc-400">…{t.tokenHint}</span>
+                    {t.kind === "oauth" ? (
+                      <span className="rounded bg-sky-100 px-1.5 py-0.5 text-[10px] text-sky-700 dark:bg-sky-900/40 dark:text-sky-300">
+                        연결된 앱
+                      </span>
+                    ) : (
+                      <span className="font-mono text-xs text-zinc-400">…{t.tokenHint}</span>
+                    )}
                     {t.scopes.map((s) => (
                       <span
                         key={s}
@@ -154,10 +164,10 @@ export function McpSettingsTab() {
                     onClick={() => setRevokeTarget(t)}
                     disabled={busy}
                     className="flex min-h-[44px] items-center justify-center gap-1 rounded-md border border-red-200 px-2 text-xs text-red-600 hover:bg-red-50 disabled:opacity-40 md:min-h-0 md:py-1 dark:border-red-900 dark:hover:bg-red-950/40"
-                    aria-label={`${t.name} 토큰 폐기`}
+                    aria-label={t.kind === "oauth" ? `${t.name} 연결 해제` : `${t.name} 토큰 폐기`}
                   >
                     <Ban size={12} aria-hidden />
-                    폐기
+                    {t.kind === "oauth" ? "연결 해제" : "폐기"}
                   </button>
                 )}
               </li>
@@ -171,7 +181,9 @@ export function McpSettingsTab() {
         title="토큰 폐기"
         message={
           revokeTarget
-            ? `"${revokeTarget.name}" 토큰을 폐기합니다. 이 토큰을 쓰는 외부 AI 연결이 즉시 끊기며 되돌릴 수 없습니다.`
+            ? revokeTarget.kind === "oauth"
+              ? `"${revokeTarget.name}" 앱의 연결을 해제합니다. 이 앱의 접근이 즉시 끊기며, 다시 쓰려면 앱에서 재연결해야 합니다.`
+              : `"${revokeTarget.name}" 토큰을 폐기합니다. 이 토큰을 쓰는 외부 AI 연결이 즉시 끊기며 되돌릴 수 없습니다.`
             : ""
         }
         confirmLabel="폐기"

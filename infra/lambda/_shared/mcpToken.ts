@@ -3,6 +3,9 @@
 import { createHash, randomBytes } from "node:crypto";
 
 export const MCP_TOKEN_PREFIX = "qn_pat_";
+/** OAuth 파사드가 발급하는 access token(1시간) · refresh token 접두사. */
+export const MCP_OAUTH_ACCESS_PREFIX = "qn_oat_";
+export const MCP_OAUTH_REFRESH_PREFIX = "qn_ort_";
 export const MCP_TOKEN_SCOPES = ["read", "write"] as const;
 export type McpTokenScope = (typeof MCP_TOKEN_SCOPES)[number];
 
@@ -21,6 +24,10 @@ export type McpTokenRecord = {
   expiresAt?: string | null;
   lastUsedAt?: string | null;
   revokedAt?: string | null;
+  /** 미지정 = "pat". "oauth" = OAuth 연결 앱 grant(family) 레코드 — tokenId 가 familyId. */
+  kind?: "pat" | "oauth";
+  /** OAuth grant 전용: DCR 로 등록된 client_id. */
+  clientId?: string;
 };
 
 const BASE62 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
@@ -37,14 +44,14 @@ function toBase62(bytes: Buffer): string {
   return out.padStart(TOKEN_BODY_LENGTH, "0");
 }
 
-/** 새 토큰 원문 생성: qn_pat_ + 32 랜덤 바이트 base62. */
-export function generateMcpToken(): string {
-  return `${MCP_TOKEN_PREFIX}${toBase62(randomBytes(32))}`;
+/** 새 토큰 원문 생성: 접두사(기본 qn_pat_) + 32 랜덤 바이트 base62. */
+export function generateMcpToken(prefix: string = MCP_TOKEN_PREFIX): string {
+  return `${prefix}${toBase62(randomBytes(32))}`;
 }
 
 /** 토큰 원문의 형식 검사(조회 전 쓰레기 입력 차단). */
-export function isMcpTokenFormat(value: string): boolean {
-  return new RegExp(`^${MCP_TOKEN_PREFIX}[0-9A-Za-z]{${TOKEN_BODY_LENGTH}}$`).test(value);
+export function isMcpTokenFormat(value: string, prefix: string = MCP_TOKEN_PREFIX): boolean {
+  return new RegExp(`^${prefix}[0-9A-Za-z]{${TOKEN_BODY_LENGTH}}$`).test(value);
 }
 
 export function hashMcpToken(token: string): string {

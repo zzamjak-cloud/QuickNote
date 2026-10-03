@@ -65,6 +65,7 @@ const syncStack = new QuicknoteSyncStack(app, `${stackPrefix}QuicknoteSyncStack`
   userPoolArn: cognitoStack.userPoolArn,
   userPoolWebClientId: cognitoStack.webClientId,
   userPoolDesktopClientId: cognitoStack.desktopClientId,
+  cognitoDomainPrefix,
   imagesBucketName,
   membersTableName,
   teamsTableName: isDev
