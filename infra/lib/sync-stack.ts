@@ -18,7 +18,7 @@ import * as kms from "aws-cdk-lib/aws-kms";
 import * as eventScheduler from "aws-cdk-lib/aws-scheduler";
 import { createSyncTable, type ModelTable } from "./sync/ddb-table-factory";
 import { DYNAMODB_TABLE_ENCRYPTION } from "./sync/table-encryption";
-import { DEFAULT_COLLAB_ROOM_EPOCH } from "./collab-epoch";
+import { resolveCollabRoomEpoch } from "./collab-epoch";
 import { collabWsEndpointParamName, mcpServerRoleName } from "./mcp-collab-wiring";
 import { KNOWN_MCP_PUBLIC_ORIGINS, McpEdge } from "./mcp-edge-construct";
 import { McpOAuth } from "./mcp-oauth-construct";
@@ -1189,11 +1189,12 @@ export function response(ctx) {
 
     // 협업 룸 epoch — 클라 번들의 VITE_COLLAB_ROOM_EPOCH(Vercel env·GitHub Secret, 미지정 시
     // src/lib/collab/collabConfig.ts 기본값)와 반드시 같아야 MCP 가 같은 Y 룸을 읽는다.
-    // 클라 epoch 을 bump 하면 여기(-c collabRoomEpoch=… 또는 COLLAB_ROOM_EPOCH env, 기본값)도 함께 올릴 것.
-    const collabRoomEpoch =
+    // 클라 epoch 을 bump 하면 collab-epoch.ts 의 환경별 표도 함께 올릴 것(-c collabRoomEpoch=… / COLLAB_ROOM_EPOCH env 로 일회 override 가능).
+    const collabRoomEpoch = resolveCollabRoomEpoch(
+      envPrefix,
       process.env.COLLAB_ROOM_EPOCH ??
-      (this.node.tryGetContext("collabRoomEpoch") as string | undefined) ??
-      DEFAULT_COLLAB_ROOM_EPOCH;
+        (this.node.tryGetContext("collabRoomEpoch") as string | undefined),
+    );
 
     // rt-ydoc 테이블은 RealtimeCollabStack 소유(그 스택이 이 스택을 참조해 역참조 시 순환) —
     // 명명 규칙으로 이름·ARN 을 구성한다(realtime-collab-stack.ts 의 tableName 과 동기).

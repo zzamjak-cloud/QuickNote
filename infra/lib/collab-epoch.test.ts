@@ -10,3 +10,12 @@ describe("협업 룸 epoch 서버·클라 기본값 동기", () => {
     expect(match?.[1]).toBe(DEFAULT_COLLAB_ROOM_EPOCH);
   });
 });
+
+describe("환경별 epoch 해석", () => {
+  it("live 는 배포된 클라 epoch(v6), dev 는 기본값, override 가 우선한다", async () => {
+    const { resolveCollabRoomEpoch } = await import("./collab-epoch");
+    expect(resolveCollabRoomEpoch("")).toBe("v6");
+    expect(resolveCollabRoomEpoch("dev-")).toBe(DEFAULT_COLLAB_ROOM_EPOCH);
+    expect(resolveCollabRoomEpoch("", "v9")).toBe("v9");
+  });
+});
