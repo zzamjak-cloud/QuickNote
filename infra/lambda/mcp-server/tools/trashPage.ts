@@ -5,6 +5,7 @@ import { z } from "zod";
 import { softDeletePage } from "../../v5-resolvers/handlers/pageDatabase";
 import { ToolError, type McpContext } from "../context";
 import { descendantIds, workspaceMetas } from "../pageHelpers";
+import { invalidateWorkspaceMetas } from "../pageScan";
 import { nowIso } from "../pageWrite";
 import { publishPage } from "../publish";
 import { removeDbRow } from "../dbCollabWriter";
@@ -45,6 +46,7 @@ export async function trashPageTool(ctx: McpContext, raw: TrashPageInput) {
     });
     await publishPage(deleted, { deletedAt: String(deleted.deletedAt ?? updatedAt) });
   }
+  invalidateWorkspaceMetas(ctx.doc, ctx.tables.Pages, workspaceId);
   // 앱 deleteRow 순서와 같이 행 페이지 삭제 후 DB 행 목록에서 뺀다.
   const rowRemovedFrom = rowDatabaseId ? await removeDbRow(ctx, rowDatabaseId, String(page.id)) : undefined;
   return {

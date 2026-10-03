@@ -19,7 +19,8 @@ export const EMPTY_PAGE_DOC: DocJson = { type: "doc", content: [{ type: "paragra
 const UNTITLED = "제목 없음";
 
 export async function workspaceMetas(ctx: McpContext, workspaceId: string): Promise<PageMeta[]> {
-  const scan = await scanWorkspaceMetas({ doc: ctx.doc, pagesTable: ctx.tables.Pages, workspaceId, budget: MAX_SCANNED_METAS });
+  // 쓰기 판단(형제 순서·제목 중복)은 캐시가 아니라 최신 메타로 한다.
+  const scan = await scanWorkspaceMetas({ doc: ctx.doc, pagesTable: ctx.tables.Pages, workspaceId, budget: MAX_SCANNED_METAS, fresh: true });
   return scan.metas.filter((m) => !m.deleted);
 }
 

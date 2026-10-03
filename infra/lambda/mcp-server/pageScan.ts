@@ -36,7 +36,57 @@ export function toPageMeta(item: Record<string, unknown>): PageMeta {
   };
 }
 
+// ── 워크스페이스 메타 캐시(컨테이너 단위) ──
+// 메타 스캔은 최대 5000건 Query 라 fetch·search 마다 반복하면 RCU 가 크다(ProjectionExpression 은 RCU 를 줄이지 않는다).
+// 키 = (DDB 클라이언트, 테이블, 워크스페이스), TTL 30초. MCP 쓰기는 invalidateWorkspaceMetas 로 즉시 무효화한다.
+export const META_CACHE_TTL_MS = 30_000;
+type CacheEntry = { at: number; budget: number; result: MetaScanResult };
+const metaCache = new WeakMap<DynamoDBDocumentClient, Map<string, CacheEntry>>();
+
+function cacheOf(doc: DynamoDBDocumentClient): Map<string, CacheEntry> {
+  let m = metaCache.get(doc);
+  if (!m) {
+    m = new Map();
+    metaCache.set(doc, m);
+  }
+  return m;
+}
+
+function cached(entry: CacheEntry | undefined, budget: number, nowMs: number): MetaScanResult | null {
+  if (!entry || nowMs - entry.at >= META_CACHE_TTL_MS) return null;
+  // 더 작은 예산으로 잘린 결과는 더 큰 예산 요청에 쓸 수 없다.
+  if (entry.result.truncated && entry.budget < budget) return null;
+  if (entry.result.metas.length <= budget) return entry.result;
+  return { metas: entry.result.metas.slice(0, budget), truncated: true };
+}
+
+/** 쓰기 후 무효화 — 다음 조회가 새로 스캔한다. */
+export function invalidateWorkspaceMetas(doc: DynamoDBDocumentClient, pagesTable: string, workspaceId: string): void {
+  metaCache.get(doc)?.delete(`${pagesTable}|${workspaceId}`);
+}
+
+/**
+ * 워크스페이스 메타(본문 제외)를 updatedAt 내림차순으로. fresh 면 캐시를 건너뛰고 새로 읽어 캐시를 갱신한다
+ * (쓰기 툴의 형제 순서·제목 중복 검사는 최신이어야 한다).
+ */
 export async function scanWorkspaceMetas(args: {
+  doc: DynamoDBDocumentClient;
+  pagesTable: string;
+  workspaceId: string;
+  budget: number;
+  fresh?: boolean;
+  nowMs?: number;
+}): Promise<MetaScanResult> {
+  const nowMs = args.nowMs ?? Date.now();
+  const key = `${args.pagesTable}|${args.workspaceId}`;
+  const hit = args.fresh ? null : cached(cacheOf(args.doc).get(key), args.budget, nowMs);
+  if (hit) return hit;
+  const result = await queryWorkspaceMetas(args);
+  cacheOf(args.doc).set(key, { at: nowMs, budget: args.budget, result });
+  return result;
+}
+
+async function queryWorkspaceMetas(args: {
   doc: DynamoDBDocumentClient;
   pagesTable: string;
   workspaceId: string;

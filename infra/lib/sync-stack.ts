@@ -20,6 +20,7 @@ import { createSyncTable, type ModelTable } from "./sync/ddb-table-factory";
 import { DYNAMODB_TABLE_ENCRYPTION } from "./sync/table-encryption";
 import { DEFAULT_COLLAB_ROOM_EPOCH } from "./collab-epoch";
 import { collabWsEndpointParamName, mcpServerRoleName } from "./mcp-collab-wiring";
+import { McpEdge } from "./mcp-edge-construct";
 import { McpOAuth } from "./mcp-oauth-construct";
 
 // DynamoDB 는 한 번의 업데이트에 GSI 를 하나만 생성/삭제할 수 있다.
@@ -215,6 +216,15 @@ export class QuicknoteSyncStack extends cdk.Stack {
       indexName: "byWorkspaceAndUpdatedAt",
       partitionKey: { name: "workspaceId", type: dynamodb.AttributeType.STRING },
       sortKey: { name: "updatedAt", type: dynamodb.AttributeType.STRING },
+      projectionType: dynamodb.ProjectionType.ALL,
+    });
+
+    // 페이지 단위 댓글 조회(MCP get_comments) — 워크스페이스 전체 GSI 스캔을 대체한다.
+    // 모든 댓글 항목에 pageId 가 있어 온라인 백필로 채워진다(스키마 변경 없음). 한 배포에 GSI 는 하나만 추가할 것.
+    // 정렬키는 두지 않는다 — 레거시 이관 댓글은 createdAt 이 숫자라 문자열 정렬키 GSI 에서 빠진다(호출측이 정렬).
+    this.commentTable.table.addGlobalSecondaryIndex({
+      indexName: "byPageId",
+      partitionKey: { name: "pageId", type: dynamodb.AttributeType.STRING },
       projectionType: dynamodb.ProjectionType.ALL,
     });
 
@@ -1327,12 +1337,13 @@ export function response(ctx) {
       authType: lambda.FunctionUrlAuthType.NONE,
       invokeMode: lambda.InvokeMode.BUFFERED,
     });
-    new cdk.CfnOutput(this, "McpServerUrl", { value: `${mcpServerUrl.url}mcp` });
+    // 공개 엔드포인트는 CloudFront(헤더 복원·원본 보호). McpServerUrl output 은 edge construct 가 만든다.
+    const mcpEdge = new McpEdge(this, "McpEdge", { envPrefix, fn: mcpServerFn, fnUrl: mcpServerUrl });
     if (props.cognitoDomainPrefix) {
       new McpOAuth(this, "McpOAuth", {
         envPrefix,
         fn: mcpServerFn,
-        fnUrl: mcpServerUrl,
+        publicOrigin: mcpEdge.publicOrigin,
         userPool,
         userPoolId: props.userPoolId,
         cognitoDomainPrefix: props.cognitoDomainPrefix,

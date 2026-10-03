@@ -8,6 +8,8 @@ import { authenticate } from "./auth";
 import { defaultDocClient, missingTables, tablesFromEnv, type McpContext, type McpTables } from "./context";
 import { checkTokenRateLimit } from "./rateLimit";
 import { buildMcpServer } from "./server";
+import { timingSafeEqual } from "node:crypto";
+import { primePublicOrigin } from "./oauth/config";
 import { resourceMetadataFor, routeOAuth, type OAuthRouterDeps } from "./oauth/router";
 
 type Result = Exclude<APIGatewayProxyResultV2, string>;
@@ -68,12 +70,23 @@ async function toLambdaResult(res: Response): Promise<Result> {
   return { statusCode: res.status, headers, body: await res.text() };
 }
 
+/** CloudFront 가 원본 요청에 싣는 보호 헤더(mcp-edge-construct.ts ORIGIN_VERIFY_HEADER 와 같아야 한다). */
+export const ORIGIN_VERIFY_HEADER = "x-qn-origin-verify";
+
+function sameSecret(given: string | undefined, expected: string): boolean {
+  const a = Buffer.from(given ?? "", "utf8");
+  const b = Buffer.from(expected, "utf8");
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
 export type HandlerDeps = {
   doc?: DynamoDBDocumentClient;
   tables?: McpTables;
   collabRoomEpoch?: string;
   /** OAuth 파사드 의존성(테스트 주입). 미지정이면 env 설정. */
   oauth?: Partial<Omit<OAuthRouterDeps, "doc" | "tables">>;
+  /** 원본 보호 값(테스트 주입). 미지정이면 env ORIGIN_VERIFY — 비어 있으면 검사하지 않는다. */
+  originVerify?: string;
 };
 
 async function serveMcp(event: APIGatewayProxyEventV2, body: string | undefined, ctx: McpContext): Promise<Result> {
@@ -93,6 +106,14 @@ async function serveMcp(event: APIGatewayProxyEventV2, body: string | undefined,
 
 export function createHandler(deps: HandlerDeps = {}) {
   return async (event: APIGatewayProxyEventV2): Promise<Result> => {
+    // Function URL 직접 호출 차단 — CloudFront 만 아는 원본 보호 헤더가 맞아야 처리한다.
+    const originVerify = deps.originVerify ?? process.env.ORIGIN_VERIFY ?? "";
+    if (originVerify && !sameSecret(header(event, ORIGIN_VERIFY_HEADER), originVerify)) {
+      return jsonRpcError(403, -32000, "Forbidden");
+    }
+    if (!deps.oauth?.config && !(await primePublicOrigin())) {
+      return jsonRpcError(503, -32603, "Server misconfigured");
+    }
     // OAuth 2.1 파사드(메타데이터·DCR·authorize·token) — 같은 Function URL origin 에서 처리한다.
     const oauthResult = await routeOAuth(event, {
       doc: deps.doc ?? defaultDocClient(),

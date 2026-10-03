@@ -1,9 +1,9 @@
-// MCP OAuth 2.1 파사드 리소스 — McpServerFn(같은 Function URL)에 붙는 테이블·Cognito 앱 클라이언트·권한.
+// MCP OAuth 2.1 파사드 리소스 — McpServerFn(공개 origin = CloudFront, mcp-edge-construct.ts)에 붙는 테이블·Cognito 앱 클라이언트·권한.
 // sync-stack.ts 변경을 최소화하려고 별도 construct 로 둔다.
 //
-// 순환 참조 회피: Cognito 앱 클라이언트 callback 은 Function URL 을 참조하고, Function URL 은 함수를 참조한다.
+// 순환 참조 회피: Cognito 앱 클라이언트 callback 은 CloudFront 도메인을 참조하고, 배포는 Function URL → 함수를 참조한다.
 // 함수 env 가 클라이언트 ID 를 참조하면 순환이므로, 클라이언트 ID 는 SSM 파라미터로 게시하고 런타임에 읽는다.
-// (클라이언트는 CognitoStack 이 아니라 여기서 만든다 — CognitoStack 은 SyncStack 보다 먼저 배포돼 Function URL 을 알 수 없다.)
+// (클라이언트는 CognitoStack 이 아니라 여기서 만든다 — CognitoStack 은 SyncStack 보다 먼저 배포돼 CloudFront 도메인을 알 수 없다.)
 import * as cdk from "aws-cdk-lib";
 import * as cognito from "aws-cdk-lib/aws-cognito";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
@@ -16,7 +16,8 @@ import { DYNAMODB_TABLE_ENCRYPTION } from "./sync/table-encryption";
 export interface McpOAuthProps {
   envPrefix: string;
   fn: lambda.Function;
-  fnUrl: lambda.FunctionUrl;
+  /** 공개 origin(CloudFront, 끝 슬래시 없음) — issuer·resource·Cognito callback 의 기준. */
+  publicOrigin: string;
   userPool: cognito.IUserPool;
   userPoolId: string;
   /** CognitoStack 의 Hosted UI 도메인 접두사(<prefix>.auth.<region>.amazoncognito.com). */
@@ -59,7 +60,7 @@ export class McpOAuth extends Construct {
     const tokensCfn = props.mcpTokensTable.node.defaultChild as dynamodb.CfnTable;
     tokensCfn.timeToLiveSpecification = { attributeName: "ttl", enabled: true };
 
-    const callbackUrl = `${props.fnUrl.url}callback`;
+    const callbackUrl = `${props.publicOrigin}/callback`;
     const appClient = new cognito.UserPoolClient(this, "CognitoClient", {
       userPool: props.userPool,
       userPoolClientName: `${envPrefix}quicknote-mcp-oauth`,
@@ -124,7 +125,7 @@ export class McpOAuth extends Construct {
       }),
     );
 
-    new cdk.CfnOutput(stack, "McpOAuthIssuer", { value: props.fnUrl.url });
+    new cdk.CfnOutput(stack, "McpOAuthIssuer", { value: props.publicOrigin });
     new cdk.CfnOutput(stack, "McpOAuthCognitoCallbackUrl", { value: callbackUrl });
   }
 }

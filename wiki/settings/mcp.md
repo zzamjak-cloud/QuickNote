@@ -33,7 +33,16 @@
 
 ## MCP 서버 URL
 
-- CDK output `McpServerUrl`(Function URL + `mcp` 경로) 값을 `VITE_MCP_SERVER_URL` 로 주입한다(`.env.example` 참고).
+- CDK output `McpServerUrl`(**CloudFront** `https://xxxx.cloudfront.net/mcp`) 값을 `VITE_MCP_SERVER_URL` 로 주입한다(`.env.example` 참고). `McpServerOriginUrl`(Function URL)은 원본 보호 때문에 직접 호출하면 403 이다.
+
+### CloudFront 앞단 (P4-B, `infra/lib/mcp-edge-construct.ts`)
+
+- **왜**: Lambda Function URL 은 응답의 `WWW-Authenticate` 를 `x-amzn-Remapped-WWW-Authenticate` 로 바꿔 내보내 MCP 클라이언트가 OAuth discovery 를 못 한다. viewer-response CloudFront Function(`infra/lib/mcp-edge/viewer-response.js`)이 원래 이름으로 되돌린다.
+- 배포: 원본 = Function URL, `CachingDisabled`, `AllViewerExceptHostHeader`, 메서드 ALL, 압축 끔, HTTP/2, PriceClass_200(한국 엣지 포함).
+- **원본 보호**: CloudFront 가 `x-qn-origin-verify` 커스텀 원본 헤더를 붙이고 함수 env `ORIGIN_VERIFY` 와 일치할 때만 처리(불일치·누락 403, DDB 미접근). 값은 construct 주소로 결정적으로 만든 리터럴(템플릿 노출 허용 — 직접 호출 우회만 막는다).
+- **공개 origin**: 배포 도메인을 함수 env 로 넣으면 순환(배포→URL→함수)이라 SSM `/{envPrefix}quicknote/mcp-public-origin` 에 게시하고 함수가 첫 요청에서 읽어 캐시한다(env `MCP_PUBLIC_ORIGIN_PARAM`; `MCP_PUBLIC_ORIGIN` 이 있으면 우선). 못 읽으면 503 — issuer·resource 가 Function URL 로 잘못 나가지 않게.
+- **뷰어 IP**: 관리형 `AllViewerExceptHostHeader` 는 `CloudFront-Viewer-Address` 를 원본에 싣지 않으므로 viewer-request 함수(`viewer-request.js`)가 `x-qn-viewer-address`(ip:0)를 덮어써 싣는다. `clientIp` 는 공개 origin 이 설정됐을 때만 `x-qn-viewer-address` → `CloudFront-Viewer-Address` 순으로 신뢰한다(직접 호출은 origin-verify 로 차단).
+- 배포 후 `VITE_MCP_SERVER_URL`·기존 커넥터 URL 을 새 `McpServerUrl` 로 바꿔야 한다(구 Function URL 은 403).
 - 미설정 빌드에서는 스니펫에 `<MCP 서버 URL>` 자리표시자와 안내 문구를 표시한다(UI 는 정상 동작).
 
 ## 쓰기 툴 (P2, `infra/lambda/mcp-server/serverWrite.ts`)
@@ -92,7 +101,7 @@ RealtimeCollabStack 이 SyncStack 을 이미 참조하므로 역참조는 순환
 
 ## OAuth 2.1 연결 (P4-A, `infra/lambda/mcp-server/oauth/`)
 
-Claude.ai 커스텀 커넥터 등 PAT 를 넣을 수 없는 클라이언트용. MCP Authorization 스펙(2025-06-18)을 따르는 **얇은 파사드**가 McpServerFn 과 **같은 Function URL** 에서 동작한다(issuer = resource origin). Cognito 는 DCR 을 지원하지 않으므로 사용자 로그인만 Cognito Hosted UI(Google)에 맡기고, 토큰은 QuickNote 가 직접 발급한다. SDK 의 `mcpAuthRouter` 는 Express 전용이라 쓰지 않고 최소 엔드포인트를 직접 구현했다.
+Claude.ai 커스텀 커넥터 등 PAT 를 넣을 수 없는 클라이언트용. MCP Authorization 스펙(2025-06-18)을 따르는 **얇은 파사드**가 McpServerFn 과 **같은 origin(CloudFront)** 에서 동작한다(issuer = resource origin = `McpServerUrl` 의 origin). Cognito 는 DCR 을 지원하지 않으므로 사용자 로그인만 Cognito Hosted UI(Google)에 맡기고, 토큰은 QuickNote 가 직접 발급한다. SDK 의 `mcpAuthRouter` 는 Express 전용이라 쓰지 않고 최소 엔드포인트를 직접 구현했다.
 
 ### 연결 방법 (Claude.ai)
 
@@ -141,7 +150,7 @@ CORS(`*`)는 메타데이터·register·token·revoke 에만. `/authorize`·`/ca
 ### 인프라 (`infra/lib/mcp-oauth-construct.ts`)
 
 - SyncStack 에서 `cognitoDomainPrefix` prop 이 있을 때만 생성(bin 이 전달).
-- 파사드 전용 Cognito 앱 클라이언트(`{env}quicknote-mcp-oauth`, public, Google, callback=`<FunctionURL>/callback`)는 **SyncStack** 에 둔다 — CognitoStack 은 Function URL 을 알 수 없다. 함수 env 가 클라이언트 ID 를 참조하면 순환(URL→함수→env→클라이언트→URL)이라 SSM `/{envPrefix}quicknote/mcp-oauth-cognito-client-id` 로 게시하고 런타임에 읽는다(권한 ARN 도 이름으로 구성).
+- 파사드 전용 Cognito 앱 클라이언트(`{env}quicknote-mcp-oauth`, public, Google, callback=`<CloudFront origin>/callback`)는 **SyncStack** 에 둔다 — CognitoStack 은 CloudFront 도메인을 알 수 없다. 함수 env 가 클라이언트 ID 를 참조하면 순환(URL→함수→env→클라이언트→URL)이라 SSM `/{envPrefix}quicknote/mcp-oauth-cognito-client-id` 로 게시하고 런타임에 읽는다(권한 ARN 도 이름으로 구성).
 - Hosted UI 도메인은 기존 CognitoStack 도메인(`<prefix>.auth.<region>.amazoncognito.com`)을 그대로 쓴다 — 수동 작업 없음.
 - mcp-tokens 테이블 TTL(`ttl`) 활성화(escape hatch). PAT 항목에는 `ttl` 이 없어 영향 없음.
 - IAM: mcp-tokens `PutItem`(LeadingKeys `oat#*`·`oauth-family#*`)·`UpdateItem`(`oauth-family#*`), ai-usage `UpdateItem`(`mcp-oa#*`), 두 신규 테이블 RW, SSM GetParameter.
@@ -152,9 +161,20 @@ CORS(`*`)는 메타데이터·register·token·revoke 에만. `/authorize`·`/ca
 - 커스텀 URI 스킴(`myapp://cb`) redirect 는 DCR 에서 거부한다(https·루프백 http 만). 네이티브 앱은 루프백 리다이렉트를 써야 한다. 스킴을 허용하려면 스킴 하이재킹(다른 앱이 같은 스킴 등록) 위험 때문에 PKCE 외 추가 검증·동의 화면 경고가 필요하다.
 - `/mcp` 자체는 CORS 를 열지 않는다(브라우저 MCP Inspector 직접 연결 불가, Claude.ai 는 서버 측 호출이라 무관).
 
+## 비용 절감 (P4-B)
+
+- **메타 스캔 캐시**(`pageScan.scanWorkspaceMetas`): fetch·search·DB 경로 계산의 워크스페이스 메타 Query(최대 5000건)를 컨테이너 캐시(키 = DDB 클라이언트·테이블·워크스페이스, TTL 30초)로 재사용. MCP 쓰기(`upsertAndPublish`·trash)는 해당 워크스페이스를 무효화하고, 쓰기 판단(형제 순서·제목 중복)은 `fresh` 로 캐시를 건너뛴다. ProjectionExpression 은 Query RCU 를 줄이지 않으므로 캐시가 핵심.
+- **get_comments**: Comments 에 `byPageId` GSI(PK `pageId`, 정렬키 없음 — 레거시 이관 댓글의 createdAt 이 숫자라 문자열 정렬키면 인덱스에서 빠진다)를 추가했다. 모든 항목에 pageId 가 있어 온라인 백필로 채워지고 스키마 변경은 없다. 백필 중·미배포 환경은 `ValidationException` 시 워크스페이스 GSI 스캔으로 폴백. 다른 워크스페이스 항목은 버린다.
+- **search 본문**: 후보 100건(최근 수정순), BatchGet 프로젝션(`id, doc, dbCells, fullPageDatabaseId`) 20건 묶음, 누적 4MB 에 닿으면 중단(`bodyReadCapped`).
+
+## P4 후속
+
+- **WAF rate-based rule**: CloudFront 용 WebACL 은 us-east-1 에만 만들 수 있다 — `cdk bootstrap aws://<account>/us-east-1` 후 us-east-1 스택에서 WebACL(rate-based)을 만들어 배포에 연결.
+- **searchText 인덱스 보류**: 본문 검색용 평문 필드를 페이지에 비정규화하려면 메타 GSI(`byWorkspaceMetaUpdatedAt`, INCLUDE 프로젝션)에 속성을 추가해야 하는데 INCLUDE 속성은 변경할 수 없어 GSI 재생성(삭제→생성, 한 배포 한 GSI·백필 동안 메타 조회 불가)이 필요하다. 클라 업서트 경로에서 searchText 를 채우는 작업도 함께 필요해 별도 단계로 미룬다.
+
 ## 테스트
 
 서버 OAuth: `infra/lambda/mcp-server/__tests__/oauth.test.ts` — 메타데이터·DCR 검증·authorize 파라미터·쿠키 바인딩·CSRF·PKCE·코드 단일 사용·refresh 회전/재사용 감지·qn_oat_ 의 scope/워크스페이스 인가·`/revoke`·설정 탭 family 폐기.
 
 `src/components/settings/__tests__/McpSettingsTab.test.tsx` — 목록 렌더, 발급 시 원문 1회 표시·닫으면 제거, 읽기+쓰기 경고·write scope 발급, 폐기 mutation 호출, URL 미설정 자리표시자.
-서버: `infra/lambda/mcp-server/__tests__/{updatePage,pageOps,collabWriter,concurrency,guards,queryDatabase,dbWrite,publish,handler.e2e}.test.ts`.
+서버: `infra/lambda/mcp-server/__tests__/{updatePage,pageOps,collabWriter,concurrency,guards,queryDatabase,dbWrite,publish,edgeAndCost,handler.e2e}.test.ts`, CloudFront: `infra/lib/mcp-edge-construct.test.ts`(엣지 함수 코드 직접 실행·배포 설정).

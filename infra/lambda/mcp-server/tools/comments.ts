@@ -34,7 +34,46 @@ function toIso(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
 
+/**
+ * 페이지 댓글 — byPageId GSI(pageId) 로 그 페이지만 읽는다. 다른 워크스페이스 항목은 버린다
+ * (pageId 충돌 방어). 인덱스가 아직 없거나 백필 중이면 워크스페이스 GSI 스캔으로 폴백한다.
+ */
+async function queryCommentsByPage(ctx: McpContext, workspaceId: string, pageId: string) {
+  const items: Raw[] = [];
+  let lastKey: Raw | undefined;
+  do {
+    const r = await ctx.doc.send(
+      new QueryCommand({
+        TableName: ctx.tables.Comments,
+        IndexName: "byPageId",
+        KeyConditionExpression: "pageId = :p",
+        ExpressionAttributeValues: { ":p": pageId },
+        Limit: 500,
+        ExclusiveStartKey: lastKey,
+      }),
+    );
+    items.push(...((r.Items ?? []) as Raw[]).filter((c) => c.workspaceId === workspaceId));
+    lastKey = r.LastEvaluatedKey as Raw | undefined;
+  } while (lastKey && items.length < MAX_SCANNED_COMMENTS);
+  return { items, truncated: Boolean(lastKey) };
+}
+
+function isMissingIndex(err: unknown): boolean {
+  const e = err as { name?: string; message?: string };
+  return e?.name === "ValidationException" || e?.name === "ResourceNotFoundException" || /index/i.test(e?.message ?? "");
+}
+
 async function queryTableComments(ctx: McpContext, workspaceId: string, pageId: string) {
+  try {
+    return await queryCommentsByPage(ctx, workspaceId, pageId);
+  } catch (err) {
+    if (!isMissingIndex(err)) throw err;
+    console.warn("mcp get_comments byPageId 미사용(폴백)", (err as Error)?.name);
+    return queryCommentsByWorkspace(ctx, workspaceId, pageId);
+  }
+}
+
+async function queryCommentsByWorkspace(ctx: McpContext, workspaceId: string, pageId: string) {
   const items: Raw[] = [];
   let scanned = 0;
   let lastKey: Raw | undefined;

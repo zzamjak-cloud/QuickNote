@@ -5,6 +5,7 @@ import { recordPageHistory } from "../v5-resolvers/handlers/pageDatabase/history
 import { ResolverError } from "../v5-resolvers/handlers/_auth";
 import { ToolError, type McpContext } from "./context";
 import { getItem } from "./ddb";
+import { invalidateWorkspaceMetas } from "./pageScan";
 import { publishPage } from "./publish";
 
 type Item = Record<string, unknown>;
@@ -23,6 +24,7 @@ async function upsertAndPublish(ctx: McpContext, input: Item, expectedUpdatedAt?
     input: { ...input, lastEditSource: "mcp" },
     ...(expectedUpdatedAt ? { expectedUpdatedAt } : {}),
   });
+  invalidateWorkspaceMetas(ctx.doc, ctx.tables.Pages, String(page.workspaceId ?? input.workspaceId ?? ""));
   return { page, published: await publishPage(page) };
 }
 

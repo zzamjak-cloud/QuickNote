@@ -1,4 +1,5 @@
 // OAuth 2.1 파사드 설정 — env 로 주입되며, 하나라도 비면 OAuth 경로 전체를 비활성(404)으로 둔다.
+import { GetParameterCommand, SSMClient } from "@aws-sdk/client-ssm";
 import type { APIGatewayProxyEventV2 } from "aws-lambda";
 
 export type OAuthConfig = {
@@ -26,8 +27,39 @@ export function oauthConfigFromEnv(): OAuthConfig {
     userPoolId: env("OAUTH_USER_POOL_ID"),
     cognitoClientIdParam: env("OAUTH_COGNITO_CLIENT_ID_PARAM"),
     cognitoClientId: env("OAUTH_COGNITO_CLIENT_ID") || undefined,
-    publicOrigin: env("MCP_PUBLIC_ORIGIN") || undefined,
+    publicOrigin: env("MCP_PUBLIC_ORIGIN") || resolvedPublicOrigin,
   };
+}
+
+// CloudFront 공개 origin — 배포 도메인은 함수 env 로 넣을 수 없어(배포 → Function URL → 함수 순환) SSM 에서 읽는다.
+let resolvedPublicOrigin: string | undefined;
+
+/**
+ * MCP_PUBLIC_ORIGIN_PARAM 이 있으면 공개 origin 을 SSM 에서 한 번 읽어 캐시한다(env MCP_PUBLIC_ORIGIN 이 우선).
+ * 파라미터가 설정됐는데 못 읽으면 false — issuer·resource 가 Function URL 로 잘못 나가지 않게 호출측이 요청을 거절한다.
+ */
+export async function primePublicOrigin(read: (name: string) => Promise<string | undefined> = readParameter): Promise<boolean> {
+  const param = process.env.MCP_PUBLIC_ORIGIN_PARAM;
+  if (process.env.MCP_PUBLIC_ORIGIN || !param || resolvedPublicOrigin) return true;
+  try {
+    const value = await read(param);
+    if (!value) return false;
+    resolvedPublicOrigin = value.replace(/\/+$/, "");
+    return true;
+  } catch (err) {
+    console.error("mcp 공개 origin 조회 실패", (err as Error)?.name);
+    return false;
+  }
+}
+
+async function readParameter(name: string): Promise<string | undefined> {
+  const r = await new SSMClient({}).send(new GetParameterCommand({ Name: name }));
+  return r.Parameter?.Value;
+}
+
+/** 테스트 전용: 캐시 초기화. */
+export function resetPublicOriginCache(): void {
+  resolvedPublicOrigin = undefined;
 }
 
 export function isOAuthConfigured(c: OAuthConfig): boolean {
