@@ -211,9 +211,16 @@ describe("MCP handler e2e", () => {
   });
 
   it("분당 한도 초과 시 429", async () => {
-    const { token, handler } = setup();
-    let last = 200;
-    for (let i = 0; i < 121; i += 1) last = Number((await handler(event(INIT, { token }))).statusCode);
-    expect(last).toBe(429);
+    // 분 단위 윈도 키라 실행 중 분 경계를 넘으면 카운터가 리셋돼 플래키해진다 — Date 만 고정한다(타이머는 실제).
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-01-01T00:00:10.000Z"));
+    try {
+      const { token, handler } = setup();
+      let last = 200;
+      for (let i = 0; i < 121; i += 1) last = Number((await handler(event(INIT, { token }))).statusCode);
+      expect(last).toBe(429);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { docToQfm, qfmToDoc } from "../index";
 
-// 병적 입력에서 O(n²) 재스캔 회귀 방지
-const BUDGET_MS = 300;
+// 병적 입력에서 O(n²) 재스캔 회귀 방지.
+// 상한은 "선형 대비 충분히 넉넉하지만 이차 회귀는 확실히 잡는" 값이다 — 이차 구현은 60KB 에서 수 초(8.7s 실측),
+// 선형 구현은 로컬 ~50ms·CI 러너 ~3배 느림. 벽시계 기준을 빡빡하게 잡으면 CI 에서 플래키해진다(400KB 300ms 기준이 CI 395~485ms 로 반복 실패).
+const BUDGET_MS = 1500;
+const LARGE_DOC_BUDGET_MS = 3000;
 
 function timeParse(md: string): number {
   const start = performance.now();
@@ -25,7 +28,7 @@ describe("파서 성능", () => {
     ["[a](<", "닫히지 않는 링크 목적지"],
     ["<mention-page id=\"x\">", "닫히지 않는 멘션"],
     ["<u>", "깊은 중첩 태그"],
-  ])("60KB %j (%s) < 300ms", (unit) => {
+  ])("60KB %j (%s) 선형 시간", (unit) => {
     expect(timeParse(repeatTo(unit, 60 * 1024))).toBeLessThan(BUDGET_MS);
   });
 
@@ -39,7 +42,7 @@ describe("파서 성능", () => {
     for (const md of cases) expect(timeParse(md)).toBeLessThan(BUDGET_MS);
   });
 
-  it("수백 KB 일반 문서 < 300ms", () => {
+  it("수백 KB 일반 문서 선형 시간", () => {
     const section = [
       "## 제목 **굵게** _기울임_ `코드`",
       "",
@@ -64,10 +67,10 @@ describe("파서 성능", () => {
       "",
     ].join("\n");
     const md = repeatTo(section, 400 * 1024).slice(0, 400 * 1024);
-    expect(timeParse(md)).toBeLessThan(BUDGET_MS);
+    expect(timeParse(md)).toBeLessThan(LARGE_DOC_BUDGET_MS);
     const doc = qfmToDoc(md);
     const start = performance.now();
     docToQfm(doc);
-    expect(performance.now() - start).toBeLessThan(BUDGET_MS);
+    expect(performance.now() - start).toBeLessThan(LARGE_DOC_BUDGET_MS);
   });
 });
