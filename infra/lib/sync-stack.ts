@@ -20,6 +20,7 @@ import { createSyncTable, type ModelTable } from "./sync/ddb-table-factory";
 import { DYNAMODB_TABLE_ENCRYPTION } from "./sync/table-encryption";
 import { DEFAULT_COLLAB_ROOM_EPOCH } from "./collab-epoch";
 import { collabWsEndpointParamName, mcpServerRoleName } from "./mcp-collab-wiring";
+import { McpOAuth } from "./mcp-oauth-construct";
 
 // DynamoDB 는 한 번의 업데이트에 GSI 를 하나만 생성/삭제할 수 있다.
 // 그래서 Pages 테이블 GSI 는 누적 단계로 하나씩 추가한다(아래 순서대로 cdk deploy 반복).
@@ -72,6 +73,8 @@ export interface SyncStackProps extends cdk.StackProps {
   organizationsTableName?: string;
   /** 멤버-조직 관계 테이블 이름 (기본값: quicknote-member-organizations) */
   memberOrganizationsTableName?: string;
+  /** Cognito Hosted UI 도메인 접두사 — 지정 시 MCP OAuth 파사드(mcp-oauth-construct.ts)를 만든다. */
+  cognitoDomainPrefix?: string;
 }
 
 export class QuicknoteSyncStack extends cdk.Stack {
@@ -1322,6 +1325,18 @@ export function response(ctx) {
       invokeMode: lambda.InvokeMode.BUFFERED,
     });
     new cdk.CfnOutput(this, "McpServerUrl", { value: `${mcpServerUrl.url}mcp` });
+    if (props.cognitoDomainPrefix) {
+      new McpOAuth(this, "McpOAuth", {
+        envPrefix,
+        fn: mcpServerFn,
+        fnUrl: mcpServerUrl,
+        userPool,
+        userPoolId: props.userPoolId,
+        cognitoDomainPrefix: props.cognitoDomainPrefix,
+        mcpTokensTable,
+        rateLimitTable: aiUsageTable,
+      });
+    }
 
     const v5ResolversFn = new lambdaNode.NodejsFunction(this, "V5ResolversFn", {
       entry: path.join(__dirname, "..", "lambda", "v5-resolvers", "index.ts"),

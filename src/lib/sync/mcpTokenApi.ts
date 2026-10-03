@@ -7,6 +7,8 @@ export type McpTokenScope = "read" | "write";
 
 export type McpToken = {
   tokenId: string;
+  /** "oauth" = OAuth 로 연결된 앱(name = 앱 이름). 구버전 응답은 null → PAT. */
+  kind?: "pat" | "oauth" | null;
   name: string;
   scopes: string[];
   /** 빈 배열 = 접근 가능한 전체 워크스페이스. */

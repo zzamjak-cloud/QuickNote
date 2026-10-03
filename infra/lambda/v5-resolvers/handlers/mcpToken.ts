@@ -33,7 +33,7 @@ const createInputSchema = z.object({
 
 export type CreateMcpTokenInput = z.input<typeof createInputSchema>;
 
-export type McpTokenMeta = Omit<McpTokenRecord, "tokenHash" | "memberId">;
+export type McpTokenMeta = Omit<McpTokenRecord, "tokenHash" | "memberId" | "clientId"> & { kind: "pat" | "oauth" };
 
 type BaseArgs = { doc: DynamoDBDocumentClient; tables: Tables; caller: Member };
 
@@ -42,10 +42,11 @@ function requireTable(tables: Tables): string {
   return tables.McpTokens;
 }
 
-/** 저장 항목 → 응답 메타(해시·memberId 제외). */
+/** 저장 항목 → 응답 메타(해시·memberId 제외). OAuth 연결 앱은 kind "oauth", name = 클라이언트 이름. */
 export function toMcpTokenMeta(record: McpTokenRecord): McpTokenMeta {
   return {
     tokenId: record.tokenId,
+    kind: record.kind ?? "pat",
     name: record.name,
     scopes: record.scopes,
     workspaceIds: record.workspaceIds ?? [],
@@ -100,7 +101,10 @@ export async function createMcpToken(
   const now = new Date();
   const nowIso = now.toISOString();
 
-  const active = (await queryMemberTokens(args)).filter((t) => isMcpTokenActive(t, nowIso));
+  // 상한은 PAT 만 센다 — OAuth 연결 앱(grant family)은 별도.
+  const active = (await queryMemberTokens(args)).filter(
+    (t) => (t.kind ?? "pat") === "pat" && isMcpTokenActive(t, nowIso),
+  );
   if (active.length >= MAX_ACTIVE_MCP_TOKENS) {
     badRequest(`활성 토큰은 최대 ${MAX_ACTIVE_MCP_TOKENS}개까지 발급할 수 있습니다`);
   }
@@ -142,6 +146,7 @@ export async function revokeMcpToken(args: BaseArgs & { tokenId: string }): Prom
   if (target.revokedAt) return toMcpTokenMeta(target);
 
   const revokedAt = new Date().toISOString();
+  // OAuth 연결 앱은 family 레코드 하나만 폐기하면 그 family 의 access·refresh token 이 모두 거부된다.
   // 본인 소유 확인을 조건식으로도 강제한다(GSI 조회와 Update 사이 경합 방어).
   await args.doc.send(
     new UpdateCommand({
