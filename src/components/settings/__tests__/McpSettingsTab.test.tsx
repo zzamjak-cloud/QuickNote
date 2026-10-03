@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { McpSettingsTab } from "../McpSettingsTab";
 import { useWorkspaceStore } from "../../../store/workspaceStore";
@@ -31,6 +31,13 @@ function respond(handlers: Record<string, (vars: Record<string, unknown>) => unk
   });
 }
 
+const MCP_URL = "https://mcp.example.com/mcp";
+
+/** PAT 는 접힌 "고급" 영역 안에 있다. */
+function openPat() {
+  fireEvent.click(screen.getByRole("button", { name: /고급: 개인 액세스 토큰/ }));
+}
+
 describe("McpSettingsTab", () => {
   beforeEach(() => {
     graphqlMock.mockReset();
@@ -56,6 +63,7 @@ describe("McpSettingsTab", () => {
       ],
     });
     render(<McpSettingsTab />);
+    openPat();
 
     expect(await screen.findByText("노트북 Claude")).toBeTruthy();
     expect(screen.getAllByText("…abcd").length).toBe(2);
@@ -72,6 +80,7 @@ describe("McpSettingsTab", () => {
       createMcpToken: () => ({ ...baseToken, tokenId: "t9", name: "새 토큰", token: PLAINTEXT }),
     });
     render(<McpSettingsTab />);
+    openPat();
     await screen.findByText("발급된 토큰이 없습니다");
 
     fireEvent.change(screen.getByPlaceholderText(/내 노트북/), { target: { value: "새 토큰" } });
@@ -80,9 +89,13 @@ describe("McpSettingsTab", () => {
     const tokenInput = (await screen.findByLabelText("발급된 토큰", { selector: "input" })) as HTMLInputElement;
     expect(tokenInput.value).toBe(PLAINTEXT);
     expect(screen.getByText(/이 창을 닫으면 다시 볼 수 없습니다/)).toBeTruthy();
-    expect(screen.getByText(/claude mcp add --transport http quicknote/).textContent).toContain(
-      `Bearer ${PLAINTEXT}`,
-    );
+    // 셸 명령에는 원문 대신 환경변수 참조, 원문은 ~/.zshenv 줄에만
+    const claudeSnippet = screen.getByText(/claude mcp add-json -s user quicknote/).textContent ?? "";
+    expect(claudeSnippet).toContain('"Authorization":"Bearer ${QUICKNOTE_MCP_TOKEN}"');
+    expect(claudeSnippet).not.toContain(PLAINTEXT);
+    const codexSnippet = screen.getByText(/--bearer-token-env-var QUICKNOTE_MCP_TOKEN/).textContent ?? "";
+    expect(codexSnippet).not.toContain(PLAINTEXT);
+    expect(screen.getByText(`export QUICKNOTE_MCP_TOKEN="${PLAINTEXT}"`)).toBeTruthy();
 
     const createCall = graphqlMock.mock.calls.find(([arg]) => arg.query.includes("createMcpToken"));
     expect(createCall?.[0].variables).toEqual({
@@ -105,6 +118,7 @@ describe("McpSettingsTab", () => {
       createMcpToken: () => ({ ...baseToken, scopes: ["read", "write"], token: PLAINTEXT }),
     });
     render(<McpSettingsTab />);
+    openPat();
     await screen.findByText("발급된 토큰이 없습니다");
     expect(screen.queryByRole("note")).toBeNull();
 
@@ -124,6 +138,7 @@ describe("McpSettingsTab", () => {
       revokeMcpToken: (vars) => ({ ...baseToken, tokenId: vars.tokenId, revokedAt: "2026-10-03T00:00:00.000Z" }),
     });
     render(<McpSettingsTab />);
+    openPat();
 
     fireEvent.click(await screen.findByRole("button", { name: "노트북 Claude 토큰 폐기" }));
     fireEvent.click(screen.getByRole("button", { name: "폐기" }));
@@ -133,24 +148,99 @@ describe("McpSettingsTab", () => {
     expect(revokeCall?.[0].variables).toEqual({ tokenId: "t1" });
   });
 
-  it("OAuth 연결 앱은 '연결된 앱' 배지로 보여 주고 연결 해제로 폐기한다", async () => {
-    const app = { ...baseToken, tokenId: "fam-1", kind: "oauth", name: "Claude", tokenHint: "", scopes: ["read", "write"] };
+  it("OAuth 연결은 '연결된 앱'에 앱 이름·마지막 사용 시각으로 묶고 연결 해제로 폐기한다", async () => {
+    const app = {
+      ...baseToken,
+      tokenId: "fam-1",
+      kind: "oauth",
+      name: "Codex",
+      tokenHint: "",
+      scopes: ["read", "write"],
+      lastUsedAt: "2026-10-02T05:30:00.000Z",
+    };
     respond({
-      listMcpTokens: () => [app],
+      listMcpTokens: () => [app, baseToken],
       revokeMcpToken: (vars) => ({ ...app, tokenId: vars.tokenId, revokedAt: "2026-10-03T00:00:00.000Z" }),
     });
     render(<McpSettingsTab />);
 
-    expect(await screen.findByText("Claude")).toBeTruthy();
-    expect(screen.getByText("연결된 앱")).toBeTruthy();
-    expect(screen.queryByText("…")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Claude 연결 해제" }));
-    fireEvent.click(await screen.findByRole("button", { name: "폐기" }));
+    const appsSection = (await screen.findByText("Codex")).closest("section") as HTMLElement;
+    expect(within(appsSection).getByRole("heading", { name: "연결된 앱" })).toBeTruthy();
+    expect(within(appsSection).getByText(/마지막 사용 2026/)).toBeTruthy();
+    expect(within(appsSection).queryByText("…")).toBeNull();
+    // PAT 는 연결된 앱에 섞이지 않고 접힌 고급 영역에만 있다
+    expect(screen.queryByText("노트북 Claude")).toBeNull();
 
-    expect(await screen.findByText("폐기됨")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Codex 연결 해제" }));
+    fireEvent.click(await screen.findByRole("button", { name: "연결 해제" }));
+
+    expect(await screen.findByText("연결 해제됨")).toBeTruthy();
     expect(graphqlMock).toHaveBeenCalledWith(
       expect.objectContaining({ variables: { tokenId: "fam-1" } }),
     );
+  });
+
+  it("연결된 앱이 없으면 빈 안내를 보여 준다", async () => {
+    respond({ listMcpTokens: () => [baseToken] });
+    render(<McpSettingsTab />);
+    expect(await screen.findByText("연결된 앱이 없습니다")).toBeTruthy();
+  });
+
+  it("PAT 영역은 기본으로 접혀 있고 펼치면 발급 폼이 보인다", async () => {
+    respond({ listMcpTokens: () => [baseToken] });
+    render(<McpSettingsTab />);
+    const toggle = screen.getByRole("button", { name: /고급: 개인 액세스 토큰/ });
+    await screen.findByText("연결된 앱이 없습니다");
+
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(toggle.textContent).toContain("활성 1개");
+    expect(screen.queryByRole("button", { name: "토큰 발급" })).toBeNull();
+    expect(screen.queryByText("노트북 Claude")).toBeNull();
+
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByRole("button", { name: "토큰 발급" })).toBeTruthy();
+    expect(screen.getByText("노트북 Claude")).toBeTruthy();
+
+    fireEvent.click(toggle);
+    expect(screen.queryByRole("button", { name: "토큰 발급" })).toBeNull();
+  });
+
+  it("빠른 연결 섹션은 토큰 없는 등록 명령과 복사 버튼을 제공한다", async () => {
+    vi.stubEnv("VITE_MCP_SERVER_URL", MCP_URL);
+    respond({ listMcpTokens: () => [] });
+    render(<McpSettingsTab />);
+    await screen.findByText("연결된 앱이 없습니다");
+
+    const section = screen.getByRole("region", { name: "Claude Code·Codex 연결" });
+    expect(within(section).getByRole("heading", { name: "Claude Code·Codex 연결 (권장)" })).toBeTruthy();
+    const claude = `claude mcp add --transport http -s user quicknote ${MCP_URL}`;
+    const codex = `codex mcp add quicknote --url ${MCP_URL}`;
+    expect(within(section).getByText(claude)).toBeTruthy();
+    expect(within(section).getByText(codex)).toBeTruthy();
+    expect(within(section).getByText("codex mcp login quicknote")).toBeTruthy();
+    expect(within(section).getByText(`${claude} && ${codex}`)).toBeTruthy();
+    expect(within(section).getByText(/\/mcp → quicknote → Authenticate/)).toBeTruthy();
+    expect(within(section).getByText(/PC 마다 따로 연결하고, 따로 해제할 수 있습니다/)).toBeTruthy();
+    expect(within(section).getByText(/조직 관리자 등록이 필요합니다/)).toBeTruthy();
+    expect(section.textContent).not.toMatch(/Bearer|qn_pat_/);
+
+    fireEvent.click(within(section).getByRole("button", { name: "두 도구 한 번에 등록 복사" }));
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith(`${claude} && ${codex}`);
+    fireEvent.click(within(section).getByRole("button", { name: "Codex CLI 복사" }));
+    expect(navigator.clipboard.writeText).toHaveBeenLastCalledWith(codex);
+  });
+
+  it("MCP 서버 URL 이 없으면 빠른 연결 섹션은 안내만 보여 준다", async () => {
+    respond({ listMcpTokens: () => [] });
+    render(<McpSettingsTab />);
+    await screen.findByText("연결된 앱이 없습니다");
+
+    const section = screen.getByRole("region", { name: "Claude Code·Codex 연결" });
+    expect(section.getAttribute("aria-disabled")).toBe("true");
+    expect(within(section).getByText(/VITE_MCP_SERVER_URL/)).toBeTruthy();
+    expect(within(section).queryByRole("button")).toBeNull();
+    expect(section.textContent).not.toContain("claude mcp add");
   });
 
   it("MCP 서버 URL 이 없으면 스니펫에 자리표시자를 쓴다", async () => {
@@ -159,22 +249,24 @@ describe("McpSettingsTab", () => {
       createMcpToken: () => ({ ...baseToken, token: PLAINTEXT }),
     });
     render(<McpSettingsTab />);
+    openPat();
     await screen.findByText("발급된 토큰이 없습니다");
 
     fireEvent.change(screen.getByPlaceholderText(/내 노트북/), { target: { value: "x" } });
     fireEvent.click(screen.getByRole("button", { name: "토큰 발급" }));
 
-    const snippet = await screen.findByText(/claude mcp add/);
-    expect(snippet.textContent).toContain("quicknote <MCP 서버 URL> --header");
+    const snippet = await screen.findByText(/codex mcp add quicknote --url/);
+    expect(snippet.textContent).toContain("--url <MCP 서버 URL> --bearer-token-env-var");
   });
 
   it("MCP 서버 URL 이 있으면 스니펫에 그대로 넣는다", async () => {
-    vi.stubEnv("VITE_MCP_SERVER_URL", "https://mcp.example.com/mcp");
+    vi.stubEnv("VITE_MCP_SERVER_URL", MCP_URL);
     respond({
       listMcpTokens: () => [],
       createMcpToken: () => ({ ...baseToken, token: PLAINTEXT }),
     });
     render(<McpSettingsTab />);
+    openPat();
     await screen.findByText("발급된 토큰이 없습니다");
 
     fireEvent.change(screen.getByPlaceholderText(/내 노트북/), { target: { value: "x" } });

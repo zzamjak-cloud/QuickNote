@@ -1,8 +1,10 @@
 // 발급 직후 1회 표시 패널 — 토큰 원문과 클라이언트별 연결 스니펫. 닫으면 원문은 상태에서 제거된다.
-import { Copy, TriangleAlert } from "lucide-react";
-import { useUiStore } from "../../store/uiStore";
+// 셸 명령에는 원문을 넣지 않고 환경변수(QUICKNOTE_MCP_TOKEN)를 참조한다 — 셸 히스토리에 토큰이 남지 않게.
+import { TriangleAlert } from "lucide-react";
+import { McpCommandBlock, McpCopyButton } from "./McpCommandBlock";
 
 export const MCP_URL_PLACEHOLDER = "<MCP 서버 URL>";
+export const MCP_TOKEN_ENV = "QUICKNOTE_MCP_TOKEN";
 
 type Props = {
   token: string;
@@ -11,11 +13,23 @@ type Props = {
 };
 
 function buildSnippets(url: string, token: string) {
+  const claudeJson = JSON.stringify({ type: "http", url, headers: { Authorization: `Bearer \${${MCP_TOKEN_ENV}}` } });
   return [
+    {
+      id: "zshenv",
+      label: "~/.zshenv 에 추가",
+      text: `export ${MCP_TOKEN_ENV}="${token}"`,
+      hint: "터미널에 붙여 넣지 말고 편집기로 ~/.zshenv 에 추가한 뒤 chmod 600 ~/.zshenv, 새 터미널을 여세요.",
+    },
     {
       id: "claude-code",
       label: "Claude Code",
-      text: `claude mcp add --transport http quicknote ${url} --header "Authorization: Bearer ${token}"`,
+      text: `claude mcp add-json -s user quicknote '${claudeJson}'`,
+    },
+    {
+      id: "codex",
+      label: "Codex CLI",
+      text: `codex mcp add quicknote --url ${url} --bearer-token-env-var ${MCP_TOKEN_ENV}`,
     },
     {
       id: "json",
@@ -30,27 +44,7 @@ function buildSnippets(url: string, token: string) {
 }
 
 export function McpTokenCreatedPanel({ token, serverUrl, onClose }: Props) {
-  const showToast = useUiStore((s) => s.showToast);
   const url = serverUrl || MCP_URL_PLACEHOLDER;
-
-  const copy = (text: string, label: string) => {
-    navigator.clipboard
-      .writeText(text)
-      .then(() => showToast(`${label} 복사됨`))
-      .catch(() => showToast("클립보드 복사에 실패했습니다", { kind: "error" }));
-  };
-
-  const copyButton = (text: string, label: string) => (
-    <button
-      type="button"
-      onClick={() => copy(text, label)}
-      className="flex min-h-[44px] shrink-0 items-center gap-1 rounded-md border border-zinc-200 px-2 text-xs hover:bg-zinc-100 md:min-h-0 md:py-1 dark:border-zinc-700 dark:hover:bg-zinc-800"
-      aria-label={`${label} 복사`}
-    >
-      <Copy size={12} aria-hidden />
-      복사
-    </button>
-  );
 
   return (
     <section
@@ -71,7 +65,7 @@ export function McpTokenCreatedPanel({ token, serverUrl, onClose }: Props) {
           onFocus={(e) => e.currentTarget.select()}
           className="min-w-0 flex-1 rounded-md border border-zinc-200 bg-white px-3 py-2 font-mono text-xs dark:border-zinc-700 dark:bg-zinc-900"
         />
-        {copyButton(token, "토큰")}
+        <McpCopyButton text={token} label="토큰" />
       </div>
 
       {!serverUrl && (
@@ -82,15 +76,7 @@ export function McpTokenCreatedPanel({ token, serverUrl, onClose }: Props) {
       )}
 
       {buildSnippets(url, token).map((s) => (
-        <div key={s.id} className="space-y-1">
-          <div className="flex items-center justify-between gap-2">
-            <h4 className="text-xs font-medium text-zinc-600 dark:text-zinc-300">{s.label}</h4>
-            {copyButton(s.text, s.label)}
-          </div>
-          <pre className="overflow-x-auto whitespace-pre-wrap break-all rounded-md bg-zinc-900 p-2 font-mono text-[11px] text-zinc-100">
-            {s.text}
-          </pre>
-        </div>
+        <McpCommandBlock key={s.id} label={s.label} text={s.text} hint={s.hint} />
       ))}
 
       <button

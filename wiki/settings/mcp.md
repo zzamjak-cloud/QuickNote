@@ -1,14 +1,40 @@
 # 설정 — AI 연결(MCP) 탭
 
-설정 모달의 "AI 연결 (MCP)" 탭 — Claude Code·Cursor 등 외부 AI 가 MCP 로 QuickNote 에 접근할 때 쓰는 **개인 액세스 토큰(PAT)** 을 발급·조회·폐기한다. 전 역할에 노출(토큰은 발급자 본인 권한 범위 안에서만 동작). 설계 배경은 `Plan/MCP_구현계획.md` §3.1.
+설정 모달의 "AI 연결 (MCP)" 탭 — Claude Code·Codex 등 외부 AI 가 MCP 로 QuickNote 에 접근하는 연결을 관리한다. **1순위는 OAuth 빠른 연결**(명령 한 줄 + 브라우저 로그인, PC 별 "연결된 앱"), **개인 액세스 토큰(PAT)** 은 접힌 "고급" 영역의 대안이다. 전 역할에 노출(연결은 본인 권한 범위 안에서만 동작). 설계 배경은 `Plan/MCP_구현계획.md` §3.1.
+
+## 새 PC 연결 절차 (OAuth, 권장)
+
+탭 맨 위 **"Claude Code·Codex 연결 (권장)"**(`McpQuickConnectSection`)의 명령을 복사해 실행한다. URL 은 `getMcpServerUrl()`(`VITE_MCP_SERVER_URL`), **명령에 토큰이 없다**.
+
+| 도구 | 명령 | 로그인 |
+|---|---|---|
+| Claude Code | `claude mcp add --transport http -s user quicknote <URL>` | Claude Code 세션에서 `/mcp` → quicknote → Authenticate |
+| Codex CLI | `codex mcp add quicknote --url <URL>` | add 단계에서 OAuth 를 자동 감지해 브라우저 로그인이 열린다(실측). 안 열렸으면 `codex mcp login quicknote` |
+| 둘 다 | 위 두 명령을 `&&` 로 연결한 결합 명령 | 각각 위와 같음 |
+
+- 로그인·승인하면 그 PC 가 탭의 **"연결된 앱"** 목록에 앱 이름(clientName, 예: Claude Code·Codex)·연결/마지막 사용 시각과 함께 나타난다. PC 마다 따로 연결하고 "연결 해제"로 따로 끊는다(OAuth family 폐기).
+- Claude.ai 웹 커넥터는 조직 관리자 등록이 필요하다(아래 OAuth 절 참고).
+- `VITE_MCP_SERVER_URL` 이 없는 빌드는 섹션이 비활성(`aria-disabled`)이고 안내 문구만 보인다(명령·복사 버튼 없음).
+
+## PAT 연결 (대안 — "고급: 개인 액세스 토큰(PAT)")
+
+OAuth 를 지원하지 않는 클라이언트(Cursor 등)·자동화용. 기본 접힘(토글 헤더에 활성 PAT 개수 표시), 펼치면 발급 폼과 PAT 목록. 발급 패널 스니펫은 **셸 명령에 원문을 넣지 않는다**(셸 히스토리 노출 방지):
+
+1. `~/.zshenv` 에 `export QUICKNOTE_MCP_TOKEN="<원문>"` — 편집기로 추가하고 `chmod 600 ~/.zshenv`, 새 터미널.
+2. Claude Code: `claude mcp add-json -s user quicknote '{"type":"http","url":"<URL>","headers":{"Authorization":"Bearer ${QUICKNOTE_MCP_TOKEN}"}}'`(작은따옴표 — 셸이 아닌 Claude Code 가 치환).
+3. Codex: `codex mcp add quicknote --url <URL> --bearer-token-env-var QUICKNOTE_MCP_TOKEN`.
+4. Cursor 등 JSON 설정 파일 스니펫은 원문 포함(파일이므로 히스토리 무관).
 
 ## 관련 파일
 
 | 파일 | 역할 |
 |------|------|
-| `src/components/settings/McpSettingsTab.tsx` | 탭 본체 — 목록·폐기 확인(`SimpleConfirmDialog`)·발급 흐름 |
+| `src/components/settings/McpSettingsTab.tsx` | 탭 본체 — 빠른 연결·연결된 앱·접히는 PAT 영역·폐기 확인(`SimpleConfirmDialog`) |
+| `src/components/settings/McpQuickConnectSection.tsx` | OAuth 빠른 연결 명령(Claude Code·Codex·결합) + 안내 |
+| `src/components/settings/McpTokenList.tsx` | 본인 토큰 행 목록(연결된 앱 / PAT 공용) |
+| `src/components/settings/McpCommandBlock.tsx` | 명령 표시 + 복사 버튼 공용 |
 | `src/components/settings/McpTokenCreateForm.tsx` | 발급 폼(이름·권한·워크스페이스 범위·만료) |
-| `src/components/settings/McpTokenCreatedPanel.tsx` | 발급 직후 원문 1회 표시 + 연결 스니펫(Claude Code / JSON) 복사 |
+| `src/components/settings/McpTokenCreatedPanel.tsx` | 발급 직후 원문 1회 표시 + 환경변수 참조 스니펫(~/.zshenv / Claude Code / Codex / JSON) 복사 |
 | `src/lib/sync/mcpTokenApi.ts` | GraphQL 래퍼 + `getMcpServerUrl()`(`VITE_MCP_SERVER_URL`) |
 | `src/lib/sync/queries/mcp.ts` | GraphQL operations |
 | `infra/lambda/v5-resolvers/handlers/mcpToken.ts` | 서버 resolver(해시 저장·본인 토큰만 조회/폐기) |
@@ -65,6 +91,7 @@ rank 는 `_auth.ts` `ROLE_RANK`(developer 5 > owner 4 > leader 3 > manager 2 > m
 ## 보안 규칙 (회귀 금지)
 
 - **원문은 발급 직후 한 번만** 보여 준다. 패널 "닫기" 시 컴포넌트 상태에서 원문을 지우며, 목록 상태에는 원문을 넣지 않는다(`{ token, ...meta }` 분리).
+- 셸에서 실행하는 명령(빠른 연결·PAT 의 Claude Code/Codex 스니펫)에는 원문을 넣지 않는다 — PAT 는 `QUICKNOTE_MCP_TOKEN` 환경변수 참조.
 - 서버는 SHA-256 **해시만 저장**하고 어떤 조회 응답에도 원문·해시를 싣지 않는다. 식별은 `tokenHint`(마지막 4글자, `…abcd`)로만.
 - 원문을 store·localStorage·로그에 남기지 않는다.
 
@@ -150,7 +177,7 @@ Claude.ai 커스텀 커넥터 등 PAT 를 넣을 수 없는 클라이언트용. 
 
 ### 연결 방법 (Claude.ai)
 
-설정 → 커넥터 → **사용자 지정 커넥터 추가** → URL 에 `McpServerUrl`(…`/mcp`) 입력 → Google 로그인 → 동의 화면에서 권한(읽기 / 읽기+쓰기)·워크스페이스(미선택 = 전체)·유지 기간(30/90일) 선택 → 승인. 연결된 앱은 설정 > AI 연결(MCP) 목록에 **"연결된 앱"** 배지로 표시되고 "연결 해제"로 즉시 끊는다.
+설정 → 커넥터 → **사용자 지정 커넥터 추가** → URL 에 `McpServerUrl`(…`/mcp`) 입력 → Google 로그인 → 동의 화면에서 권한(읽기 / 읽기+쓰기)·워크스페이스(미선택 = 전체)·유지 기간(30/90일) 선택 → 승인. 연결된 앱은 설정 > AI 연결(MCP)의 **"연결된 앱"** 그룹에 표시되고 "연결 해제"로 즉시 끊는다.
 
 ### 흐름
 
@@ -222,5 +249,5 @@ CORS(`*`)는 메타데이터·register·token·revoke 에만. `/authorize`·`/ca
 서버 OAuth: `infra/lambda/mcp-server/__tests__/oauth.test.ts` — 메타데이터·DCR 검증·authorize 파라미터·쿠키 바인딩·CSRF·PKCE·코드 단일 사용·refresh 회전/재사용 감지·qn_oat_ 의 scope/워크스페이스 인가·`/revoke`·설정 탭 family 폐기.
 
 `src/components/settings/__tests__/McpAdminAndPolicy.test.tsx` — 관리자 섹션 노출·강제/일괄 폐기·관리자 폐기 표시·정책 선택·발급 폼 정책 반영.
-`src/components/settings/__tests__/McpSettingsTab.test.tsx` — 목록 렌더, 발급 시 원문 1회 표시·닫으면 제거, 읽기+쓰기 경고·write scope 발급, 폐기 mutation 호출, URL 미설정 자리표시자.
+`src/components/settings/__tests__/McpSettingsTab.test.tsx` — 빠른 연결 섹션 렌더·명령 복사·토큰 미포함, URL 미설정 시 안내만, 연결된 앱 그룹(앱 이름·마지막 사용·연결 해제), PAT 영역 기본 접힘·펼침, 목록 렌더, 발급 시 원문 1회 표시·닫으면 제거·셸 스니펫에 원문 없음, 읽기+쓰기 경고·write scope 발급, 폐기 mutation 호출, URL 미설정 자리표시자.
 서버: `infra/lambda/mcp-server/__tests__/{updatePage,pageOps,collabWriter,concurrency,guards,queryDatabase,dbWrite,publish,edgeAndCost,adminPolicy,handler.e2e}.test.ts`, CloudFront: `infra/lib/mcp-edge-construct.test.ts`(엣지 함수 코드 직접 실행·배포 설정).

@@ -47,6 +47,11 @@ beforeEach(() => {
     ],
   });
 });
+/** PAT 는 접힌 "고급" 영역 안에 있다. */
+function openPat() {
+  fireEvent.click(screen.getByRole("button", { name: /고급: 개인 액세스 토큰/ }));
+}
+
 afterEach(() => {
   vi.unstubAllEnvs();
   useMemberStore.setState({ me: null, members: [] });
@@ -57,6 +62,7 @@ describe("토큰 관리(관리자)", () => {
     asMember("member");
     respond({ listMcpTokens: () => [{ ...baseToken, revokedAt: "2026-10-01T00:00:00.000Z", revokedByAdmin: true, revokeReason: "퇴사" }] });
     render(<McpSettingsTab />);
+    openPat();
     expect(await screen.findByText("관리자에 의해 폐기됨")).toBeTruthy();
     expect(screen.getByText("폐기 사유: 퇴사")).toBeTruthy();
     expect(screen.queryByText("토큰 관리")).toBeNull();
@@ -67,7 +73,7 @@ describe("토큰 관리(관리자)", () => {
     asMember(role);
     respond({ listMcpTokens: () => [] });
     render(<McpSettingsTab />);
-    await screen.findByText("발급된 토큰이 없습니다");
+    await screen.findByText("연결된 앱이 없습니다");
     expect(screen.queryByText("토큰 관리")).toBeNull();
     expect(graphqlMock.mock.calls.some(([a]) => a.query.includes("adminListMcpTokens"))).toBe(false);
   });
@@ -119,6 +125,7 @@ describe("워크스페이스 MCP 정책", () => {
     asMember("member");
     respond({ listMcpTokens: () => [] });
     render(<McpSettingsTab />);
+    openPat();
     await screen.findByText("발급된 토큰이 없습니다");
     const scope = screen.getByText(/워크스페이스 범위/).closest("fieldset") as HTMLElement;
     expect(within(scope).queryByText("보안")).toBeNull();
