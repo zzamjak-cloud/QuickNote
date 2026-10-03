@@ -121,6 +121,8 @@ jobs:
           VITE_COLLAB_ROOM_EPOCH: ${{ secrets.VITE_COLLAB_ROOM_EPOCH }}
           # AI 프록시(라이브 Function URL) — 웹(Vercel VITE_AI_URL)과 동일 값.
           VITE_AI_URL: ${{ secrets.VITE_AI_URL }}
+          # MCP 서버 공개 URL(CloudFront /mcp) — 웹(Vercel VITE_MCP_SERVER_URL)과 동일 값. 비면 설정의 연결 스니펫에 자리표시자만 표시된다.
+          VITE_MCP_SERVER_URL: ${{ secrets.VITE_MCP_SERVER_URL }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: "QuickNote v__VERSION__"
