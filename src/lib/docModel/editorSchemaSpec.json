@@ -1,0 +1,1014 @@
+{
+  "version": 1,
+  "topNode": "doc",
+  "uniqueIdTypes": [
+    "paragraph",
+    "heading",
+    "bulletList",
+    "orderedList",
+    "taskList",
+    "listItem",
+    "taskItem",
+    "codeBlock",
+    "blockquote",
+    "horizontalRule",
+    "pageLink",
+    "databaseBlock",
+    "table",
+    "tableRow",
+    "tableHeader",
+    "tableCell",
+    "buttonBlock",
+    "bookmarkBlock",
+    "callout",
+    "toggle",
+    "toggleHeader",
+    "toggleContent",
+    "columnLayout",
+    "column",
+    "tabBlock",
+    "tabPanel"
+  ],
+  "nodes": [
+    {
+      "name": "paragraph",
+      "content": "inline*",
+      "group": "block",
+      "attrs": {
+        "id": {
+          "hasDefault": true,
+          "default": null
+        },
+        "textAlign": {
+          "hasDefault": true,
+          "default": null
+        },
+        "backgroundColor": {
+          "hasDefault": true,
+          "default": null
+        },
+        "blockTextColor": {
+          "hasDefault": true,
+          "default": null
+        },
+        "indent": {
+          "hasDefault": true,
+          "default": 0
+        }
+      }
+    },
+    {
+      "name": "mention",
+      "group": "inline",
+      "inline": true,
+      "atom": true,
+      "selectable": false,
+      "attrs": {
+        "id": {
+          "hasDefault": true,
+          "default": null
+        },
+        "label": {
+          "hasDefault": true,
+          "default": null
+        },
+        "mentionSuggestionChar": {
+          "hasDefault": true,
+          "default": "@"
+        },
+        "mentionKind": {
+          "hasDefault": true,
+          "default": "member"
+        },
+        "subtitle": {
+          "hasDefault": true,
+          "default": null
+        }
+      }
+    },
+    {
+      "name": "bulletList",
+      "content": "listItem+",
+      "group": "block list",
+      "attrs": {
+        "id": {
+          "hasDefault": true,
+          "default": null
+        },
+        "backgroundColor": {
+          "hasDefault": true,
+          "default": null
+        },
+        "indent": {
+          "hasDefault": true,
+          "default": 0
+        }
+      }
+    },
+    {
+      "name": "doc",
+      "content": "block+"
+    },
+    {
+      "name": "hardBreak",
+      "group": "inline",
+      "inline": true,
+      "selectable": false,
+      "linebreakReplacement": true
+    },
+    {
+      "name": "heading",
+      "content": "inline*",
+      "group": "block",
+      "defining": true,
+      "attrs": {
+        "id": {
+          "hasDefault": true,
+          "default": null
+        },
+        "textAlign": {
+          "hasDefault": true,
+          "default": null
+        },
+        "backgroundColor": {
+          "hasDefault": true,
+          "default": null
+        },
+        "blockTextColor": {
+          "hasDefault": true,
+          "default": null
+        },
+        "indent": {
+          "hasDefault": true,
+          "default": 0
+        },
+        "level": {
+          "hasDefault": true,
+          "default": 1
+        }
+      }
+    },
+    {
+      "name": "text",
+      "group": "inline"
+    },
+    {
+      "name": "blockquote",
+      "content": "block+",
+      "group": "block",
+      "defining": true,
+      "attrs": {
+        "id": {
+          "hasDefault": true,
+          "default": null
+        },
+        "backgroundColor": {
+          "hasDefault": true,
+          "default": null
+        },
+        "blockTextColor": {
+          "hasDefault": true,
+          "default": null
+        },
+        "indent": {
+          "hasDefault": true,
+          "default": 0
+        }
+      }
+    },
+    {
+      "name": "orderedList",
+      "content": "listItem+",
+      "group": "block list",
+      "attrs": {
+        "id": {
+          "hasDefault": true,
+          "default": null
+        },
+        "backgroundColor": {
+          "hasDefault": true,
+          "default": null
+        },
+        "indent": {
+          "hasDefault": true,
+          "default": 0
+        },
+        "start": {
+          "hasDefault": true,
+          "default": 1
+        },
+        "type": {
+          "hasDefault": true,
+          "default": null
+        }
+      }
+    },
+    {
+      "name": "listItem",
+      "content": "block+",
+      "defining": true,
+      "attrs": {
+        "id": {
+          "hasDefault": true,
+          "default": null
+        },
+        "backgroundColor": {
+          "hasDefault": true,
+          "default": null
+        },
+        "blockTextColor": {
+          "hasDefault": true,
+          "default": null
+        }
+      }
+    },
+    {
+      "name": "taskList",
+      "content": "taskItem+",
+      "group": "block list",
+      "attrs": {
+        "id": {
+          "hasDefault": true,
+          "default": null
+        },
+        "backgroundColor": {
+          "hasDefault": true,
+          "default": null
+        },
+        "indent": {
+          "hasDefault": true,
+          "default": 0
+        }
+      }
+    },
+    {
+      "name": "taskItem",
+      "content": "paragraph block*",
+      "defining": true,
+      "attrs": {
+        "id": {
+          "hasDefault": true,
+          "default": null
+        },
+        "backgroundColor": {
+          "hasDefault": true,
+          "default": null
+        },
+        "blockTextColor": {
+          "hasDefault": true,
+          "default": null
+        },
+        "checked": {
+          "hasDefault": true,
+          "default": false
+        }
+      }
+    },
+    {
+      "name": "codeBlock",
+      "content": "text*",
+      "marks": "",
+      "group": "block",
+      "code": true,
+      "defining": true,
+      "attrs": {
+        "id": {
+          "hasDefault": true,
+          "default": null
+        },
+        "language": {
+          "hasDefault": true,
+          "default": null
+        }
+      }
+    },
+    {
+      "name": "image",
+      "group": "block",
+      "inline": false,
+      "draggable": true,
+      "attrs": {
+        "src": {
+          "hasDefault": true,
+          "default": null
+        },
+        "alt": {
+          "hasDefault": true,
+          "default": null
+        },
+        "title": {
+          "hasDefault": true,
+          "default": null
+        },
+        "width": {
+          "hasDefault": true,
+          "default": null
+        },
+        "height": {
+          "hasDefault": true,
+          "default": null
+        },
+        "id": {
+          "hasDefault": true,
+          "default": null
+        },
+        "align": {
+          "hasDefault": true,
+          "default": "left"
+        },
+        "caption": {
+          "hasDefault": true,
+          "default": null
+        },
+        "captionAlign": {
+          "hasDefault": true,
+          "default": "left"
+        },
+        "outlineWidth": {
+          "hasDefault": true,
+          "default": 0
+        },
+        "outlineColor": {
+          "hasDefault": true,
+          "default": null
+        },
+        "borderRadius": {
+          "hasDefault": true,
+          "default": 0
+        }
+      }
+    },
+    {
+      "name": "fileBlock",
+      "group": "block",
+      "atom": true,
+      "selectable": true,
+      "draggable": true,
+      "attrs": {
+        "src": {
+          "hasDefault": true,
+          "default": null
+        },
+        "name": {
+          "hasDefault": true,
+          "default": null
+        },
+        "size": {
+          "hasDefault": true,
+          "default": null
+        },
+        "mime": {
+          "hasDefault": true,
+          "default": null
+        },
+        "mimeType": {
+          "hasDefault": true,
+          "default": null
+        },
+        "contentType": {
+          "hasDefault": true,
+          "default": null
+        },
+        "width": {
+          "hasDefault": true,
+          "default": null
+        },
+        "height": {
+          "hasDefault": true,
+          "default": null
+        },
+        "uploading": {
+          "hasDefault": true,
+          "default": false
+        },
+        "uploadId": {
+          "hasDefault": true,
+          "default": null
+        },
+        "uploadError": {
+          "hasDefault": true,
+          "default": false
+        },
+        "id": {
+          "hasDefault": true,
+          "default": null
+        },
+        "align": {
+          "hasDefault": true,
+          "default": "left"
+        },
+        "caption": {
+          "hasDefault": true,
+          "default": null
+        },
+        "captionAlign": {
+          "hasDefault": true,
+          "default": "left"
+        }
+      }
+    },
+    {
+      "name": "horizontalRule",
+      "group": "block",
+      "attrs": {
+        "id": {
+          "hasDefault": true,
+          "default": null
+        },
+        "lineStyle": {
+          "hasDefault": true,
+          "default": "solid"
+        },
+        "color": {
+          "hasDefault": true,
+          "default": null
+        },
+        "thickness": {
+          "hasDefault": true,
+          "default": 1
+        }
+      }
+    },
+    {
+      "name": "table",
+      "content": "tableRow+",
+      "group": "block",
+      "isolating": true,
+      "tableRole": "table",
+      "attrs": {
+        "id": {
+          "hasDefault": true,
+          "default": null
+        }
+      }
+    },
+    {
+      "name": "tableRow",
+      "content": "(tableCell | tableHeader)*",
+      "tableRole": "row",
+      "attrs": {
+        "id": {
+          "hasDefault": true,
+          "default": null
+        }
+      }
+    },
+    {
+      "name": "tableHeader",
+      "content": "block+",
+      "isolating": true,
+      "tableRole": "header_cell",
+      "attrs": {
+        "id": {
+          "hasDefault": true,
+          "default": null
+        },
+        "colspan": {
+          "hasDefault": true,
+          "default": 1
+        },
+        "rowspan": {
+          "hasDefault": true,
+          "default": 1
+        },
+        "colwidth": {
+          "hasDefault": true,
+          "default": null
+        },
+        "align": {
+          "hasDefault": true,
+          "default": null
+        }
+      }
+    },
+    {
+      "name": "tableCell",
+      "content": "block+",
+      "isolating": true,
+      "tableRole": "cell",
+      "attrs": {
+        "id": {
+          "hasDefault": true,
+          "default": null
+        },
+        "colspan": {
+          "hasDefault": true,
+          "default": 1
+        },
+        "rowspan": {
+          "hasDefault": true,
+          "default": 1
+        },
+        "colwidth": {
+          "hasDefault": true,
+          "default": null
+        },
+        "align": {
+          "hasDefault": true,
+          "default": null
+        }
+      }
+    },
+    {
+      "name": "youtube",
+      "group": "block",
+      "inline": false,
+      "draggable": true,
+      "attrs": {
+        "src": {
+          "hasDefault": true,
+          "default": null
+        },
+        "start": {
+          "hasDefault": true,
+          "default": 0
+        },
+        "width": {
+          "hasDefault": true,
+          "default": 560
+        },
+        "height": {
+          "hasDefault": true,
+          "default": 315
+        }
+      }
+    },
+    {
+      "name": "callout",
+      "content": "block+",
+      "group": "block",
+      "defining": true,
+      "isolating": true,
+      "attrs": {
+        "id": {
+          "hasDefault": true,
+          "default": null
+        },
+        "indent": {
+          "hasDefault": true,
+          "default": 0
+        },
+        "preset": {
+          "hasDefault": true,
+          "default": "idea"
+        },
+        "emoji": {
+          "hasDefault": true,
+          "default": null
+        }
+      }
+    },
+    {
+      "name": "columnLayout",
+      "content": "column{2,6}",
+      "group": "block",
+      "defining": true,
+      "isolating": true,
+      "attrs": {
+        "id": {
+          "hasDefault": true,
+          "default": null
+        },
+        "columns": {
+          "hasDefault": true,
+          "default": 2
+        },
+        "preset": {
+          "hasDefault": true,
+          "default": "empty"
+        }
+      }
+    },
+    {
+      "name": "column",
+      "content": "block+",
+      "group": "column",
+      "defining": true,
+      "isolating": true,
+      "attrs": {
+        "id": {
+          "hasDefault": true,
+          "default": null
+        },
+        "width": {
+          "hasDefault": true,
+          "default": null
+        }
+      }
+    },
+    {
+      "name": "tabBlock",
+      "content": "tabPanel{1,}",
+      "group": "block",
+      "draggable": true,
+      "defining": true,
+      "isolating": true,
+      "attrs": {
+        "id": {
+          "hasDefault": true,
+          "default": null
+        },
+        "placement": {
+          "hasDefault": true,
+          "default": "top"
+        },
+        "activeIndex": {
+          "hasDefault": true,
+          "default": 0
+        }
+      }
+    },
+    {
+      "name": "tabPanel",
+      "content": "block+",
+      "group": "tabPanel",
+      "defining": true,
+      "attrs": {
+        "id": {
+          "hasDefault": true,
+          "default": null
+        },
+        "title": {
+          "hasDefault": true,
+          "default": "탭"
+        },
+        "icon": {
+          "hasDefault": true,
+          "default": null
+        }
+      }
+    },
+    {
+      "name": "toggle",
+      "content": "toggleHeader toggleContent",
+      "group": "block",
+      "draggable": true,
+      "defining": true,
+      "attrs": {
+        "id": {
+          "hasDefault": true,
+          "default": null
+        },
+        "backgroundColor": {
+          "hasDefault": true,
+          "default": null
+        },
+        "blockTextColor": {
+          "hasDefault": true,
+          "default": null
+        },
+        "indent": {
+          "hasDefault": true,
+          "default": 0
+        },
+        "open": {
+          "hasDefault": true,
+          "default": true
+        }
+      }
+    },
+    {
+      "name": "toggleHeader",
+      "content": "inline*",
+      "defining": true,
+      "attrs": {
+        "id": {
+          "hasDefault": true,
+          "default": null
+        },
+        "backgroundColor": {
+          "hasDefault": true,
+          "default": null
+        },
+        "blockTextColor": {
+          "hasDefault": true,
+          "default": null
+        },
+        "titleLevel": {
+          "hasDefault": true,
+          "default": null
+        }
+      }
+    },
+    {
+      "name": "toggleContent",
+      "content": "block+",
+      "attrs": {
+        "id": {
+          "hasDefault": true,
+          "default": null
+        }
+      }
+    },
+    {
+      "name": "databaseBlock",
+      "group": "block",
+      "atom": true,
+      "draggable": true,
+      "attrs": {
+        "id": {
+          "hasDefault": true,
+          "default": null
+        },
+        "databaseId": {
+          "hasDefault": true,
+          "default": ""
+        },
+        "layout": {
+          "hasDefault": true,
+          "default": "inline"
+        },
+        "view": {
+          "hasDefault": true,
+          "default": "table"
+        },
+        "panelState": {
+          "hasDefault": true,
+          "default": "{\"searchQuery\":\"\",\"filterRules\":[],\"sortColumnId\":null,\"sortDir\":\"asc\",\"sortRules\":[],\"kanbanGroupColumnId\":null,\"groupByColumnId\":null,\"galleryCoverColumnId\":null,\"timelineDateColumnId\":null,\"viewConfigs\":{},\"hiddenViewKinds\":[],\"pageTreeEnabled\":false,\"galleryColumns\":4}"
+        },
+        "readOnlyTitle": {
+          "hasDefault": true,
+          "default": false
+        }
+      }
+    },
+    {
+      "name": "flowchartBlock",
+      "group": "block",
+      "atom": true,
+      "selectable": true,
+      "draggable": true,
+      "attrs": {
+        "flowchartId": {
+          "hasDefault": true,
+          "default": ""
+        },
+        "data": {
+          "hasDefault": true,
+          "default": "{\"version\":1,\"nodes\":[],\"edges\":[]}"
+        },
+        "version": {
+          "hasDefault": true,
+          "default": 1
+        },
+        "title": {
+          "hasDefault": true,
+          "default": ""
+        }
+      }
+    },
+    {
+      "name": "dropdownMenuBlock",
+      "group": "block",
+      "atom": true,
+      "selectable": true,
+      "draggable": true,
+      "attrs": {
+        "sharedBlockId": {
+          "hasDefault": true,
+          "default": ""
+        },
+        "data": {
+          "hasDefault": true,
+          "default": "{\"kind\":\"dropdown-menu\",\"items\":[]}"
+        },
+        "version": {
+          "hasDefault": true,
+          "default": 1
+        },
+        "publicMode": {
+          "hasDefault": true,
+          "default": false
+        },
+        "autoOpenEditor": {
+          "hasDefault": true,
+          "default": false
+        },
+        "align": {
+          "hasDefault": true,
+          "default": "left"
+        }
+      }
+    },
+    {
+      "name": "galleryBlock",
+      "group": "block",
+      "atom": true,
+      "selectable": true,
+      "draggable": true,
+      "attrs": {
+        "sharedBlockId": {
+          "hasDefault": true,
+          "default": ""
+        },
+        "data": {
+          "hasDefault": true,
+          "default": "{\"kind\":\"gallery\",\"images\":[],\"intervalMs\":5000,\"heightPx\":320}"
+        },
+        "version": {
+          "hasDefault": true,
+          "default": 1
+        },
+        "publicMode": {
+          "hasDefault": true,
+          "default": false
+        },
+        "autoOpenEditor": {
+          "hasDefault": true,
+          "default": false
+        },
+        "align": {
+          "hasDefault": true,
+          "default": "left"
+        }
+      }
+    },
+    {
+      "name": "pageLink",
+      "group": "inline",
+      "inline": true,
+      "atom": true,
+      "attrs": {
+        "id": {
+          "hasDefault": true,
+          "default": null
+        },
+        "label": {
+          "hasDefault": true,
+          "default": ""
+        }
+      }
+    },
+    {
+      "name": "buttonBlock",
+      "group": "inline",
+      "inline": true,
+      "atom": true,
+      "attrs": {
+        "id": {
+          "hasDefault": true,
+          "default": null
+        },
+        "label": {
+          "hasDefault": true,
+          "default": "버튼"
+        },
+        "href": {
+          "hasDefault": true,
+          "default": ""
+        },
+        "databaseId": {
+          "hasDefault": true,
+          "default": ""
+        },
+        "color": {
+          "hasDefault": true,
+          "default": "default"
+        }
+      }
+    },
+    {
+      "name": "bookmarkBlock",
+      "group": "block",
+      "atom": true,
+      "attrs": {
+        "id": {
+          "hasDefault": true,
+          "default": null
+        },
+        "href": {
+          "hasDefault": true,
+          "default": ""
+        },
+        "title": {
+          "hasDefault": true,
+          "default": ""
+        },
+        "description": {
+          "hasDefault": true,
+          "default": ""
+        },
+        "siteName": {
+          "hasDefault": true,
+          "default": ""
+        },
+        "imageUrl": {
+          "hasDefault": true,
+          "default": ""
+        },
+        "status": {
+          "hasDefault": true,
+          "default": "ready"
+        },
+        "width": {
+          "hasDefault": true,
+          "default": null
+        }
+      }
+    },
+    {
+      "name": "lucideInlineIcon",
+      "group": "inline",
+      "inline": true,
+      "atom": true,
+      "attrs": {
+        "name": {
+          "hasDefault": true,
+          "default": "Circle"
+        },
+        "color": {
+          "hasDefault": true,
+          "default": "#3f3f46"
+        }
+      }
+    },
+    {
+      "name": "imageInlineIcon",
+      "group": "inline",
+      "inline": true,
+      "atom": true,
+      "attrs": {
+        "src": {
+          "hasDefault": true,
+          "default": null
+        }
+      }
+    },
+    {
+      "name": "dateInline",
+      "group": "inline",
+      "inline": true,
+      "atom": true,
+      "selectable": true,
+      "attrs": {
+        "value": {
+          "hasDefault": true,
+          "default": "2000-01-01"
+        }
+      }
+    }
+  ],
+  "marks": [
+    {
+      "name": "link",
+      "inclusive": true,
+      "attrs": {
+        "href": {
+          "hasDefault": true,
+          "default": null
+        },
+        "target": {
+          "hasDefault": true,
+          "default": "_blank"
+        },
+        "rel": {
+          "hasDefault": true,
+          "default": "noopener noreferrer nofollow"
+        },
+        "class": {
+          "hasDefault": true,
+          "default": null
+        },
+        "title": {
+          "hasDefault": true,
+          "default": null
+        }
+      }
+    },
+    {
+      "name": "textStyle",
+      "attrs": {
+        "color": {
+          "hasDefault": true,
+          "default": null
+        }
+      }
+    },
+    {
+      "name": "bold"
+    },
+    {
+      "name": "code",
+      "excludes": "_",
+      "code": true
+    },
+    {
+      "name": "italic"
+    },
+    {
+      "name": "strike"
+    },
+    {
+      "name": "underline"
+    },
+    {
+      "name": "highlight",
+      "attrs": {
+        "color": {
+          "hasDefault": true,
+          "default": null
+        }
+      }
+    }
+  ]
+}

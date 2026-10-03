@@ -34,6 +34,9 @@ export function stripPagePrefix(id: string): string {
 export function stripMemberPrefix(id: string): string {
   return hasMemberPrefix(id) ? id.slice(MENTION_MEMBER_PREFIX.length) : id;
 }
+export function stripDatabasePrefix(id: string): string {
+  return hasDatabasePrefix(id) ? id.slice(MENTION_DATABASE_PREFIX.length) : id;
+}
 
 /** data-mention-kind 미지정 시 id prefix 로 kind 를 도출(없으면 페이지로 간주). */
 export function resolveMentionKindAttr(id: string, attr: string | null | undefined): string {

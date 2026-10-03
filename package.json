@@ -20,6 +20,7 @@
     "preview": "vite preview",
     "test": "vitest",
     "test:run": "vitest run",
+    "gen:editor-schema": "UPDATE_EDITOR_SCHEMA=1 vitest run src/lib/docModel/__tests__/editorSchemaSpec.test.ts",
     "prepare": "husky",
     "tauri": "tauri",
     "tauri:dev": "tauri dev --config src-tauri/tauri.dev.conf.json",

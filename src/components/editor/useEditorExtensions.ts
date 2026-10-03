@@ -92,10 +92,10 @@ type UseEditorExtensionsParams = {
 };
 
 /**
- * 에디터 extension 목록을 생성하는 훅.
- * lowlightApi 로드 완료 시 CodeBlock extension 이 교체된다.
+ * 에디터 extension 목록을 생성하는 순수 함수.
+ * 스키마 스냅샷 생성(getSchema) 등 React 밖에서도 동일 목록을 재사용하기 위해 분리했다.
  */
-export function useEditorExtensions({
+export function buildEditorExtensions({
   lowlightApi,
   isFullPageDatabase,
   effectivePageId,
@@ -103,8 +103,7 @@ export function useEditorExtensions({
   collabDoc,
   collabAwareness,
 }: UseEditorExtensionsParams) {
-  const extensions = useMemo(
-    () => [
+  return [
       PageContext,
       NodeRange.configure({}),
       StarterKit.configure({
@@ -234,7 +233,31 @@ export function useEditorExtensions({
       }),
       // 협업 ON 일 때만 Y.Doc 에 바인딩되는 Collaboration extension 주입.
       ...(collabDoc ? [Collaboration.configure({ doc: collabDoc, awareness: collabAwareness })] : []),
-    ],
+  ];
+}
+
+/**
+ * 에디터 extension 목록을 생성하는 훅.
+ * lowlightApi 로드 완료 시 CodeBlock extension 이 교체된다.
+ */
+export function useEditorExtensions({
+  lowlightApi,
+  isFullPageDatabase,
+  effectivePageId,
+  myMemberId,
+  collabDoc,
+  collabAwareness,
+}: UseEditorExtensionsParams) {
+  const extensions = useMemo(
+    () =>
+      buildEditorExtensions({
+        lowlightApi,
+        isFullPageDatabase,
+        effectivePageId,
+        myMemberId,
+        collabDoc,
+        collabAwareness,
+      }),
     [lowlightApi, isFullPageDatabase, effectivePageId, myMemberId, collabDoc, collabAwareness],
   );
 
