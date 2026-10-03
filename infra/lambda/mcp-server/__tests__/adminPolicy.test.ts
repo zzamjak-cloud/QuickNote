@@ -57,7 +57,7 @@ describe("관리자 토큰 관리", () => {
     const { tables } = tokenTables();
     const base = { doc: createFakeDdb(tables).doc, tables: TABLES, caller: member() };
     await expect(adminListMcpTokens(base)).rejects.toMatchObject({ errorType: "Forbidden" });
-    await expect(adminRevokeMcpToken({ ...base, tokenId: "pat-1" })).rejects.toMatchObject({ errorType: "Forbidden" });
+    await expect(adminRevokeMcpToken({ ...base, tokenId: "pat-1", memberId: "m1" })).rejects.toMatchObject({ errorType: "Forbidden" });
     await expect(adminRevokeMcpTokensByMember({ ...base, memberId: "m1" })).rejects.toMatchObject({ errorType: "Forbidden" });
   });
 
@@ -83,9 +83,9 @@ describe("관리자 토큰 관리", () => {
     expect((await handler(mcpEvent(oat))).statusCode).toBe(200);
 
     const base = { doc: fake.doc, tables: TABLES, caller: manager };
-    const revoked = await adminRevokeMcpToken({ ...base, tokenId: "pat-1", reason: "기기 분실" });
+    const revoked = await adminRevokeMcpToken({ ...base, tokenId: "pat-1", memberId: "m1", reason: "기기 분실" });
     expect(revoked).toMatchObject({ status: "revoked", revokedBy: "admin", revokeReason: "기기 분실" });
-    await adminRevokeMcpToken({ ...base, tokenId: "fam-1" });
+    await adminRevokeMcpToken({ ...base, tokenId: "fam-1", memberId: "m1" });
     expect((await handler(mcpEvent(pat))).statusCode).toBe(401);
     expect((await handler(mcpEvent(oat))).statusCode).toBe(401);
 
@@ -102,6 +102,45 @@ describe("관리자 토큰 관리", () => {
     expect(fake.tables["mcp-tokens"].find((t) => t.tokenId === "oat-1")?.revokedAt).toBeUndefined();
     const again = await adminRevokeMcpTokensByMember({ doc: fake.doc, tables: TABLES, caller: manager, memberId: "m1" });
     expect(again.revokedCount).toBe(0);
+  });
+});
+
+describe("관리자 폐기 — 역할 위계·조회 경로", () => {
+  function setup() {
+    const { tables } = tokenTables();
+    tables.members.push(member({ memberId: "boss", workspaceRole: "owner", name: "Boss", personalWorkspaceId: "ws-boss" }) as unknown as Item);
+    tables["mcp-tokens"].push(tokenRecord({ tokenHash: "h-boss", tokenId: "boss-pat", memberId: "boss", name: "Boss PAT" }) as unknown as Item);
+    tables["mcp-tokens"].push(tokenRecord({ tokenHash: "h-admin", tokenId: "admin-pat", memberId: "admin", name: "My PAT" }) as unknown as Item);
+    return createFakeDdb(tables);
+  }
+
+  it("owner 의 토큰은 manager 가 폐기할 수 없고(단건·일괄), owner 본인은 가능 — preventOwnerMutation 과 같은 규칙", async () => {
+    const fake = setup();
+    const asManager = { doc: fake.doc, tables: TABLES, caller: manager };
+    await expect(adminRevokeMcpToken({ ...asManager, tokenId: "boss-pat", memberId: "boss" })).rejects.toMatchObject({ errorType: "Forbidden" });
+    await expect(adminRevokeMcpTokensByMember({ ...asManager, memberId: "boss" })).rejects.toMatchObject({ errorType: "Forbidden" });
+    const boss = member({ memberId: "boss", workspaceRole: "owner", personalWorkspaceId: "ws-boss" });
+    await expect(adminRevokeMcpToken({ doc: fake.doc, tables: TABLES, caller: boss, tokenId: "boss-pat", memberId: "boss" }))
+      .resolves.toMatchObject({ status: "revoked" });
+  });
+
+  it("본인 토큰은 폐기 가능, 하위 역할(member) 토큰도 가능", async () => {
+    const fake = setup();
+    const asManager = { doc: fake.doc, tables: TABLES, caller: manager };
+    await expect(adminRevokeMcpToken({ ...asManager, tokenId: "admin-pat", memberId: "admin" })).resolves.toMatchObject({ status: "revoked" });
+    await expect(adminRevokeMcpToken({ ...asManager, tokenId: "pat-1", memberId: "m1" })).resolves.toMatchObject({ status: "revoked" });
+  });
+
+  it("memberId·tokenId 가 맞지 않으면 not found, 폐기는 테이블 Scan 없이 byMember GSI 로만", async () => {
+    const fake = setup();
+    const asManager = { doc: fake.doc, tables: TABLES, caller: manager };
+    await expect(adminRevokeMcpToken({ ...asManager, tokenId: "pat-1", memberId: "m2" })).rejects.toMatchObject({ errorType: "NotFound" });
+    await expect(adminRevokeMcpToken({ ...asManager, tokenId: "oat-1", memberId: "m1" })).rejects.toMatchObject({ errorType: "NotFound" });
+    const before = fake.calls.length;
+    await adminRevokeMcpToken({ ...asManager, tokenId: "pat-1", memberId: "m1" });
+    const used = fake.calls.slice(before).map((c) => `${c.constructor.name}:${String(c.input.IndexName ?? "")}`);
+    expect(used.some((u) => u.startsWith("ScanCommand"))).toBe(false);
+    expect(used).toContain("QueryCommand:byMember");
   });
 });
 
@@ -124,6 +163,18 @@ describe("워크스페이스 MCP 정책 — 설정 권한", () => {
     await expect(setWorkspaceMcpPolicy({ ...as(manager), workspaceId: "ws-a", policy: "all" })).rejects.toMatchObject({ errorType: "BadRequest" });
     const mine = await listMyWorkspaces(as(member()));
     expect(mine.find((w) => w.workspaceId === "ws-b")?.mcpPolicy).toBe("readWrite"); // 미설정 = readWrite
+  });
+
+  it("type 이 없는 레거시 개인 워크스페이스도 personalWorkspaceId 매칭으로 소유자만 변경", async () => {
+    const tables = baseTables();
+    tables.workspaces.push({ workspaceId: "legacy-p2", name: "Bob old", ownerMemberId: "m2", createdAt: "x" });
+    tables.members = tables.members.map((m) => (m.memberId === "m2" ? { ...m, personalWorkspaceId: "legacy-p2" } : m));
+    const fake = createFakeDdb(tables);
+    await expect(setWorkspaceMcpPolicy({ doc: fake.doc, tables: TABLES, caller: manager, workspaceId: "legacy-p2", policy: "disabled" }))
+      .rejects.toMatchObject({ errorType: "Forbidden" });
+    const bob = member({ memberId: "m2", personalWorkspaceId: "legacy-p2" });
+    await expect(setWorkspaceMcpPolicy({ doc: fake.doc, tables: TABLES, caller: bob, workspaceId: "legacy-p2", policy: "read" }))
+      .resolves.toMatchObject({ mcpPolicy: "read" });
   });
 });
 

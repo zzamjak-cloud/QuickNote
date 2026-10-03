@@ -104,8 +104,12 @@ export async function adminListMcpTokensApi(
   return callField(ADMIN_LIST_MCP_TOKENS, "adminListMcpTokens", { filter, limit: 100, nextToken: nextToken ?? null });
 }
 
-export async function adminRevokeMcpTokenApi(tokenId: string, reason: string): Promise<AdminMcpToken> {
-  return callField(ADMIN_REVOKE_MCP_TOKEN, "adminRevokeMcpToken", { tokenId, reason: reason || null });
+export async function adminRevokeMcpTokenApi(token: Pick<AdminMcpToken, "tokenId" | "memberId">, reason: string): Promise<AdminMcpToken> {
+  return callField(ADMIN_REVOKE_MCP_TOKEN, "adminRevokeMcpToken", {
+    tokenId: token.tokenId,
+    memberId: token.memberId,
+    reason: reason || null,
+  });
 }
 
 export async function adminRevokeMcpTokensByMemberApi(

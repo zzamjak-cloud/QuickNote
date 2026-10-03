@@ -101,7 +101,7 @@ export function McpAdminTokensSection() {
     setBusy(true);
     try {
       if (target.kind === "token") {
-        const updated = await adminRevokeMcpTokenApi(target.token.tokenId, reason);
+        const updated = await adminRevokeMcpTokenApi(target.token, reason);
         setItems((prev) => prev.map((t) => (t.tokenId === updated.tokenId ? updated : t)));
         showToast("토큰을 강제 폐기했습니다");
       } else {

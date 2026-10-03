@@ -1029,6 +1029,7 @@ const RESOLVERS: Record<
     await adminRevokeMcpToken({
       ...base,
       tokenId: event.arguments.tokenId as string,
+      memberId: event.arguments.memberId as string,
       reason: event.arguments.reason as string | null | undefined,
     }),
   adminRevokeMcpTokensByMember: async (event, base) =>

@@ -16,8 +16,8 @@ export const ADMIN_LIST_MCP_TOKENS = `
 `;
 
 export const ADMIN_REVOKE_MCP_TOKEN = `
-  mutation AdminRevokeMcpToken($tokenId: ID!, $reason: String) {
-    adminRevokeMcpToken(tokenId: $tokenId, reason: $reason) { ${ADMIN_MCP_TOKEN_FIELDS} }
+  mutation AdminRevokeMcpToken($tokenId: ID!, $memberId: ID!, $reason: String) {
+    adminRevokeMcpToken(tokenId: $tokenId, memberId: $memberId, reason: $reason) { ${ADMIN_MCP_TOKEN_FIELDS} }
   }
 `;
 

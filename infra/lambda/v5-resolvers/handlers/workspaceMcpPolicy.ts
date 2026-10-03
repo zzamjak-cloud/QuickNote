@@ -14,11 +14,37 @@ function parsePolicy(value: unknown): McpPolicy {
   return value as McpPolicy;
 }
 
+type WorkspaceRowLite = { workspaceId: string; type?: string; ownerMemberId?: string };
+
+/**
+ * 개인 워크스페이스 판별 — type 이 있으면 그 값(hydrateWorkspace 와 같은 기준). type 이 없는 레거시 행은
+ * personalWorkspaceId 매칭으로 판별한다: 호출자 본인의 personalWorkspaceId 이거나, 소유자 멤버의 personalWorkspaceId 와 같으면 개인.
+ */
+export async function isPersonalWorkspace(
+  doc: DynamoDBDocumentClient,
+  tables: Tables,
+  caller: Member,
+  row: WorkspaceRowLite,
+): Promise<{ personal: boolean; ownerMemberId: string | null }> {
+  if (row.type) return { personal: row.type === "personal", ownerMemberId: row.ownerMemberId ?? null };
+  if (row.workspaceId === caller.personalWorkspaceId) return { personal: true, ownerMemberId: caller.memberId };
+  if (!row.ownerMemberId) return { personal: false, ownerMemberId: null };
+  const owner = await doc.send(new GetCommand({ TableName: tables.Members, Key: { memberId: row.ownerMemberId } }));
+  const personal = (owner.Item as { personalWorkspaceId?: string } | undefined)?.personalWorkspaceId === row.workspaceId;
+  return { personal, ownerMemberId: row.ownerMemberId };
+}
+
 /** 정책 변경 권한 — 개인은 소유자 본인만(역할 무관), 공유는 manager 이상. */
-export function requireMcpPolicyEditor(caller: Member, row: { workspaceId: string; type?: string; ownerMemberId?: string }): void {
+export async function requireMcpPolicyEditor(
+  doc: DynamoDBDocumentClient,
+  tables: Tables,
+  caller: Member,
+  row: WorkspaceRowLite,
+): Promise<void> {
   if (row.workspaceId === LC_SCHEDULER_WORKSPACE_ID) forbidden("LC스케줄러 워크스페이스 설정은 변경할 수 없습니다");
-  if (row.type === "personal") {
-    if (row.workspaceId !== caller.personalWorkspaceId && row.ownerMemberId !== caller.memberId) {
+  const { personal, ownerMemberId } = await isPersonalWorkspace(doc, tables, caller, row);
+  if (personal) {
+    if (row.workspaceId !== caller.personalWorkspaceId && ownerMemberId !== caller.memberId) {
       forbidden("개인 워크스페이스 정책은 소유자만 변경할 수 있습니다");
     }
     return;
@@ -33,7 +59,7 @@ export async function setWorkspaceMcpPolicy(args: Args): Promise<Workspace> {
   const r = await args.doc.send(new GetCommand({ TableName: args.tables.Workspaces, Key: { workspaceId } }));
   const row = r.Item as { workspaceId: string; type?: string; ownerMemberId?: string; removedAt?: string } | undefined;
   if (!row || row.removedAt) notFound("Workspace 없음");
-  requireMcpPolicyEditor(args.caller, row);
+  await requireMcpPolicyEditor(args.doc, args.tables, args.caller, row);
   await args.doc.send(new UpdateCommand({
     TableName: args.tables.Workspaces,
     Key: { workspaceId },

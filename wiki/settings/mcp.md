@@ -29,7 +29,8 @@
 
 - **관리자 판정**: `requireRoleAtLeast(caller, "manager")` — 설정 모달의 관리 탭(구성원·워크스페이스 등) 노출 기준 `isAdmin`(developer·owner·leader·manager)과 서버 `getMember`·`updateMember`·`updateWorkspace`·`setWorkspaceAccess` 의 규칙과 같다. 탭 UI 노출과 무관하게 서버가 다시 검사한다.
 - `adminListMcpTokens(filter: {memberId, kind: pat|oauth, status: active|revoked|expired}, limit≤100, nextToken)` — mcp-tokens Scan(작은 테이블, 페이지네이션). **PAT 와 OAuth grant(`oauth-family#`) 만**: 단명 access token(`oat#`) 항목은 스캔 필터와 코드 양쪽에서 제외, 해시는 응답에 없다. 멤버 이름·이메일, 워크스페이스 이름, 상태, `revokedBy`·`revokeReason` 포함.
-- `adminRevokeMcpToken(tokenId, reason?)` — PAT 즉시 폐기, OAuth 는 family 레코드 폐기 = 그 연결의 access·refresh 전부 거부. `revokedBy`(관리자)·`revokeReason` 기록 + 감사 로그 `{evt:"mcp.admin.revoke", adminMemberId, tokenId, kind, ownerMemberId, reason}`.
+- `adminRevokeMcpToken(tokenId, memberId, reason?)` — PAT 즉시 폐기, OAuth 는 family 레코드 폐기 = 그 연결의 access·refresh 전부 거부. 클라가 목록 항목의 `memberId` 를 함께 보내고 서버는 byMember GSI 로 그 멤버 토큰만 읽어 tokenId 를 검증한다(테이블 Scan·tokenId GSI 없음, 소유자 불일치는 not found).
+- **역할 위계**(회귀 금지): 멤버 관리 `updateMember` 와 같은 `preventOwnerMutation` — owner 의 토큰은 owner 본인만 단건·일괄 폐기할 수 있다. 본인 토큰은 역할과 무관하게 허용. 조회는 manager 이상 전원. `revokedBy`(관리자)·`revokeReason` 기록 + 감사 로그 `{evt:"mcp.admin.revoke", adminMemberId, tokenId, kind, ownerMemberId, reason}`.
 - `adminRevokeMcpTokensByMember(memberId, reason?)` — 그 멤버의 활성 PAT·OAuth 연결 일괄 폐기(byMember GSI).
 - 본인 `listMcpTokens` 에 `revokedByAdmin`(폐기자 ≠ 소유자)·`revokeReason` — 목록에 "관리자에 의해 폐기됨"·사유 표시.
 - UI: AI 연결(MCP) 탭 하단 "토큰 관리"(`McpAdminTokensSection`) — 구성원·종류·상태 필터, 강제 폐기(사유 입력 다이얼로그), 구성원 선택 시 일괄 폐기, 더 보기.
@@ -42,7 +43,7 @@
 
 ## 워크스페이스 MCP 허용 정책
 
-- Workspace `mcpPolicy: "disabled" | "read" | "readWrite"`(미설정 = readWrite, 정책 도입 전 동작). `setWorkspaceMcpPolicy(workspaceId, policy)` — 공유 워크스페이스는 manager 이상(워크스페이스 설정 규칙), **개인 워크스페이스는 소유자 본인만**(역할 무관), LC 스케줄러 가상 WS 는 거부.
+- Workspace `mcpPolicy: "disabled" | "read" | "readWrite"`(미설정 = readWrite, 정책 도입 전 동작). `setWorkspaceMcpPolicy(workspaceId, policy)` — 공유 워크스페이스는 manager 이상(워크스페이스 설정 규칙), **개인 워크스페이스는 소유자 본인만**(역할 무관), LC 스케줄러 가상 WS 는 거부. 개인 판별은 `type` 이 있으면 그 값, 없는 레거시 행은 personalWorkspaceId 매칭(호출자 본인 또는 소유자 멤버의 personalWorkspaceId)으로 한다.
 - 시행(MCP 서버 `workspacePolicy.ts` → `access.ts`·`writeAccess.ts`):
   - `disabled`: MCP 에서 존재하지 않는 것처럼 — list_workspaces·search 대상에서 빠지고 fetch·query·get_comments·get_users(워크스페이스 지정) 등 직접 접근은 not found. PAT 발급 시 범위로도 고를 수 없다(서버 거부).
   - `read`: 모든 쓰기 툴이 `workspace MCP policy is read-only`. list_workspaces 결과에 `mcpPolicy: "read"`.

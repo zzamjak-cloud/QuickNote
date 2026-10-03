@@ -81,7 +81,7 @@ describe("토큰 관리(관리자)", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "폐기" }));
     await waitFor(() => expect(graphqlMock.mock.calls.some(([a]) => a.query.includes("adminRevokeMcpToken("))).toBe(true));
     const call = graphqlMock.mock.calls.find(([a]) => a.query.includes("adminRevokeMcpToken("));
-    expect(call?.[0].variables).toEqual({ tokenId: "a1", reason: "기기 분실" });
+    expect(call?.[0].variables).toEqual({ tokenId: "a1", memberId: "m2", reason: "기기 분실" });
     expect(await screen.findByText(/기기 분실/)).toBeTruthy();
   });
 

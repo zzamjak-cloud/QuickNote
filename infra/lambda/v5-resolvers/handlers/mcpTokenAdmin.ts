@@ -2,10 +2,10 @@
 // 관리자 = manager 이상(설정 모달의 구성원·워크스페이스 관리 탭 노출 기준 isAdmin, 서버 getMember·updateMember·
 // updateWorkspace 의 requireRoleAtLeast("manager") 와 같다).
 // 대상: PAT 와 OAuth grant family(oauth-family#) 레코드만. 단명 access token(oat#) 항목은 제외하고, 해시는 절대 응답하지 않는다.
-import { BatchGetCommand, QueryCommand, ScanCommand, UpdateCommand, type DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
+import { BatchGetCommand, GetCommand, QueryCommand, ScanCommand, UpdateCommand, type DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import { z } from "zod";
 import { isMcpTokenActive, type McpTokenRecord } from "../../_shared/mcpToken";
-import { badRequest, notFound, requireRoleAtLeast, type Member } from "./_auth";
+import { badRequest, notFound, preventOwnerMutation, requireRoleAtLeast, type Member } from "./_auth";
 import type { Tables } from "./member";
 
 type BaseArgs = { doc: DynamoDBDocumentClient; tables: Tables; caller: Member };
@@ -169,20 +169,31 @@ export async function adminListMcpTokens(args: BaseArgs & { filter?: unknown; li
   return { items, nextToken: encodeToken(r.LastEvaluatedKey as Item | undefined) };
 }
 
-async function findByTokenId(args: BaseArgs, tokenId: string): Promise<McpTokenRecord> {
+async function memberTokens(args: BaseArgs, memberId: string): Promise<McpTokenRecord[]> {
+  const records: McpTokenRecord[] = [];
   let lastKey: Item | undefined;
   do {
-    const r = await args.doc.send(new ScanCommand({
+    const r = await args.doc.send(new QueryCommand({
       TableName: tokensTable(args.tables),
-      FilterExpression: "tokenId = :t AND NOT begins_with(tokenHash, :oat)",
-      ExpressionAttributeValues: { ":t": tokenId, ":oat": ACCESS_TOKEN_PREFIX },
+      IndexName: "byMember",
+      KeyConditionExpression: "memberId = :m",
+      ExpressionAttributeValues: { ":m": memberId },
       ExclusiveStartKey: lastKey,
     }));
-    const hit = ((r.Items ?? []) as McpTokenRecord[]).find((t) => t.tokenId === tokenId && isGrantRecord(t));
-    if (hit) return hit;
+    records.push(...((r.Items ?? []) as McpTokenRecord[]));
     lastKey = r.LastEvaluatedKey as Item | undefined;
   } while (lastKey);
-  return notFound("토큰 없음");
+  return records.filter(isGrantRecord);
+}
+
+/**
+ * 역할 위계 — 멤버 관리(updateMember)와 같은 규칙 preventOwnerMutation: owner 의 토큰은 owner 본인만 폐기할 수 있다.
+ * 본인 토큰은 역할과 무관하게 허용된다(같은 헬퍼가 본인을 통과시킨다). 멤버 레코드가 없으면(삭제) 위계 대상이 없다.
+ */
+async function requireRevocableOwner(args: BaseArgs, memberId: string): Promise<void> {
+  const r = await args.doc.send(new GetCommand({ TableName: args.tables.Members, Key: { memberId } }));
+  const owner = r.Item as Member | undefined;
+  if (owner) preventOwnerMutation(args.caller, owner);
 }
 
 /** 레코드 하나 폐기. OAuth family 레코드를 폐기하면 그 family 의 access·refresh 가 모두 거부된다(auth.ts·token.ts). */
@@ -206,13 +217,23 @@ async function revokeRecord(args: BaseArgs, record: McpTokenRecord, reason: stri
   return { ...record, revokedAt: nowIso, revokedBy: args.caller.memberId, revokeReason: reason };
 }
 
-export async function adminRevokeMcpToken(args: BaseArgs & { tokenId: string; reason?: string | null }): Promise<AdminMcpToken> {
+/**
+ * 강제 폐기 — 클라가 목록 항목의 memberId 를 함께 보내고, byMember GSI 로 그 멤버 토큰만 읽어 tokenId 를 검증한다
+ * (테이블 전체 Scan·tokenId GSI 추가 없이 O(멤버 토큰 수)). 소유자가 다르면 not found.
+ */
+export async function adminRevokeMcpToken(
+  args: BaseArgs & { tokenId: string; memberId: string; reason?: string | null },
+): Promise<AdminMcpToken> {
   requireMcpTokenAdmin(args.caller);
   const tokenId = typeof args.tokenId === "string" ? args.tokenId.trim() : "";
-  if (!tokenId) badRequest("tokenId 필요");
+  const memberId = typeof args.memberId === "string" ? args.memberId.trim() : "";
+  if (!tokenId || !memberId) badRequest("tokenId·memberId 필요");
   const reason = parseReason(args.reason);
+  const target = (await memberTokens(args, memberId)).find((t) => t.tokenId === tokenId);
+  if (!target) notFound("토큰 없음");
+  await requireRevocableOwner(args, memberId);
   const nowIso = new Date().toISOString();
-  const revoked = await revokeRecord(args, await findByTokenId(args, tokenId), reason, nowIso);
+  const revoked = await revokeRecord(args, target, reason, nowIso);
   return (await enrich(args, [revoked], nowIso))[0];
 }
 
@@ -222,21 +243,9 @@ export async function adminRevokeMcpTokensByMember(args: BaseArgs & { memberId: 
   const memberId = typeof args.memberId === "string" ? args.memberId.trim() : "";
   if (!memberId) badRequest("memberId 필요");
   const reason = parseReason(args.reason);
+  await requireRevocableOwner(args, memberId);
   const nowIso = new Date().toISOString();
-  const records: McpTokenRecord[] = [];
-  let lastKey: Item | undefined;
-  do {
-    const r = await args.doc.send(new QueryCommand({
-      TableName: tokensTable(args.tables),
-      IndexName: "byMember",
-      KeyConditionExpression: "memberId = :m",
-      ExpressionAttributeValues: { ":m": memberId },
-      ExclusiveStartKey: lastKey,
-    }));
-    records.push(...((r.Items ?? []) as McpTokenRecord[]));
-    lastKey = r.LastEvaluatedKey as Item | undefined;
-  } while (lastKey);
-  const targets = records.filter((t) => isGrantRecord(t) && !t.revokedAt);
+  const targets = (await memberTokens(args, memberId)).filter((t) => !t.revokedAt);
   const revoked: McpTokenRecord[] = [];
   for (const t of targets) revoked.push(await revokeRecord(args, t, reason, nowIso));
   return { memberId, revokedCount: revoked.length, items: await enrich(args, revoked, nowIso) };
