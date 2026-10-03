@@ -37,6 +37,16 @@ function pageScopeValue(
  * Pages BatchGet(100개 청크) 으로 실제 row 를 가져온다. org/team/project 동시 지정 시 post-filter.
  * nextToken 은 member 인덱스 Query 의 LastEvaluatedKey 를 사용한다.
  */
+/**
+ * 선택 프로젝션 — 지정한 속성만 읽는다(MCP 질의처럼 본문 doc 이 필요 없는 서버 내부 호출용).
+ * AppSync 경로는 넘기지 않아 기존과 같이 전체 항목을 읽는다. 예약어(order 등)는 별칭으로 감싼다.
+ */
+function projectionOf(attrs: string[] | undefined): { ProjectionExpression?: string; ExpressionAttributeNames?: Record<string, string> } {
+  if (!attrs || attrs.length === 0) return {};
+  const names = Object.fromEntries(attrs.map((a, i) => [`#p${i}`, a]));
+  return { ProjectionExpression: Object.keys(names).join(", "), ExpressionAttributeNames: names };
+}
+
 async function listDatabaseRowsByAssignee(args: {
   doc: DynamoDBDocumentClient;
   tables: Tables;
@@ -47,6 +57,7 @@ async function listDatabaseRowsByAssignee(args: {
   teamId?: string;
   projectId?: string;
   limit: number;
+  projection?: string[];
 }): Promise<Connection<Record<string, unknown>>> {
   const memberTable = args.tables.DatabaseRowMembers;
   // 색인 테이블 미설정이면 빈 결과(회귀 없이 graceful) — scope 미지정 경로는 별도 처리됨.
@@ -82,7 +93,7 @@ async function listDatabaseRowsByAssignee(args: {
     const res = await args.doc.send(
       new BatchGetCommand({
         RequestItems: {
-          [args.tables.Pages]: { Keys: chunk.map((id) => ({ id })) },
+          [args.tables.Pages]: { Keys: chunk.map((id) => ({ id })), ...projectionOf(args.projection) },
         },
       }),
     );
@@ -137,6 +148,8 @@ export async function listDatabaseRows(args: {
   assigneeId?: string;
   limit?: number;
   nextToken?: string;
+  /** 서버 내부 호출 전용 — 읽을 속성 목록(FilterExpression 대상 속성은 프로젝션과 무관하게 평가된다). */
+  projection?: string[];
 }): Promise<Connection<Record<string, unknown>>> {
   if (!args.tables.Pages) badRequest("Pages table 미설정");
   await requireWorkspaceAccess({
@@ -161,6 +174,7 @@ export async function listDatabaseRows(args: {
       teamId: args.teamId,
       projectId: args.projectId,
       limit,
+      projection: args.projection,
     });
   }
 
@@ -198,6 +212,7 @@ export async function listDatabaseRows(args: {
       ScanIndexForward: true,
       Limit: limit,
       ExclusiveStartKey: args.nextToken ? JSON.parse(args.nextToken) : undefined,
+      ...projectionOf(args.projection),
     }),
   );
   return {

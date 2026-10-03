@@ -16,6 +16,7 @@ export const TABLES: McpTables = {
   McpTokens: "mcp-tokens",
   RateLimit: "ai-usage",
   PageHistory: "page-history",
+  DatabaseHistory: "database-history",
   AssetUsage: "asset-usage",
   ImageAssets: "image-assets",
   Schedules: "schedules",

@@ -6,6 +6,8 @@ import type { McpContext } from "./context";
 import { runTool } from "./toolRunner";
 import { beginWrite } from "./writeAccess";
 import { createCommentInputShape, createCommentTool } from "./tools/createComment";
+import { createDatabaseInputShape, createDatabaseTool } from "./tools/createDatabase";
+import { databaseChangeUnits, updateDatabaseInputShape, updateDatabaseTool } from "./tools/updateDatabase";
 import { createPagesInputShape, createPagesTool } from "./tools/createPages";
 import { duplicatePageInputShape, duplicatePageTool } from "./tools/duplicatePage";
 import { movePagesInputShape, movePagesTool } from "./tools/movePages";
@@ -115,5 +117,44 @@ export function registerWriteTools(server: McpServer, ctx: McpContext): void {
     },
     async (args) =>
       runTool(ctx, "create_comment", { pageIds: [args.pageId], bytes: bytes(args.text) }, gated(ctx, () => createCommentTool(ctx, args))),
+  );
+
+  server.registerTool(
+    "create_database",
+    {
+      description:
+        "Create a database with a title column plus the given columns. layout inline: appended as a database block to parent.pageId. " +
+        "layout fullPage: a full-page database (opened from the database list); with parent.pageId a button to it is appended there. " +
+        `Column types: text, number, select, multiSelect, status, date, checkbox, url, email, phone, person, pageLink. Add rows with create_pages {parent:{databaseId}}. ${WRITE_NOTE}`,
+      inputSchema: createDatabaseInputShape,
+      annotations: WRITE,
+    },
+    async (args) =>
+      runTool(
+        ctx,
+        "create_database",
+        { parent: args.parent, layout: args.layout ?? "inline", columns: args.columns?.length ?? 0 },
+        gated(ctx, () => createDatabaseTool(ctx, args), 1 + (args.columns?.length ?? 0)),
+        (r) => ({ databaseId: r.databaseId }),
+      ),
+  );
+
+  server.registerTool(
+    "update_database",
+    {
+      description:
+        "Rename a database and add, update (rename, change type without value conversion, add/rename select options) or remove columns. " +
+        "Removing columns first saves a version-history checkpoint; the title column cannot be removed or retyped. Live views update immediately. " +
+        WRITE_NOTE,
+      inputSchema: updateDatabaseInputShape,
+      annotations: DESTRUCTIVE,
+    },
+    async (args) =>
+      runTool(
+        ctx,
+        "update_database",
+        { databaseId: args.databaseId, add: args.addColumns?.length ?? 0, update: args.updateColumns?.length ?? 0, remove: args.removeColumns?.length ?? 0 },
+        gated(ctx, () => updateDatabaseTool(ctx, args), databaseChangeUnits(args)),
+      ),
   );
 }

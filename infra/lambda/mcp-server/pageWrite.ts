@@ -1,11 +1,11 @@
 // 페이지 저장·전파 — v5 upsertPage(데이터 안전 가드·히스토리·색인 포함) 후 publishPageChanged(IAM)로
-// 열린 클라의 사이드바·메타를 갱신한다(template-automation runner 와 같은 경로).
+// 열린 클라의 사이드바·메타를 갱신한다(publish.ts).
 import { upsertPage } from "../v5-resolvers/handlers/pageDatabase";
 import { recordPageHistory } from "../v5-resolvers/handlers/pageDatabase/history";
-import { publishPageChangedToAppSync } from "../template-automation/runner";
 import { ResolverError } from "../v5-resolvers/handlers/_auth";
 import { ToolError, type McpContext } from "./context";
 import { getItem } from "./ddb";
+import { publishPage } from "./publish";
 
 type Item = Record<string, unknown>;
 
@@ -13,17 +13,6 @@ export type SavedPage = { page: Item; published: boolean };
 
 export function nowIso(): string {
   return new Date().toISOString();
-}
-
-async function publish(page: Item): Promise<boolean> {
-  try {
-    await publishPageChangedToAppSync(page);
-    return true;
-  } catch (err) {
-    // 저장은 끝났다 — 전파 실패는 다음 동기화(재진입·증분 sync)가 복구한다.
-    console.error("mcp publishPageChanged 실패", { pageId: page.id }, err);
-    return false;
-  }
 }
 
 async function upsertAndPublish(ctx: McpContext, input: Item, expectedUpdatedAt?: string): Promise<SavedPage> {
@@ -34,7 +23,7 @@ async function upsertAndPublish(ctx: McpContext, input: Item, expectedUpdatedAt?
     input: { ...input, lastEditSource: "mcp" },
     ...(expectedUpdatedAt ? { expectedUpdatedAt } : {}),
   });
-  return { page, published: await publish(page) };
+  return { page, published: await publishPage(page) };
 }
 
 /** 신규 페이지 저장. lastEditedBy 는 upsertPage 가 caller(토큰 소유 멤버)로 기록한다. */

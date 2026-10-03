@@ -164,7 +164,7 @@ type PageMeta {
   deletedAt: AWSDateTime
 }
 
-type Database {
+type Database @aws_cognito_user_pools @aws_iam {
   id: ID!
   workspaceId: ID!
   createdByMemberId: ID!
@@ -180,7 +180,7 @@ type Database {
   deletedAt: AWSDateTime
 }
 
-type Comment {
+type Comment @aws_cognito_user_pools @aws_iam {
   id: ID!
   workspaceId: ID!
   pageId: ID!
@@ -794,7 +794,12 @@ type Mutation {
   publishPage(pageId: ID!, layout: AWSJSON): PagePublishStatus!
   """웹 게시 해제 — 토큰 무효화(재게시 시 새 토큰). edit 권한 필요."""
   unpublishPage(pageId: ID!): PagePublishStatus!
-  publishPageChanged(input: PageInput!): Page! @aws_iam
+  """IAM 전용(서버 Lambda) — 저장 없이 onPageChanged 를 발행한다. deletedAt 을 주면 구독 클라가 tombstone 으로 처리."""
+  publishPageChanged(input: PageInput!, deletedAt: AWSDateTime): Page! @aws_iam
+  """IAM 전용(서버 Lambda) — 저장 없이 onDatabaseChanged 를 발행한다."""
+  publishDatabaseChanged(input: DatabaseInput!): Database! @aws_iam
+  """IAM 전용(서버 Lambda) — 저장 없이 onCommentChanged 를 발행한다."""
+  publishCommentChanged(input: CommentInput!): Comment! @aws_iam
   softDeletePage(id: ID!, workspaceId: ID!, updatedAt: AWSDateTime!, title: String, icon: String, databaseId: ID): Page!
   """휴지통 페이지 복원(deletedAt 제거)"""
   restorePage(id: ID!, workspaceId: ID!): Page!
@@ -873,11 +878,11 @@ type Mutation {
 # ========== Subscription ==========
 type Subscription {
   onCommentChanged(workspaceId: ID!): Comment
-    @aws_subscribe(mutations: ["upsertComment", "toggleCommentReaction", "softDeleteComment"])
+    @aws_subscribe(mutations: ["upsertComment", "toggleCommentReaction", "softDeleteComment", "publishCommentChanged"])
   onPageChanged(workspaceId: ID!): Page
     @aws_subscribe(mutations: ["upsertPage", "publishPageChanged", "softDeletePage", "restorePage"])
   onDatabaseChanged(workspaceId: ID!): Database
-    @aws_subscribe(mutations: ["upsertDatabase", "softDeleteDatabase", "restoreDatabase"])
+    @aws_subscribe(mutations: ["upsertDatabase", "softDeleteDatabase", "restoreDatabase", "publishDatabaseChanged"])
   onScheduleChanged(workspaceId: ID!): Schedule
     @aws_subscribe(mutations: ["createSchedule", "updateSchedule"])
   onProjectChanged(workspaceId: ID!): Project

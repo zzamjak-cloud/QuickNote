@@ -1018,11 +1018,26 @@ const RESOLVERS: Record<
     await revokeMcpToken({ ...base, tokenId: event.arguments.tokenId as string }),
 };
 
+/** publish*Changed(IAM) 응답 — 입력 echo. 페이지는 deletedAt 인자를 tombstone 필드로 싣는다. */
+export function publishOnlyResult(fieldName: string, args: Record<string, unknown>): Record<string, unknown> | null {
+  const input = args.input as Record<string, unknown> | undefined;
+  if (!input) return null;
+  if (fieldName === "publishPageChanged") {
+    return typeof args.deletedAt === "string" ? { ...input, deletedAt: args.deletedAt } : input;
+  }
+  if (fieldName === "publishDatabaseChanged") return { ...input, deletedAt: null };
+  if (fieldName === "publishCommentChanged") {
+    const { importedAuthorMemberId: _ignored, ...comment } = input;
+    return { ...comment, deletedAt: null };
+  }
+  return null;
+}
+
 export async function handler(event: AppsyncEvent): Promise<unknown> {
   try {
-    if (event.info.fieldName === "publishPageChanged") {
-      return event.arguments.input as Record<string, unknown>;
-    }
+    // IAM 전용 발행 mutation — 저장 없이 입력을 그대로 돌려줘 구독만 발행한다(caller 조회 전에 처리).
+    const published = publishOnlyResult(event.info.fieldName, event.arguments);
+    if (published) return published;
 
     const caller = await getCallerMember(doc, tables.Members, event.identity?.sub);
     const base = { doc, tables, caller };

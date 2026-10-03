@@ -7,6 +7,7 @@ import { runTool } from "./toolRunner";
 import { getCommentsInputShape, getCommentsTool } from "./tools/comments";
 import { fetchInputShape, fetchTool } from "./tools/fetch";
 import { listWorkspacesTool } from "./tools/listWorkspaces";
+import { queryDatabaseInputShape, queryDatabaseTool } from "./tools/queryDatabase";
 import { searchInputShape, searchTool } from "./tools/search";
 import { getUsersInputShape, getUsersTool } from "./tools/users";
 
@@ -67,6 +68,19 @@ export function buildMcpServer(ctx: McpContext): McpServer {
       annotations: READ_ONLY,
     },
     async (args) => runTool(ctx, "get_comments", { pageId: args.pageId }, () => getCommentsTool(ctx, args)),
+  );
+
+  server.registerTool(
+    "query_database",
+    {
+      description:
+        "Query rows of a database with the same search/filter/sort semantics as QuickNote views. Filters use column names and " +
+        "human values (option labels, member email/id, YYYY-MM-DD, true/false); operators: contains, equals, notEquals, gt, lt, " +
+        "isEmpty, isNotEmpty. Returns a markdown table, row ids and nextCursor. Scans at most 5000 rows (reported as truncated).",
+      inputSchema: queryDatabaseInputShape,
+      annotations: READ_ONLY,
+    },
+    async (args) => runTool(ctx, "query_database", { databaseId: args.databaseId }, () => queryDatabaseTool(ctx, args)),
   );
 
   registerWriteTools(server, ctx);

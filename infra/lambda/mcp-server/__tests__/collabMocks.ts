@@ -23,7 +23,9 @@ export const broadcastMock = {
 };
 
 export const publishMock = {
-  publishPageChangedToAppSync: vi.fn(async () => undefined),
+  publishPage: vi.fn(async (_page: unknown, _opts?: { deletedAt?: string }) => true),
+  publishDatabase: vi.fn(async (_db: unknown) => true),
+  publishComment: vi.fn(async (_comment: unknown) => true),
 };
 
 /** 클라 시드와 같은 방식으로 룸에 본문을 채운다(룸이 비어 있지 않은 페이지 시나리오). */
@@ -38,7 +40,9 @@ export function resetCollabMocks(): void {
   yjsStoreMock.loadPageState.mockClear();
   yjsStoreMock.appendPageUpdate.mockClear();
   broadcastMock.broadcastRoomUpdate.mockClear();
-  publishMock.publishPageChangedToAppSync.mockClear();
+  publishMock.publishPage.mockClear();
+  publishMock.publishDatabase.mockClear();
+  publishMock.publishComment.mockClear();
 }
 
 export function para(text: string, id?: string): DocJson {

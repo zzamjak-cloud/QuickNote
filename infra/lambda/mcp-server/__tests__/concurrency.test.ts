@@ -10,7 +10,7 @@ import type { Item } from "./fakeDdb";
 
 vi.mock("../../realtime/yjsStore", async () => (await import("./collabMocks")).yjsStoreMock);
 vi.mock("../wsBroadcast", async () => (await import("./collabMocks")).broadcastMock);
-vi.mock("../../template-automation/runner", async () => (await import("./collabMocks")).publishMock);
+vi.mock("../publish", async () => (await import("./collabMocks")).publishMock);
 
 const COLUMNS = [
   { id: "c-title", name: "Name", type: "title" },
@@ -80,7 +80,7 @@ describe("부분 갱신·조건부 저장", () => {
     const r = await updatePageTool(ctx, { pageId: "p1", content: { mode: "append", markdown: "added once" } });
     expect(r).toMatchObject({ contentChanged: true, materialized: false });
     expect(appended).toHaveLength(1);
-    expect(publishMock.publishPageChangedToAppSync).not.toHaveBeenCalled();
+    expect(publishMock.publishPage).not.toHaveBeenCalled();
     const texts = (stateToDocJson(rooms.get("v5:p1")!).content ?? []).map((b) => b.content?.[0]?.text);
     expect(texts).toEqual(["a", "added once"]);
   });

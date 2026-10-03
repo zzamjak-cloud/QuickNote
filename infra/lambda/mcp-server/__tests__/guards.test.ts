@@ -3,6 +3,9 @@ import { EPOCH_CACHE_TTL_MS, observedEpochs, requireCollabEpoch } from "../epoch
 import { consumeDailyWrite, dailyWriteLimit } from "../rateLimit";
 import { createCommentTool } from "../tools/createComment";
 import { updatePageTool } from "../tools/updatePage";
+import { createDatabaseTool } from "../tools/createDatabase";
+import { trashPageTool } from "../tools/trashPage";
+import { updateDatabaseTool } from "../tools/updateDatabase";
 import { beginWrite, WRITE_SCOPE_ERROR } from "../writeAccess";
 import { docOf, para, resetCollabMocks } from "./collabMocks";
 import { baseTables, makeCtx } from "./fixtures";
@@ -10,7 +13,7 @@ import type { Item } from "./fakeDdb";
 
 vi.mock("../../realtime/yjsStore", async () => (await import("./collabMocks")).yjsStoreMock);
 vi.mock("../wsBroadcast", async () => (await import("./collabMocks")).broadcastMock);
-vi.mock("../../template-automation/runner", async () => (await import("./collabMocks")).publishMock);
+vi.mock("../publish", async () => (await import("./collabMocks")).publishMock);
 
 const WRITE = { scopes: ["read", "write"] as ("read" | "write")[] };
 const ENV = { YDOC_UPDATES_TABLE: "rt-upd", YDOC_TABLE: "rt-ydoc", CONNECTIONS_TABLE: "rt-conn" };
@@ -63,6 +66,17 @@ describe("epoch 불일치 가드", () => {
     await updatePageTool(ctx, { pageId: "p1", title: "Renamed" });
     await createCommentTool(ctx, { pageId: "p1", text: "hi" });
     expect((fake.tables.pages.find((p) => p.id === "p1") as Item).title).toBe("Renamed");
+  });
+
+  it("P3 DB 툴: 컬럼·행 쓰기는 가드 대상, DB 제목만 바꾸기는 허용", async () => {
+    const { ctx, fake } = setup({ updates: ["v6:a"], conns: ["v6:b"] });
+    fake.tables.databases = [{ id: "db1", workspaceId: "ws-a", title: "Tasks", columns: JSON.stringify([{ id: "t", name: "Name", type: "title" }]) }];
+    fake.tables.pages.push({ id: "row", workspaceId: "ws-a", databaseId: "db1", title: "R", order: "0", updatedAt: "x" });
+    await expect(updateDatabaseTool(ctx, { databaseId: "db1", addColumns: [{ name: "A", type: "text" }] })).rejects.toThrow(/EPOCH_MISMATCH/);
+    await expect(trashPageTool(ctx, { pageId: "row" })).rejects.toThrow(/EPOCH_MISMATCH/);
+    await expect(createDatabaseTool(ctx, { parent: { pageId: "p1" }, title: "X" })).rejects.toThrow(/EPOCH_MISMATCH/);
+    await updateDatabaseTool(ctx, { databaseId: "db1", title: "Renamed" });
+    expect((fake.tables.databases[0] as Item).title).toBe("Renamed");
   });
 
   it("표본은 컨테이너 캐시(TTL 10분) — 키만 projection, Limit 100", async () => {

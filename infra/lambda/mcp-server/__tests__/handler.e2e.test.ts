@@ -8,7 +8,7 @@ import { baseTables, TABLES, tokenRecord } from "./fixtures";
 
 vi.mock("../../realtime/yjsStore", async () => (await import("./collabMocks")).yjsStoreMock);
 vi.mock("../wsBroadcast", async () => (await import("./collabMocks")).broadcastMock);
-vi.mock("../../template-automation/runner", async () => (await import("./collabMocks")).publishMock);
+vi.mock("../publish", async () => (await import("./collabMocks")).publishMock);
 
 function setup(tokenOverrides = {}) {
   const token = generateMcpToken();
@@ -53,8 +53,8 @@ describe("MCP handler e2e", () => {
     const list = await handler(event({ jsonrpc: "2.0", id: 2, method: "tools/list" }, { token }));
     const tools = JSON.parse(String(list.body)).result.tools.map((t: { name: string }) => t.name);
     expect(tools.sort()).toEqual([
-      "create_comment", "create_pages", "duplicate_page", "fetch", "get_comments", "get_users",
-      "list_workspaces", "move_pages", "search", "trash_page", "update_page",
+      "create_comment", "create_database", "create_pages", "duplicate_page", "fetch", "get_comments", "get_users",
+      "list_workspaces", "move_pages", "query_database", "search", "trash_page", "update_database", "update_page",
     ]);
 
     const search = await handler(event({
@@ -178,6 +178,36 @@ describe("MCP handler e2e", () => {
     } finally {
       delete process.env.MCP_DAILY_WRITE_LIMIT;
     }
+  });
+
+  it("DB 왕복: query → create_database → update_database(컬럼 추가) → create_pages(행) → query(필터)", async () => {
+    const { token, handler } = setup({ scopes: ["read", "write"] });
+    const call = async (id: number, name: string, args: unknown) => {
+      const res = await handler(event({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } }, { token }));
+      const result = JSON.parse(String(res.body)).result as { isError?: boolean; content: { text: string }[] };
+      expect(result.isError, result.content[0].text).toBeFalsy();
+      return result.content[0].text;
+    };
+    const created = JSON.parse(await call(30, "create_database", {
+      parent: { pageId: "p1" }, title: "Bugs", columns: [{ name: "Severity", type: "select", options: ["High", "Low"] }],
+    }));
+    const databaseId = created.databaseId as string;
+    expect(await call(31, "query_database", { databaseId })).toContain("matched: 0");
+    await call(32, "update_database", { databaseId, addColumns: [{ name: "Points", type: "number" }] });
+    await call(33, "create_pages", {
+      parent: { databaseId },
+      pages: [
+        { title: "Crash on save", properties: { Severity: "High", Points: 5 } },
+        { title: "Typo", properties: { Severity: "Low", Points: 1 } },
+        { title: "Slow load", properties: { Severity: "High", Points: 3 } },
+      ],
+    });
+    const result = await call(34, "query_database", {
+      databaseId, filter: [{ column: "Severity", operator: "equals", value: "High" }], sorts: [{ column: "Points", direction: "asc" }],
+    });
+    expect(result).toContain("matched: 2");
+    expect(result).toMatch(/Slow load[\s\S]*Crash on save/);
+    expect(result).toContain("| id | title | Severity | Points |");
   });
 
   it("분당 한도 초과 시 429", async () => {

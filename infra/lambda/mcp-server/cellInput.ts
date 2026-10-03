@@ -43,7 +43,7 @@ function asString(col: ColumnLite, value: unknown): string {
   return value;
 }
 
-function optionId(col: ColumnLite, value: string): string {
+export function optionId(col: ColumnLite, value: string): string {
   const hit = col.options.find((o) => o.label === value || o.id === value)
     ?? col.options.find((o) => o.label.toLowerCase() === value.toLowerCase());
   if (hit) return hit.id;
@@ -100,11 +100,8 @@ async function findActiveMember(ctx: McpContext, ref: string): Promise<Member | 
   return hit ? (hit as unknown as Member) : null;
 }
 
-/**
- * person 셀 값 — 대상 워크스페이스에 접근 가능한 활성 멤버만. 없음·권한 없음은 같은 문구로 돌려
- * 오류로 멤버 존재 여부를 알아낼 수 없게 한다.
- */
-async function memberIdFor(ctx: McpContext, col: ColumnLite, ref: string, workspaceId: string): Promise<string> {
+/** 멤버 id/이메일 → 워크스페이스 접근 가능한 활성 멤버 id(아니면 null). */
+export async function resolveWorkspaceMember(ctx: McpContext, ref: string, workspaceId: string): Promise<string | null> {
   const member = await findActiveMember(ctx, ref);
   // 개인 워크스페이스는 access 엔트리 없이 소유자만 쓴다(workspace.ts 와 같은 기준).
   const allowed = member !== null && (member.personalWorkspaceId === workspaceId || await hasWorkspaceViewAccess({
@@ -114,8 +111,16 @@ async function memberIdFor(ctx: McpContext, col: ColumnLite, ref: string, worksp
     caller: member,
     workspaceId,
   }));
-  if (member && allowed) return member.memberId;
-  return fail(col, `unknown member "${ref}" in this workspace (use get_users for ids/emails)`);
+  return member && allowed ? member.memberId : null;
+}
+
+/**
+ * person 셀 값 — 대상 워크스페이스에 접근 가능한 활성 멤버만. 없음·권한 없음은 같은 문구로 돌려
+ * 오류로 멤버 존재 여부를 알아낼 수 없게 한다.
+ */
+async function memberIdFor(ctx: McpContext, col: ColumnLite, ref: string, workspaceId: string): Promise<string> {
+  const id = await resolveWorkspaceMember(ctx, ref, workspaceId);
+  return id ?? fail(col, `unknown member "${ref}" in this workspace (use get_users for ids/emails)`);
 }
 
 async function pageLinkIds(ctx: McpContext, col: ColumnLite, ids: string[], workspaceId: string): Promise<string[]> {

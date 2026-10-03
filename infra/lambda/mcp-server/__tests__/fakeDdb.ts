@@ -10,6 +10,7 @@ const EQ_RE = /(#?\w+)\s*=\s*(:\w+)/g;
 // 테이블별 기본키(Put 시 같은 키 항목을 교체). 미지정 테이블은 id 가 있으면 id 를 키로 본다.
 const KEY_FIELDS: Record<string, string[]> = {
   "page-history": ["pageId", "historyId"],
+  "database-history": ["databaseId", "historyId"],
   members: ["memberId"],
   "mcp-tokens": ["tokenHash"],
   "workspace-access": ["workspaceId", "subjectKey"],

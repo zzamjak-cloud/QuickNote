@@ -14,6 +14,7 @@ export type McpTables = Tables & {
   RateLimit: string;
   // 쓰기 툴이 재사용하는 upsertPage·upsertComment 의 부수 효과(히스토리·자산·색인·알림) 테이블.
   PageHistory: string;
+  DatabaseHistory: string;
   AssetUsage: string;
   ImageAssets: string;
   Schedules: string;
@@ -63,6 +64,7 @@ export function tablesFromEnv(): McpTables {
     McpTokens: env("MCP_TOKENS_TABLE_NAME"),
     RateLimit: env("MCP_RATE_LIMIT_TABLE_NAME"),
     PageHistory: env("PAGE_HISTORY_TABLE_NAME"),
+    DatabaseHistory: env("DATABASE_HISTORY_TABLE_NAME"),
     AssetUsage: env("ASSET_USAGE_TABLE_NAME"),
     ImageAssets: env("IMAGE_ASSETS_TABLE_NAME"),
     Schedules: env("SCHEDULES_TABLE_NAME"),

@@ -9,7 +9,7 @@ import type { Item } from "./fakeDdb";
 
 vi.mock("../../realtime/yjsStore", async () => (await import("./collabMocks")).yjsStoreMock);
 vi.mock("../wsBroadcast", async () => (await import("./collabMocks")).broadcastMock);
-vi.mock("../../template-automation/runner", async () => (await import("./collabMocks")).publishMock);
+vi.mock("../publish", async () => (await import("./collabMocks")).publishMock);
 
 const ROOM = "v5:p1";
 const WRITE = { scopes: ["read", "write"] as ("read" | "write")[] };

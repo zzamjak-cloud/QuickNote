@@ -8,7 +8,7 @@ import { baseTables, makeCtx } from "./fixtures";
 
 vi.mock("../../realtime/yjsStore", async () => (await import("./collabMocks")).yjsStoreMock);
 vi.mock("../wsBroadcast", async () => (await import("./collabMocks")).broadcastMock);
-vi.mock("../../template-automation/runner", async () => (await import("./collabMocks")).publishMock);
+vi.mock("../publish", async () => (await import("./collabMocks")).publishMock);
 
 function setup(doc: unknown) {
   const tables = baseTables();
@@ -30,7 +30,7 @@ describe("collabWriter.writePageBody", () => {
     expect(r.checkpointed).toBe(false);
     expect(appended.map((a) => a.room)).toEqual(["v5:p1"]);
     expect(broadcastMock.broadcastRoomUpdate).toHaveBeenCalledTimes(1);
-    expect(publishMock.publishPageChangedToAppSync).toHaveBeenCalledTimes(1);
+    expect(publishMock.publishPage).toHaveBeenCalledTimes(1);
     const saved = fake.tables.pages[0];
     expect(saved.title).toBe("T2");
     expect(JSON.parse(String(saved.doc)).content.map((b: { content: { text: string }[] }) => b.content[0].text)).toEqual(["one", "two"]);

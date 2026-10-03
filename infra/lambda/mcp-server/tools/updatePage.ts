@@ -13,6 +13,8 @@ import { assertDatabasesUsable, normalizeTitle, workspaceMetas } from "../pageHe
 import { patchPage, type PagePatch } from "../pageWrite";
 import { parseCells } from "../properties";
 import { loadWritableDatabase, loadWritablePage } from "../writeAccess";
+import { saveDatabase } from "../dbStructureWriter";
+import { renameDatabase } from "./updateDatabase";
 
 export const updatePageInputShape = {
   pageId: z.string().trim().min(1).max(256).describe("Page id to update"),
@@ -66,14 +68,26 @@ async function buildMetaPatch(ctx: McpContext, page: Item, input: z.infer<typeof
   };
 }
 
+async function renameFullPageDatabase(ctx: McpContext, page: Item, input: z.infer<typeof updatePageInput>) {
+  if (input.properties) throw new ToolError("properties can only be set on database rows");
+  const db = await loadWritableDatabase(ctx, String(page.fullPageDatabaseId));
+  const title = input.title as string;
+  await renameDatabase(ctx, db, title);
+  await saveDatabase(ctx, db, { title: normalizeTitle(title) });
+  const saved = input.icon !== undefined ? (await patchPage(ctx, String(page.id), { icon: input.icon })).page : page;
+  return { id: String(page.id), databaseId: String(db.id), updatedAt: String(saved.updatedAt ?? ""), contentChanged: false, renamedDatabase: true };
+}
+
 export async function updatePageTool(ctx: McpContext, raw: UpdatePageInput) {
   const input = updatePageInput.parse(raw);
   if (input.title === undefined && input.icon === undefined && !input.properties && !input.content) {
     throw new ToolError("Nothing to update: pass title, icon, properties or content");
   }
   const page = await loadWritablePage(ctx, input.pageId);
-  if (page.fullPageDatabaseId && (input.content || input.title !== undefined)) {
-    throw new ToolError("This page is a full-page database home; edit its rows instead (title/body are managed by the database)");
+  if (page.fullPageDatabaseId) {
+    if (input.content) throw new ToolError("This page is a full-page database home; its body is the database view (edit rows or columns instead)");
+    // 앱 규약: 홈 제목 = DB 제목(setDatabaseTitle 이 홈을 함께 바꾼다) → 제목 변경은 DB 이름 변경으로 처리.
+    if (input.title !== undefined) return renameFullPageDatabase(ctx, page, input);
   }
   // 본문·셀은 협업 룸이 권위 — epoch 이 어긋나면 쓰기가 조용히 덮어써지므로 먼저 막는다(메타 전용은 무관).
   if (input.content || input.properties) await requireCollabEpoch(ctx);

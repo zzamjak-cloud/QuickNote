@@ -1,6 +1,6 @@
 // create_comment — 블록 댓글 작성(v5 upsertComment 경로: 작성자=토큰 소유 멤버 강제, 멘션 알림 생성).
 // 댓글은 블록에 앵커된다. blockId 를 생략하면 본문 첫 블록(페이지 상단)에 단다.
-// onCommentChanged 구독은 IAM 발행 경로가 없어, 열린 클라는 다음 댓글 동기화 때 보게 된다.
+// 저장 후 publishCommentChanged(IAM)로 onCommentChanged 구독 클라에 즉시 알린다.
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { upsertComment } from "../../v5-resolvers/handlers/commentDatabase";
@@ -8,6 +8,7 @@ import type { DocNode } from "../../../../src/lib/docModel/types";
 import { loadBodyBase } from "../collabWriter";
 import { ToolError, type McpContext } from "../context";
 import { nowIso } from "../pageWrite";
+import { publishComment } from "../publish";
 import { loadWritablePage } from "../writeAccess";
 
 export const createCommentInputShape = {
@@ -49,5 +50,6 @@ export async function createCommentTool(ctx: McpContext, raw: CreateCommentInput
       createdAt: now,
     },
   });
+  await publishComment(saved);
   return { id: String(saved.id), pageId: String(page.id), blockId, createdAt: String(saved.createdAt) };
 }

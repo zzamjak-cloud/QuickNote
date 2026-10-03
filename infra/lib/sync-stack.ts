@@ -1221,6 +1221,7 @@ export function response(ctx) {
         MCP_RATE_LIMIT_TABLE_NAME: aiUsageTable.tableName,
         // 쓰기 툴이 재사용하는 upsertPage·softDeletePage·upsertComment 의 부수 효과 테이블.
         PAGE_HISTORY_TABLE_NAME: pageHistoryTable.tableName,
+        DATABASE_HISTORY_TABLE_NAME: databaseHistoryTable.tableName,
         ASSET_USAGE_TABLE_NAME: assetUsageTable.tableName,
         IMAGE_ASSETS_TABLE_NAME: this.imageAssetTable.table.tableName,
         SCHEDULES_TABLE_NAME: schedulesTable.tableName,
@@ -1251,9 +1252,11 @@ export function response(ctx) {
     this.workspaceAccessTable.grantReadData(mcpServerFn);
     // 쓰기 툴: Pages·Comments 쓰기 + upsertPage/softDeletePage/upsertComment 부수 효과 테이블.
     this.pageTable.table.grantReadWriteData(mcpServerFn);
-    this.databaseTable.table.grantReadData(mcpServerFn);
+    // P3: DB 생성·구조 변경(upsertDatabase)과 DB 버전 히스토리.
+    this.databaseTable.table.grantReadWriteData(mcpServerFn);
     this.commentTable.table.grantReadWriteData(mcpServerFn);
     pageHistoryTable.grantReadWriteData(mcpServerFn);
+    databaseHistoryTable.grantReadWriteData(mcpServerFn);
     assetUsageTable.grantReadWriteData(mcpServerFn);
     this.imageAssetTable.table.grantReadWriteData(mcpServerFn);
     schedulesTable.grantReadWriteData(mcpServerFn);
@@ -1262,9 +1265,9 @@ export function response(ctx) {
     mcpServerFn.addToRolePolicy(
       new iam.PolicyStatement({
         actions: ["appsync:GraphQL"],
-        resources: [
-          `arn:${cdk.Aws.PARTITION}:appsync:${cdk.Aws.REGION}:${cdk.Aws.ACCOUNT_ID}:apis/${api.apiId}/types/Mutation/fields/publishPageChanged`,
-        ],
+        resources: ["publishPageChanged", "publishDatabaseChanged", "publishCommentChanged"].map(
+          (field) => `arn:${cdk.Aws.PARTITION}:appsync:${cdk.Aws.REGION}:${cdk.Aws.ACCOUNT_ID}:apis/${api.apiId}/types/Mutation/fields/${field}`,
+        ),
       }),
     );
     // 토큰 테이블: 해시 단건 조회 + lastUsedAt 갱신만. UpdateItem 은 속성 조건으로 lastUsedAt 외 변경을 막고,
@@ -1586,6 +1589,15 @@ export function response(ctx) {
     v5Ds.createResolver("MutationpublishPageChanged", {
       typeName: "Mutation",
       fieldName: "publishPageChanged",
+    });
+    // MCP 서버가 DB 구조·댓글 변경을 구독 클라에 알리는 IAM 전용 발행 mutation(저장 없음, 입력 echo).
+    v5Ds.createResolver("MutationpublishDatabaseChanged", {
+      typeName: "Mutation",
+      fieldName: "publishDatabaseChanged",
+    });
+    v5Ds.createResolver("MutationpublishCommentChanged", {
+      typeName: "Mutation",
+      fieldName: "publishCommentChanged",
     });
 
     const softDeletePageResolver = v5Ds.createResolver("MutationsoftDeletePage", {

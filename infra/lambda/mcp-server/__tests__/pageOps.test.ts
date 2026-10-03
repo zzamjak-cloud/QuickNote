@@ -13,7 +13,7 @@ import type { Item } from "./fakeDdb";
 
 vi.mock("../../realtime/yjsStore", async () => (await import("./collabMocks")).yjsStoreMock);
 vi.mock("../wsBroadcast", async () => (await import("./collabMocks")).broadcastMock);
-vi.mock("../../template-automation/runner", async () => (await import("./collabMocks")).publishMock);
+vi.mock("../publish", async () => (await import("./collabMocks")).publishMock);
 
 const WRITE = { scopes: ["read", "write"] as ("read" | "write")[] };
 const COLUMNS = [
@@ -80,7 +80,7 @@ describe("create_pages", () => {
     const doc = JSON.parse(String(a.doc));
     expect(doc.content[0]).toMatchObject({ type: "heading", attrs: { level: 1 } });
     expect(typeof doc.content[0].attrs.id).toBe("string");
-    expect(publishMock.publishPageChangedToAppSync).toHaveBeenCalledTimes(2);
+    expect(publishMock.publishPage).toHaveBeenCalledTimes(2);
     expect(appended).toHaveLength(0); // 신규 페이지는 룸을 만들지 않는다
   });
 
@@ -195,7 +195,7 @@ describe("move_pages", () => {
 });
 
 describe("trash_page", () => {
-  it("자손까지 soft delete(deletedAt·purgeAt), 영구삭제 없음, DB 행은 거부", async () => {
+  it("자손까지 soft delete(deletedAt·purgeAt)·tombstone 발행, 영구삭제 없음", async () => {
     const { ctx, fake } = setup([page("a"), page("a1", { parentId: "a" }), page("a11", { parentId: "a1" }), page("x"), page("row", { databaseId: "db1" })]);
     const r = await trashPageTool(ctx, { pageId: "a" });
     expect(r.trashed.sort()).toEqual(["a", "a1", "a11"]);
@@ -206,7 +206,7 @@ describe("trash_page", () => {
     }
     expect(byId(fake, "x").deletedAt).toBeUndefined();
     expect(fake.tables.pages).toHaveLength(5);
-    await expect(trashPageTool(ctx, { pageId: "row" })).rejects.toThrow(/Database rows/);
+    expect(publishMock.publishPage).toHaveBeenCalledWith(expect.objectContaining({ id: "a1" }), { deletedAt: expect.any(String) });
     await expect(trashPageTool(ctx, { pageId: "a" })).rejects.toThrow(/trash/);
   });
 });

@@ -67,6 +67,13 @@ Text, Number, Select, MultiSelect, Status, Date, Checkbox, Person, File, URL/Pho
 - `pages` 전량 순회(예: 행마다 후손 수 계산)는 1회 파생 인덱스(Set)로 바꿔 행 단위 O(1) 조회한다.
 - 셀/표시 컴포넌트는 `memo` 유지, 핸들러 props 안정화.
 
+## 서버 쓰기(MCP) 규약
+
+원격 MCP 서버도 DB 를 읽고 쓴다(`wiki/settings/mcp.md` DB 툴). 클라 쪽 변경 시 서버와 어긋나기 쉬운 지점:
+- 질의는 `src/lib/databaseQuery.ts` 를 **infra 가 직접 import** 한다 — 이 모듈(과 `lib/database/jsonCell.ts`, `types/database.ts`)에 npm·스토어 import 를 넣으면 Lambda 번들이 깨진다.
+- 컬럼·옵션 생성 규칙(UUID, `SELECT_COLOR_PRESETS` 순환, title 컬럼 "이름")과 DB 룸 Y 표현(`dbStructureReconcile.reconcileById`)을 바꾸면 `infra/lambda/mcp-server/{dbSchemaInput,dbStructureWriter,dbCollabWriter}.ts` 도 맞출 것.
+- DB 변경 실시간 전파는 `onDatabaseChanged` 에 IAM `publishDatabaseChanged` 가 추가됐다(입력 echo, 클라 파서 `GqlDatabaseSchema` 그대로).
+
 ## 관련 위키
 - [views.md](views.md)
 - [cells.md](cells.md)

@@ -29,3 +29,19 @@ export async function databasePaths(
   }
   return out;
 }
+
+/**
+ * 풀페이지 DB 홈 페이지 id(없으면 null). 홈은 DB 제목과 같은 제목으로 생성·동기화되므로(setDatabaseTitle) 같은 제목의
+ * 루트 후보만 fullPageDatabaseId 로 확인한다(전체 페이지 본문을 읽지 않는다).
+ */
+export async function findDatabaseHomeId(ctx: McpContext, db: Record<string, unknown>, metas: PageMeta[]): Promise<string | null> {
+  const title = String(db.title ?? "");
+  const candidates = metas.filter((m) => !m.databaseId && !m.deleted && m.title === title);
+  if (candidates.length === 0) return null;
+  const tagged = await batchGetByKey({
+    doc: ctx.doc, tableName: ctx.tables.Pages, keyName: "id", ids: candidates.map((m) => m.id),
+    projection: "id, fullPageDatabaseId, deletedAt",
+  });
+  const home = tagged.find((p) => p.fullPageDatabaseId === db.id && !p.deletedAt);
+  return home ? String(home.id) : null;
+}

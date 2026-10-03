@@ -3,11 +3,12 @@ import { UpdateCommand, type DynamoDBDocumentClient } from "@aws-sdk/lib-dynamod
 
 export const MCP_RATE_LIMIT_RPM = 120;
 
-/** 한도 이내면 null, 초과면 다음 분까지 남은 초. */
+/** 한도 이내면 null, 초과면 다음 분까지 남은 초. units 만큼 분당 카운터를 올린다(무거운 스캔 추가 차감용). */
 export async function checkTokenRateLimit(args: {
   doc: DynamoDBDocumentClient;
   tableName: string;
   tokenId: string;
+  units?: number;
   limit?: number;
   nowMs?: number;
 }): Promise<number | null> {
@@ -19,7 +20,7 @@ export async function checkTokenRateLimit(args: {
       Key: { pk: `mcp-rl#${args.tokenId}`, sk: String(minute) },
       UpdateExpression: "ADD cnt :one SET expiresAt = :exp",
       ExpressionAttributeValues: {
-        ":one": 1,
+        ":one": Math.max(1, Math.floor(args.units ?? 1)),
         ":exp": Math.floor(nowMs / 1000) + 180, // TTL 로 자동 정리
       },
       ReturnValues: "ALL_NEW",

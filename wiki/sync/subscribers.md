@@ -58,6 +58,14 @@ AppSync WebSocket 구독을 시작·관리하고, 인증 오류·네트워크 �
 - **커스텀 아이콘 구독은 페이로드를 직접 반영**한다 — 이벤트마다 `listCustomIcons` 전체 재페치 금지. `onCustomIconChanged` 페이로드의 `deletedAt` tombstone 으로 추가/삭제를 구분해 `useCustomIconStore.applyServerEvent(icon, !!icon.deletedAt)` 호출. (서버 `deleteCustomIcon` 이 `deletedAt` 을 채워 반환)
 - `onWorkspace` 는 권한 변경 신호(희소)라 수신 시 `listMyWorkspacesApi` 재페치 유지(정상).
 
+## 서버(IAM) 발행 mutation
+
+저장 없이 구독만 발행하는 IAM 전용 mutation — 서버 Lambda(template-automation runner, MCP 서버)가 SigV4(`infra/lambda/_shared/appsyncIam.ts`)로 호출한다. v5 resolver 는 caller 조회 전에 입력을 echo 한다(`publishOnlyResult`).
+- `publishPageChanged(input, deletedAt?)` → `onPageChanged`. `deletedAt` 이 있으면 클라가 tombstone 으로 처리(페이지 제거).
+- `publishDatabaseChanged(input)` → `onDatabaseChanged`.
+- `publishCommentChanged(input)` → `onCommentChanged`.
+`Database`·`Comment` 타입에 `@aws_cognito_user_pools @aws_iam` 를 붙여 IAM 응답을 허용한다. 구독 selection 은 클라 그대로라 클라 변경이 없다.
+
 ## 주의사항
 - AppSync subscription WebSocket 핸드셰이크는 `authToken` 옵션을 쓰지 않는다. `appsyncClient().graphql(args, { Authorization: idToken })` 형태의 `additionalHeaders` 로 직접 주입한다. Tauri 데스크톱은 Amplify Auth 세션이 없으므로 `userPool`/`fetchAuthSession()` 경로에 의존하면 안 된다.
 - `onPageChanged` 는 대용량 fan-out 회피를 위해 `doc`/`dbCells`/`blockComments` 를 제외한 meta-only payload 를 받는다. 수신 검증은 full `GqlPageSchema` 가 아니라 `GqlPageMetaSchema` 를 써야 한다.
