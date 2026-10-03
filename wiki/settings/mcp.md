@@ -37,7 +37,12 @@
 
 ### CloudFront 앞단 (P4-B, `infra/lib/mcp-edge-construct.ts`)
 
-- **왜**: Lambda Function URL 은 응답의 `WWW-Authenticate` 를 `x-amzn-Remapped-WWW-Authenticate` 로 바꿔 내보내 MCP 클라이언트가 OAuth discovery 를 못 한다. viewer-response CloudFront Function(`infra/lib/mcp-edge/viewer-response.js`)이 원래 이름으로 되돌린다.
+- **왜**: Lambda Function URL 은 응답의 `WWW-Authenticate` 를 `x-amzn-Remapped-WWW-Authenticate` 로 바꿔 내보내 MCP 클라이언트가 401 에서 OAuth discovery 를 못 한다.
+- **WWW-Authenticate 복원**(회귀 주의):
+  - viewer-response CloudFront Function 은 **원본이 400 이상을 돌려주면 실행되지 않는다**(AWS 제약, dev 실측) — 401 복원에 못 쓰므로 제거했다. Lambda@Edge 는 쓰지 않는다.
+  - 대신 `/mcp` 전용 동작에 **응답 헤더 정책**(`{envPrefix}quicknote-mcp-challenge`)을 붙인다. 문서: "CloudFront adds these headers to every response that it returns to viewers"(상태 코드 예외 없음). 커스텀 헤더 `WWW-Authenticate: Bearer realm="quicknote", resource_metadata="<origin>/.well-known/oauth-protected-resource/mcp"`(override=false — 원본이 직접 보내면 그 값) + `x-amzn-remapped-www-authenticate` 제거. 200 응답에도 붙지만 클라는 401 에서만 해석한다.
+  - resource_metadata 는 절대 URL 이라 배포 도메인이 필요한데 정책 → 배포 도메인 → 배포 → 정책 **순환**이다. 그래서 이미 배포된 도메인을 설정값으로 받는다: env `MCP_PUBLIC_ORIGIN` > `-c mcpPublicOrigin=` > `KNOWN_MCP_PUBLIC_ORIGINS`(dev = `https://dbeovncdo410b.cloudfront.net`). 형식(`https://xxxx.cloudfront.net`)이 아니면 synth 실패. output `McpPublicOriginHint` 가 `McpServerUrl` 의 origin 과 같은지 배포 후 확인할 것.
+  - **신규 환경(live 포함)**: 첫 배포에는 힌트가 없어 정책이 없다 → MCP 스펙의 well-known 폴백(WWW-Authenticate 에 resource_metadata 가 없으면 `/.well-known/oauth-protected-resource/mcp` → `/.well-known/oauth-protected-resource` 탐색)에 의존한다. 배포 후 `McpServerUrl` 의 origin 을 `KNOWN_MCP_PUBLIC_ORIGINS` 에 추가하고 재배포하면 정책이 붙는다. 배포를 지우고 다시 만들면 도메인이 바뀌므로 값을 갱신해야 한다.
 - 배포: 원본 = Function URL, `CachingDisabled`, `AllViewerExceptHostHeader`, 메서드 ALL, 압축 끔, HTTP/2, PriceClass_200(한국 엣지 포함).
 - **원본 보호**: CloudFront 가 `x-qn-origin-verify` 커스텀 원본 헤더를 붙이고, 함수는 그 값이 비밀과 일치할 때만 처리(불일치·누락 403, DDB 미접근).
   - 값은 Secrets Manager `{envPrefix}quicknote/mcp-origin-verify`(48자 랜덤, 구두점 제외). **저장소가 공개라 결정적 값은 금지** — 누구나 재현해 Function URL 을 직접 호출하며 뷰어 IP 헤더를 위조할 수 있다.

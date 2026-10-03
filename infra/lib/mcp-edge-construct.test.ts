@@ -6,7 +6,7 @@ import * as cdk from "aws-cdk-lib";
 import { Match, Template } from "aws-cdk-lib/assertions";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import { describe, expect, it } from "vitest";
-import { McpEdge, ORIGIN_VERIFY_HEADER, mcpPublicOriginParamName, originVerifySecretName } from "./mcp-edge-construct";
+import { McpEdge, ORIGIN_VERIFY_HEADER, mcpAuthChallenge, mcpPublicOriginParamName, originVerifySecretName } from "./mcp-edge-construct";
 
 type Headers = Record<string, { value: string }>;
 
@@ -18,17 +18,6 @@ function edgeHandler(file: string): (event: unknown) => { headers: Headers } {
 }
 
 describe("CloudFront 엣지 함수", () => {
-  it("viewer-response: x-amzn-remapped-www-authenticate → www-authenticate(원래 이름 삭제)", () => {
-    const handler = edgeHandler("viewer-response.js");
-    const value = 'Bearer realm="quicknote", resource_metadata="https://d.cloudfront.net/.well-known/oauth-protected-resource/mcp"';
-    const out = handler({ response: { statusCode: 401, headers: { "x-amzn-remapped-www-authenticate": { value }, "content-type": { value: "application/json" } } } });
-    expect(out.headers["www-authenticate"]).toEqual({ value });
-    expect(out.headers["x-amzn-remapped-www-authenticate"]).toBeUndefined();
-    expect(out.headers["content-type"]).toEqual({ value: "application/json" });
-    const untouched = handler({ response: { headers: { "content-type": { value: "text/plain" } } } });
-    expect(Object.keys(untouched.headers)).toEqual(["content-type"]);
-  });
-
   it("viewer-request: 뷰어 IP 를 x-qn-viewer-address 로 싣고, 클라가 보낸 값은 덮어쓴다", () => {
     const handler = edgeHandler("viewer-request.js");
     const out = handler({ viewer: { ip: "203.0.113.7" }, request: { headers: { "x-qn-viewer-address": { value: "1.2.3.4:5" } } } });
@@ -36,13 +25,17 @@ describe("CloudFront 엣지 함수", () => {
   });
 });
 
+function edgeStack(publicOriginHint?: string): cdk.Stack {
+  const stack = new cdk.Stack(new cdk.App(), "T", { env: { account: "111111111111", region: "ap-northeast-2" } });
+  const fn = new lambda.Function(stack, "Fn", { runtime: lambda.Runtime.NODEJS_22_X, handler: "i.h", code: lambda.Code.fromInline("x") });
+  const url = fn.addFunctionUrl({ authType: lambda.FunctionUrlAuthType.NONE });
+  new McpEdge(stack, "Edge", { envPrefix: "dev-", fn, fnUrl: url, publicOriginHint });
+  return stack;
+}
+
 describe("McpEdge 배포", () => {
-  it("Function URL 원본·캐시 끔·AllViewerExceptHostHeader·압축 끔·HTTP2·원본 보호 헤더·엣지 함수 2개·SSM 공개 origin", () => {
-    const stack = new cdk.Stack(new cdk.App(), "T", { env: { account: "111111111111", region: "ap-northeast-2" } });
-    const fn = new lambda.Function(stack, "Fn", { runtime: lambda.Runtime.NODEJS_22_X, handler: "i.h", code: lambda.Code.fromInline("x") });
-    const url = fn.addFunctionUrl({ authType: lambda.FunctionUrlAuthType.NONE });
-    new McpEdge(stack, "Edge", { envPrefix: "dev-", fn, fnUrl: url });
-    const t = Template.fromStack(stack);
+  it("Function URL 원본·캐시 끔·AllViewerExceptHostHeader·압축 끔·HTTP2·원본 보호 헤더·viewer-request 함수·SSM 공개 origin", () => {
+    const t = Template.fromStack(edgeStack());
     t.hasResourceProperties("AWS::CloudFront::Distribution", {
       DistributionConfig: Match.objectLike({
         HttpVersion: "http2",
@@ -51,10 +44,7 @@ describe("McpEdge 배포", () => {
           CachePolicyId: "4135ea2d-6df8-44a3-9df3-4b5a84be39ad", // Managed-CachingDisabled
           OriginRequestPolicyId: "b689b0a8-53d0-40ab-baf2-68738e2966ac", // Managed-AllViewerExceptHostHeader
           Compress: false,
-          FunctionAssociations: Match.arrayWith([
-            Match.objectLike({ EventType: "viewer-request" }),
-            Match.objectLike({ EventType: "viewer-response" }),
-          ]),
+          FunctionAssociations: [Match.objectLike({ EventType: "viewer-request" })],
         }),
         Origins: [Match.objectLike({ OriginCustomHeaders: [Match.objectLike({ HeaderName: ORIGIN_VERIFY_HEADER })] })],
       }),
@@ -79,5 +69,28 @@ describe("McpEdge 배포", () => {
     t.hasResourceProperties("AWS::SSM::Parameter", { Name: mcpPublicOriginParamName("dev-") });
     expect(Object.keys(t.findOutputs("McpServerUrl"))).toHaveLength(1);
     expect(Object.keys(t.findOutputs("McpServerOriginUrl"))).toHaveLength(1);
+  });
+
+  it("공개 origin 힌트가 있으면 /mcp 동작에 WWW-Authenticate 응답 헤더 정책(override=false, 리매핑 헤더 제거)", () => {
+    const origin = "https://dbeovncdo410b.cloudfront.net";
+    const t = Template.fromStack(edgeStack(origin));
+    t.hasResourceProperties("AWS::CloudFront::ResponseHeadersPolicy", {
+      ResponseHeadersPolicyConfig: Match.objectLike({
+        CustomHeadersConfig: { Items: [{ Header: "WWW-Authenticate", Value: mcpAuthChallenge(origin), Override: false }] },
+        RemoveHeadersConfig: { Items: [{ Header: "x-amzn-remapped-www-authenticate" }] },
+      }),
+    });
+    t.hasResourceProperties("AWS::CloudFront::Distribution", {
+      DistributionConfig: Match.objectLike({
+        CacheBehaviors: [Match.objectLike({ PathPattern: "/mcp", ResponseHeadersPolicyId: Match.anyValue(), Compress: false })],
+      }),
+    });
+    expect(mcpAuthChallenge(origin)).toBe('Bearer realm="quicknote", resource_metadata="https://dbeovncdo410b.cloudfront.net/.well-known/oauth-protected-resource/mcp"');
+  });
+
+  it("힌트가 없으면 정책 없이 well-known 폴백만, 형식이 틀린 힌트는 synth 에서 거부", () => {
+    const t = Template.fromStack(edgeStack());
+    t.resourceCountIs("AWS::CloudFront::ResponseHeadersPolicy", 0);
+    expect(() => edgeStack("https://evil.example.com")).toThrow(/cloudfront\.net/);
   });
 });

@@ -20,7 +20,7 @@ import { createSyncTable, type ModelTable } from "./sync/ddb-table-factory";
 import { DYNAMODB_TABLE_ENCRYPTION } from "./sync/table-encryption";
 import { DEFAULT_COLLAB_ROOM_EPOCH } from "./collab-epoch";
 import { collabWsEndpointParamName, mcpServerRoleName } from "./mcp-collab-wiring";
-import { McpEdge } from "./mcp-edge-construct";
+import { KNOWN_MCP_PUBLIC_ORIGINS, McpEdge } from "./mcp-edge-construct";
 import { McpOAuth } from "./mcp-oauth-construct";
 
 // DynamoDB 는 한 번의 업데이트에 GSI 를 하나만 생성/삭제할 수 있다.
@@ -1338,7 +1338,15 @@ export function response(ctx) {
       invokeMode: lambda.InvokeMode.BUFFERED,
     });
     // 공개 엔드포인트는 CloudFront(헤더 복원·원본 보호). McpServerUrl output 은 edge construct 가 만든다.
-    const mcpEdge = new McpEdge(this, "McpEdge", { envPrefix, fn: mcpServerFn, fnUrl: mcpServerUrl });
+    const mcpEdge = new McpEdge(this, "McpEdge", {
+      envPrefix,
+      fn: mcpServerFn,
+      fnUrl: mcpServerUrl,
+      publicOriginHint:
+        process.env.MCP_PUBLIC_ORIGIN ??
+        (this.node.tryGetContext("mcpPublicOrigin") as string | undefined) ??
+        KNOWN_MCP_PUBLIC_ORIGINS[envPrefix],
+    });
     if (props.cognitoDomainPrefix) {
       new McpOAuth(this, "McpOAuth", {
         envPrefix,
