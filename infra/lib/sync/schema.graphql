@@ -730,6 +730,8 @@ type McpToken {
 type CreatedMcpToken {
   token: String!
   tokenId: ID!
+  """pat 고정(OAuth 연결 앱은 발급 경로가 다름). 클라 MCP_TOKEN_FIELDS 와 필드 정합 유지."""
+  kind: String
   name: String!
   scopes: [String!]!
   workspaceIds: [ID!]!

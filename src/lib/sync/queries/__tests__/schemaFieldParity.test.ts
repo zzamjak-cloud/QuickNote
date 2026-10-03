@@ -12,6 +12,7 @@ import * as databaseQueries from "../database";
 import * as commentQueries from "../comment";
 import * as assetQueries from "../asset";
 import * as pageHistoryQueries from "../pageHistory";
+import * as mcpQueries from "../mcp";
 
 const schemaPath = resolve(__dirname, "../../../../../infra/lib/sync/schema.graphql");
 const schemaSdl = readFileSync(schemaPath, "utf-8");
@@ -142,4 +143,22 @@ describe("Page 스칼라 타입 ↔ SDL 정합 (알려진 표류 allowlist)", ()
       expect(sdlTypes.get(field)).toBe(sdl);
     },
   );
+});
+
+// MCP 토큰 쿼리는 items 셀렉션이 없는 단일 객체 반환이라 위 전수 검사에서 빠진다(2026-10-03 kind 누락으로 발급 실패).
+describe("MCP 토큰 쿼리 ↔ 스키마 필드 정합", () => {
+  const selection = (query: string, op: string): string[] => {
+    const m = query.match(new RegExp(`${op}\\([^)]*\\)\\s*\\{([^}]*)\\}|${op}\\s*\\{([^}]*)\\}`));
+    if (!m) throw new Error(`${op} 셀렉션을 찾지 못함`);
+    return (m[1] ?? m[2]).split(/\s+/).filter(Boolean);
+  };
+  it.each([
+    ["listMcpTokens", mcpQueries.LIST_MCP_TOKENS, "McpToken"],
+    ["createMcpToken", mcpQueries.CREATE_MCP_TOKEN, "CreatedMcpToken"],
+    ["revokeMcpToken", mcpQueries.REVOKE_MCP_TOKEN, "McpToken"],
+  ])("%s 요청 필드 ⊆ %s", (op, query, typeName) => {
+    const fields = schemaTypeFields(typeName as string);
+    const missing = selection(query as string, op as string).filter((f) => !fields.has(f));
+    expect(missing).toEqual([]);
+  });
 });
