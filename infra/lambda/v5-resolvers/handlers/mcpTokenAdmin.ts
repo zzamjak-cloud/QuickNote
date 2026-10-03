@@ -1,11 +1,10 @@
 // MCP 토큰 관리자 조회·강제 폐기 — 퇴사자 처리·사고 대응용.
-// 관리자 = manager 이상(설정 모달의 구성원·워크스페이스 관리 탭 노출 기준 isAdmin, 서버 getMember·updateMember·
-// updateWorkspace 의 requireRoleAtLeast("manager") 와 같다).
+// MCP 관리자 = developer·owner 만(사용자 결정, 2026-10). 앱의 다른 관리 권한(manager 이상 isAdmin)과 별개다.
 // 대상: PAT 와 OAuth grant family(oauth-family#) 레코드만. 단명 access token(oat#) 항목은 제외하고, 해시는 절대 응답하지 않는다.
 import { BatchGetCommand, GetCommand, QueryCommand, ScanCommand, UpdateCommand, type DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import { z } from "zod";
 import { isMcpTokenActive, type McpTokenRecord } from "../../_shared/mcpToken";
-import { badRequest, notFound, preventOwnerMutation, requireRoleAtLeast, type Member } from "./_auth";
+import { badRequest, forbidden, notFound, requireOwnerOrAbove, ROLE_RANK, type Member } from "./_auth";
 import type { Tables } from "./member";
 
 type BaseArgs = { doc: DynamoDBDocumentClient; tables: Tables; caller: Member };
@@ -58,8 +57,9 @@ function isGrantRecord(t: McpTokenRecord): boolean {
   return typeof t.tokenHash === "string" && !t.tokenHash.startsWith(ACCESS_TOKEN_PREFIX) && Boolean(t.memberId);
 }
 
+/** MCP 관리자(토큰 관리·공유 워크스페이스 MCP 정책) — developer·owner 만(ROLE_RANK owner 이상). */
 export function requireMcpTokenAdmin(caller: Member): void {
-  requireRoleAtLeast(caller, "manager");
+  requireOwnerOrAbove(caller);
 }
 
 function tokensTable(tables: Tables): string {
@@ -187,13 +187,16 @@ async function memberTokens(args: BaseArgs, memberId: string): Promise<McpTokenR
 }
 
 /**
- * 역할 위계 — 멤버 관리(updateMember)와 같은 규칙 preventOwnerMutation: owner 의 토큰은 owner 본인만 폐기할 수 있다.
- * 본인 토큰은 역할과 무관하게 허용된다(같은 헬퍼가 본인을 통과시킨다). 멤버 레코드가 없으면(삭제) 위계 대상이 없다.
+ * 역할 위계 — 소유자의 역할 rank(ROLE_RANK: developer 5 > owner 4 > …)가 호출자보다 높으면 폐기할 수 없다(같은 rank 는 허용).
+ * 본인 토큰은 항상 허용. 멤버 레코드가 없으면(삭제) 위계 대상이 없다.
  */
 async function requireRevocableOwner(args: BaseArgs, memberId: string): Promise<void> {
+  if (memberId === args.caller.memberId) return;
   const r = await args.doc.send(new GetCommand({ TableName: args.tables.Members, Key: { memberId } }));
   const owner = r.Item as Member | undefined;
-  if (owner) preventOwnerMutation(args.caller, owner);
+  if (owner && (ROLE_RANK[owner.workspaceRole] ?? 0) > ROLE_RANK[args.caller.workspaceRole]) {
+    forbidden("상위 역할 구성원의 토큰은 폐기할 수 없습니다");
+  }
 }
 
 /** 레코드 하나 폐기. OAuth family 레코드를 폐기하면 그 family 의 access·refresh 가 모두 거부된다(auth.ts·token.ts). */

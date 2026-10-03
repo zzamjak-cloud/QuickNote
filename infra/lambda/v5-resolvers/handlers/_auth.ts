@@ -19,7 +19,7 @@ export type Member = {
   rowCount?: number | null;
 };
 
-const ROLE_RANK: Record<WorkspaceRole, number> = { developer: 5, owner: 4, leader: 3, manager: 2, member: 1 };
+export const ROLE_RANK: Record<WorkspaceRole, number> = { developer: 5, owner: 4, leader: 3, manager: 2, member: 1 };
 
 export class ResolverError extends Error {
   constructor(message: string, public errorType: string) {

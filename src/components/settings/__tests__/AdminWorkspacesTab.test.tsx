@@ -109,6 +109,22 @@ describe("AdminWorkspacesTab", () => {
     expect(screen.getByRole("button", { name: "보관함으로 이동" })).toBeTruthy();
   });
 
+  it.each([
+    ["owner", true],
+    ["developer", true],
+    ["leader", false],
+    ["manager", false],
+  ])("편집 모달의 MCP 정책 선택은 developer·owner 에게만 보인다(%s → %s)", async (role, visible) => {
+    useMemberStore.setState({ me: { memberId: "me", name: "Me", email: "me@x", jobRole: "", workspaceRole: role, status: "active", personalWorkspaceId: "ws-me" } as never });
+    getWorkspaceApiMock.mockResolvedValue({ workspaceId: "ws-3", name: "Engineering", type: "shared", ownerMemberId: "m-owner", myEffectiveLevel: "edit", access: [] });
+    render(<AdminWorkspacesTab />);
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText("Engineering 설정 편집"));
+    });
+    await vi.waitFor(() => expect(getWorkspaceApiMock).toHaveBeenCalled());
+    expect(Boolean(screen.queryByLabelText("AI 연결(MCP) 허용 정책"))).toBe(visible);
+  });
+
   it("생성 모달에서 워크스페이스를 생성한다", async () => {
     createWorkspaceApiMock.mockResolvedValue({
       workspaceId: "ws-9",

@@ -10,6 +10,7 @@ import { McpAdminTokensSection } from "./McpAdminTokensSection";
 import {
   createMcpTokenApi,
   getMcpServerUrl,
+  isMcpAdminRole,
   listMcpTokensApi,
   revokeMcpTokenApi,
   type CreateMcpTokenInput,
@@ -26,9 +27,6 @@ function formatDate(iso: string | null): string {
 }
 
 const SCOPE_LABEL: Record<string, string> = { read: "읽기", write: "쓰기" };
-
-// 토큰 관리 섹션 노출 기준 — 설정 모달의 관리 탭(isAdmin)과 같다. 서버도 manager 이상만 허용한다.
-const ADMIN_ROLES = new Set(["developer", "owner", "leader", "manager"]);
 
 export function McpSettingsTab() {
   const showToast = useUiStore((s) => s.showToast);
@@ -195,7 +193,7 @@ export function McpSettingsTab() {
         </section>
       )}
 
-      {ADMIN_ROLES.has(role) && <McpAdminTokensSection />}
+      {isMcpAdminRole(role) && <McpAdminTokensSection />}
 
       <SimpleConfirmDialog
         open={revokeTarget != null}

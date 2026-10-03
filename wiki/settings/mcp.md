@@ -25,12 +25,24 @@
 - `scopes`: "읽기" = `["read"]`, "읽기+쓰기" = `["read","write"]`. 쓰기를 고르면 폼에 경고(편집·휴지통 이동 가능, 영구삭제 불가, 본문 교체 전 버전 저장)를 띄운다.
 - `expiresInDays`: 30/90(기본)/365, 무기한은 `null`.
 
-## 관리자 토큰 관리 (manager 이상)
+## 관리자 토큰 관리 (MCP 관리자 = developer·owner)
 
-- **관리자 판정**: `requireRoleAtLeast(caller, "manager")` — 설정 모달의 관리 탭(구성원·워크스페이스 등) 노출 기준 `isAdmin`(developer·owner·leader·manager)과 서버 `getMember`·`updateMember`·`updateWorkspace`·`setWorkspaceAccess` 의 규칙과 같다. 탭 UI 노출과 무관하게 서버가 다시 검사한다.
+### 권한 표
+
+| 작업 | developer | owner | leader·manager | member | 비고 |
+|---|---|---|---|---|---|
+| 본인 토큰 발급·조회·폐기 | ○ | ○ | ○ | ○ | `createMcpToken`·`listMcpTokens`·`revokeMcpToken` |
+| 전 멤버 토큰 조회 `adminListMcpTokens` | ○ | ○ | ✕ | ✕ | |
+| 강제 폐기·일괄 폐기 | ○ | ○(developer 토큰 제외) | ✕ | ✕ | 소유자 rank > 호출자 rank 면 거부, 같은 rank 허용, 본인 토큰 항상 허용 |
+| 공유 워크스페이스 MCP 정책 | ○ | ○ | ✕ | ✕ | 앱의 다른 워크스페이스 설정(updateWorkspace 등, manager 이상)과 별개 |
+| 개인 워크스페이스 MCP 정책 | 소유자 | 소유자 | 소유자 | 소유자 | 역할 무관, 본인 개인 WS 만 |
+
+rank 는 `_auth.ts` `ROLE_RANK`(developer 5 > owner 4 > leader 3 > manager 2 > member 1). 따라서 owner 는 developer 의 토큰을 폐기할 수 없고, developer 는 owner 의 토큰을 폐기할 수 있다.
+
+- **MCP 관리자 판정**(사용자 결정): developer·owner 만 — 서버 `requireMcpTokenAdmin` = `requireOwnerOrAbove`, 프론트 `isMcpAdminRole`(`mcpTokenApi.ts`). 설정 모달의 관리 탭 기준 `isAdmin`(manager 이상)을 쓰지 않는다. "토큰 관리" 섹션·워크스페이스 편집 모달의 MCP 정책 선택은 MCP 관리자에게만 보인다. 서버가 다시 검사한다.
 - `adminListMcpTokens(filter: {memberId, kind: pat|oauth, status: active|revoked|expired}, limit≤100, nextToken)` — mcp-tokens Scan(작은 테이블, 페이지네이션). **PAT 와 OAuth grant(`oauth-family#`) 만**: 단명 access token(`oat#`) 항목은 스캔 필터와 코드 양쪽에서 제외, 해시는 응답에 없다. 멤버 이름·이메일, 워크스페이스 이름, 상태, `revokedBy`·`revokeReason` 포함.
 - `adminRevokeMcpToken(tokenId, memberId, reason?)` — PAT 즉시 폐기, OAuth 는 family 레코드 폐기 = 그 연결의 access·refresh 전부 거부. 클라가 목록 항목의 `memberId` 를 함께 보내고 서버는 byMember GSI 로 그 멤버 토큰만 읽어 tokenId 를 검증한다(테이블 Scan·tokenId GSI 없음, 소유자 불일치는 not found).
-- **역할 위계**(회귀 금지): 멤버 관리 `updateMember` 와 같은 `preventOwnerMutation` — owner 의 토큰은 owner 본인만 단건·일괄 폐기할 수 있다. 본인 토큰은 역할과 무관하게 허용. 조회는 manager 이상 전원. `revokedBy`(관리자)·`revokeReason` 기록 + 감사 로그 `{evt:"mcp.admin.revoke", adminMemberId, tokenId, kind, ownerMemberId, reason}`.
+- **역할 위계**(회귀 금지): 대상 토큰 소유자의 `ROLE_RANK` 가 호출자보다 **높으면** 단건·일괄 모두 forbidden(일괄은 아무것도 폐기하지 않음). 같은 rank 는 허용, 본인 토큰은 항상 허용. `revokedBy`(관리자)·`revokeReason` 기록 + 감사 로그 `{evt:"mcp.admin.revoke", adminMemberId, tokenId, kind, ownerMemberId, reason}`.
 - `adminRevokeMcpTokensByMember(memberId, reason?)` — 그 멤버의 활성 PAT·OAuth 연결 일괄 폐기(byMember GSI).
 - 본인 `listMcpTokens` 에 `revokedByAdmin`(폐기자 ≠ 소유자)·`revokeReason` — 목록에 "관리자에 의해 폐기됨"·사유 표시.
 - UI: AI 연결(MCP) 탭 하단 "토큰 관리"(`McpAdminTokensSection`) — 구성원·종류·상태 필터, 강제 폐기(사유 입력 다이얼로그), 구성원 선택 시 일괄 폐기, 더 보기.
@@ -43,7 +55,7 @@
 
 ## 워크스페이스 MCP 허용 정책
 
-- Workspace `mcpPolicy: "disabled" | "read" | "readWrite"`(미설정 = readWrite, 정책 도입 전 동작). `setWorkspaceMcpPolicy(workspaceId, policy)` — 공유 워크스페이스는 manager 이상(워크스페이스 설정 규칙), **개인 워크스페이스는 소유자 본인만**(역할 무관), LC 스케줄러 가상 WS 는 거부. 개인 판별은 `type` 이 있으면 그 값, 없는 레거시 행은 personalWorkspaceId 매칭(호출자 본인 또는 소유자 멤버의 personalWorkspaceId)으로 한다.
+- Workspace `mcpPolicy: "disabled" | "read" | "readWrite"`(미설정 = readWrite, 정책 도입 전 동작). `setWorkspaceMcpPolicy(workspaceId, policy)` — 공유 워크스페이스는 **MCP 관리자(developer·owner)**, **개인 워크스페이스는 소유자 본인만**(역할 무관), LC 스케줄러 가상 WS 는 거부. 개인 판별은 `type` 이 있으면 그 값, 없는 레거시 행은 personalWorkspaceId 매칭(호출자 본인 또는 소유자 멤버의 personalWorkspaceId)으로 한다.
 - 시행(MCP 서버 `workspacePolicy.ts` → `access.ts`·`writeAccess.ts`):
   - `disabled`: MCP 에서 존재하지 않는 것처럼 — list_workspaces·search 대상에서 빠지고 fetch·query·get_comments·get_users(워크스페이스 지정) 등 직접 접근은 not found. PAT 발급 시 범위로도 고를 수 없다(서버 거부).
   - `read`: 모든 쓰기 툴이 `workspace MCP policy is read-only`. list_workspaces 결과에 `mcpPolicy: "read"`.

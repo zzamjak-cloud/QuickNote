@@ -12,6 +12,14 @@ import {
 
 export type McpTokenScope = "read" | "write";
 
+/**
+ * MCP 관리자(토큰 관리·공유 워크스페이스 MCP 정책) — developer·owner 만. 앱의 다른 관리 권한(manager 이상 isAdmin)과 별개.
+ * 서버(requireMcpTokenAdmin)가 다시 검사하므로 이 판정은 UI 노출용이다.
+ */
+export function isMcpAdminRole(role: string | null | undefined): boolean {
+  return role === "developer" || role === "owner";
+}
+
 export type McpToken = {
   tokenId: string;
   /** "oauth" = OAuth 로 연결된 앱(name = 앱 이름). 구버전 응답은 null → PAT. */

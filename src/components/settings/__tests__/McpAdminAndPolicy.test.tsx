@@ -63,8 +63,17 @@ describe("토큰 관리(관리자)", () => {
     expect(graphqlMock.mock.calls.some(([a]) => a.query.includes("adminListMcpTokens"))).toBe(false);
   });
 
-  it("manager 는 현황을 보고 사유와 함께 강제 폐기한다", async () => {
-    asMember("manager");
+  it.each(["leader", "manager"])("%s 에게는 토큰 관리 섹션이 없다(MCP 관리자 = developer·owner)", async (role) => {
+    asMember(role);
+    respond({ listMcpTokens: () => [] });
+    render(<McpSettingsTab />);
+    await screen.findByText("발급된 토큰이 없습니다");
+    expect(screen.queryByText("토큰 관리")).toBeNull();
+    expect(graphqlMock.mock.calls.some(([a]) => a.query.includes("adminListMcpTokens"))).toBe(false);
+  });
+
+  it("developer 는 현황을 보고 사유와 함께 강제 폐기한다", async () => {
+    asMember("developer");
     respond({
       listMcpTokens: () => [],
       adminListMcpTokens: () => ({ items: [adminToken], nextToken: null }),

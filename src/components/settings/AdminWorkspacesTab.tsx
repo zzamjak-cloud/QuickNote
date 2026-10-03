@@ -1,6 +1,8 @@
 import { useMemo, useRef, useState } from "react";
 import { Plus, Search } from "lucide-react";
 import { useWorkspaceStore } from "../../store/workspaceStore";
+import { useMemberStore } from "../../store/memberStore";
+import { isMcpAdminRole } from "../../lib/sync/mcpTokenApi";
 import { useUiStore } from "../../store/uiStore";
 import { useSettingsStore } from "../../store/settingsStore";
 import { useWorkspaceAccessCacheStore } from "../../store/workspaceAccessCacheStore";
@@ -25,6 +27,8 @@ type TabType = "active" | "archived";
 
 export function AdminWorkspacesTab() {
   const workspaces = useWorkspaceStore((s) => s.workspaces);
+  // MCP 정책 선택은 MCP 관리자(developer·owner)만 — 이 탭의 다른 관리 기능(manager 이상)과 별도 판정.
+  const canManageMcp = useMemberStore((s) => isMcpAdminRole(s.me?.workspaceRole));
   const upsertWorkspace = useWorkspaceStore((s) => s.upsertWorkspace);
   const setWorkspaces = useWorkspaceStore((s) => s.setWorkspaces);
   const showToast = useUiStore((s) => s.showToast);
@@ -336,7 +340,7 @@ export function AdminWorkspacesTab() {
           workspaceId={editingWorkspace.workspaceId}
           workspaceName={editingWorkspace.name}
           initialEntries={editEntries}
-          mcpPolicy={editingWorkspace.mcpPolicy ?? null}
+          mcpPolicy={canManageMcp ? (editingWorkspace.mcpPolicy ?? null) : undefined}
           description={editDescription}
           onDescriptionChange={setEditDescription}
           onClose={closeEditModal}

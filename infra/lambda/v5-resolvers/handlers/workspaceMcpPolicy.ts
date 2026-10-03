@@ -1,9 +1,10 @@
-// 워크스페이스 MCP 허용 정책 설정 — 권한은 기존 워크스페이스 설정 규칙과 같다:
-// 공유 워크스페이스는 manager 이상(updateWorkspace·setWorkspaceAccess 와 동일), 개인 워크스페이스는 소유자 본인만,
+// 워크스페이스 MCP 허용 정책 설정 — 공유 워크스페이스는 MCP 관리자(developer·owner, mcpTokenAdmin.requireMcpTokenAdmin),
+// 개인 워크스페이스는 소유자 본인만(역할 무관),
 // LC 스케줄러 가상 워크스페이스는 변경 불가. MCP 서버는 30초 이하 캐시로 이 값을 시행한다(mcp-server/workspacePolicy.ts).
 import { GetCommand, UpdateCommand, type DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import { MCP_POLICIES, type McpPolicy } from "../../_shared/mcpPolicy";
-import { LC_SCHEDULER_WORKSPACE_ID, badRequest, forbidden, notFound, requireRoleAtLeast, type Member } from "./_auth";
+import { LC_SCHEDULER_WORKSPACE_ID, badRequest, forbidden, notFound, type Member } from "./_auth";
+import { requireMcpTokenAdmin } from "./mcpTokenAdmin";
 import type { Tables } from "./member";
 import { workspaceViewForAdmin, type Workspace } from "./workspace";
 
@@ -34,7 +35,7 @@ export async function isPersonalWorkspace(
   return { personal, ownerMemberId: row.ownerMemberId };
 }
 
-/** 정책 변경 권한 — 개인은 소유자 본인만(역할 무관), 공유는 manager 이상. */
+/** 정책 변경 권한 — 개인은 소유자 본인만(역할 무관), 공유는 MCP 관리자(developer·owner). */
 export async function requireMcpPolicyEditor(
   doc: DynamoDBDocumentClient,
   tables: Tables,
@@ -49,7 +50,7 @@ export async function requireMcpPolicyEditor(
     }
     return;
   }
-  requireRoleAtLeast(caller, "manager");
+  requireMcpTokenAdmin(caller);
 }
 
 export async function setWorkspaceMcpPolicy(args: Args): Promise<Workspace> {

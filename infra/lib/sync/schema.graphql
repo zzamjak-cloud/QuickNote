@@ -663,7 +663,7 @@ type Query {
 
   """본인 MCP 토큰 목록 — 메타만 반환(원문·해시 없음)."""
   listMcpTokens: [McpToken!]!
-  """관리자(manager 이상) 전용 — 전 멤버의 PAT·OAuth 연결 현황."""
+  """MCP 관리자(developer·owner) 전용 — 전 멤버의 PAT·OAuth 연결 현황."""
   adminListMcpTokens(filter: AdminMcpTokenFilter, limit: Int, nextToken: String): AdminMcpTokenConnection!
 }
 
@@ -931,11 +931,11 @@ type Mutation {
   createMcpToken(input: CreateMcpTokenInput!): CreatedMcpToken!
   """본인 MCP 토큰 폐기(즉시 무효)."""
   revokeMcpToken(tokenId: ID!): McpToken!
-  """관리자 강제 폐기 — OAuth 는 연결(family) 전체. memberId 는 토큰 소유자(목록 항목 값, 서버가 일치 검증). owner 의 토큰은 owner 본인만."""
+  """관리자 강제 폐기 — OAuth 는 연결(family) 전체. memberId 는 토큰 소유자(목록 항목 값, 서버가 일치 검증). 소유자 역할이 호출자보다 상위면 거부(본인 토큰은 허용)."""
   adminRevokeMcpToken(tokenId: ID!, memberId: ID!, reason: String): AdminMcpToken!
-  """관리자 일괄 폐기(퇴사자 처리) — 그 멤버의 활성 PAT·OAuth 연결 전부. owner 대상은 owner 본인만."""
+  """관리자 일괄 폐기(퇴사자 처리) — 그 멤버의 활성 PAT·OAuth 연결 전부. 대상이 상위 역할이면 아무것도 폐기하지 않고 거부."""
   adminRevokeMcpTokensByMember(memberId: ID!, reason: String): AdminMcpTokenBulkRevokeResult!
-  """워크스페이스 MCP 허용 정책 — 공유는 manager 이상, 개인은 소유자."""
+  """워크스페이스 MCP 허용 정책 — 공유는 MCP 관리자(developer·owner), 개인은 소유자."""
   setWorkspaceMcpPolicy(workspaceId: ID!, policy: String!): Workspace!
 }
 
