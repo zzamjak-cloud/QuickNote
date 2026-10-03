@@ -151,6 +151,8 @@ import {
 } from "./handlers/publishedPage";
 import { getPublishAnalytics } from "./handlers/publishAnalytics";
 import { createMcpToken, listMcpTokens, revokeMcpToken } from "./handlers/mcpToken";
+import { adminListMcpTokens, adminRevokeMcpToken, adminRevokeMcpTokensByMember } from "./handlers/mcpTokenAdmin";
+import { setWorkspaceMcpPolicy } from "./handlers/workspaceMcpPolicy";
 import type { Tables, UpdateMemberInput } from "./handlers/member";
 
 const ddb = new DynamoDBClient({});
@@ -1016,6 +1018,31 @@ const RESOLVERS: Record<
   createMcpToken: async (event, base) => await createMcpToken({ ...base, input: event.arguments.input }),
   revokeMcpToken: async (event, base) =>
     await revokeMcpToken({ ...base, tokenId: event.arguments.tokenId as string }),
+  adminListMcpTokens: async (event, base) =>
+    await adminListMcpTokens({
+      ...base,
+      filter: event.arguments.filter,
+      limit: event.arguments.limit as number | null | undefined,
+      nextToken: event.arguments.nextToken as string | null | undefined,
+    }),
+  adminRevokeMcpToken: async (event, base) =>
+    await adminRevokeMcpToken({
+      ...base,
+      tokenId: event.arguments.tokenId as string,
+      reason: event.arguments.reason as string | null | undefined,
+    }),
+  adminRevokeMcpTokensByMember: async (event, base) =>
+    await adminRevokeMcpTokensByMember({
+      ...base,
+      memberId: event.arguments.memberId as string,
+      reason: event.arguments.reason as string | null | undefined,
+    }),
+  setWorkspaceMcpPolicy: async (event, base) =>
+    normalizeWorkspaceForGql((await setWorkspaceMcpPolicy({
+      ...base,
+      workspaceId: event.arguments.workspaceId as string,
+      policy: event.arguments.policy as string,
+    })) as unknown as Record<string, unknown>),
 };
 
 /** publish*Changed(IAM) 응답 — 입력 echo. 페이지는 deletedAt 인자를 tombstone 필드로 싣는다. */

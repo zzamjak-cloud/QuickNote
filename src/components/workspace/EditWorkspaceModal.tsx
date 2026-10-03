@@ -3,6 +3,8 @@ import { AccessEntriesEditor } from "./AccessEntriesEditor";
 import type { WorkspaceAccessInput } from "../../lib/sync/workspaceApi";
 import { IconPicker } from "../common/IconPicker";
 import { useSettingsStore } from "../../store/settingsStore";
+import type { WorkspaceMcpPolicy } from "../../store/workspaceStore";
+import { WorkspaceMcpPolicySelect } from "./WorkspaceMcpPolicySelect";
 
 type Props = {
   open: boolean;
@@ -19,6 +21,8 @@ type Props = {
   }) => Promise<void> | void;
   onRequestDelete?: () => void;
   lockedReason?: string;
+  /** 지정하면 AI 연결(MCP) 허용 정책 선택을 보여 준다(변경 즉시 저장). */
+  mcpPolicy?: WorkspaceMcpPolicy | null;
 };
 
 export function EditWorkspaceModal({
@@ -32,6 +36,7 @@ export function EditWorkspaceModal({
   onSave,
   onRequestDelete,
   lockedReason,
+  mcpPolicy,
 }: Props) {
   const entityIcons = useSettingsStore((s) => s.entityIcons);
   const setEntityIcon = useSettingsStore((s) => s.setEntityIcon);
@@ -130,6 +135,10 @@ export function EditWorkspaceModal({
             readOnly={Boolean(lockedReason)}
             readOnlyReason={lockedReason}
           />
+
+          {mcpPolicy !== undefined && !lockedReason ? (
+            <WorkspaceMcpPolicySelect workspaceId={workspaceId} value={mcpPolicy} />
+          ) : null}
 
           {error ? <p className="text-sm text-red-500">{error}</p> : null}
         </div>

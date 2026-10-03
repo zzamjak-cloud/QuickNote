@@ -13,6 +13,7 @@ import * as commentQueries from "../comment";
 import * as assetQueries from "../asset";
 import * as pageHistoryQueries from "../pageHistory";
 import * as mcpQueries from "../mcp";
+import * as workspaceQueries from "../workspace";
 
 const schemaPath = resolve(__dirname, "../../../../../infra/lib/sync/schema.graphql");
 const schemaSdl = readFileSync(schemaPath, "utf-8");
@@ -160,5 +161,70 @@ describe("MCP 토큰 쿼리 ↔ 스키마 필드 정합", () => {
     const fields = schemaTypeFields(typeName as string);
     const missing = selection(query as string, op as string).filter((f) => !fields.has(f));
     expect(missing).toEqual([]);
+  });
+});
+
+// 중첩 셀렉션({ ... })이 있는 단일 객체 반환 쿼리 — 균형 괄호로 셀렉션을 잘라 최상위 필드만 비교한다.
+function balancedSelection(query: string, after: string): string {
+  const start = query.indexOf("{", query.indexOf(after) + after.length);
+  if (start < 0) throw new Error(`${after} 셀렉션을 찾지 못함`);
+  let depth = 0;
+  for (let i = start; i < query.length; i += 1) {
+    if (query[i] === "{") depth += 1;
+    if (query[i] === "}") depth -= 1;
+    if (depth === 0) return query.slice(start + 1, i);
+  }
+  throw new Error("괄호 불균형");
+}
+
+/** `type <name>` 정확 일치(접두가 같은 다른 타입 — WorkspaceType 등 — 과 구분). */
+function exactTypeFields(typeName: string): Set<string> {
+  const m = schemaSdl.match(new RegExp(`type ${typeName}(?:\\s[^{]*)?\\{([\\s\\S]*?)\\n\\}`));
+  if (!m) throw new Error(`schema.graphql 에 type ${typeName} 없음`);
+  return new Set(m[1].split("\n").map((l) => l.trim().match(/^(\w+)\s*(\(|:)/)?.[1]).filter((f): f is string => Boolean(f)));
+}
+
+function topLevelFields(selection: string): { fields: string[]; nested: Map<string, string> } {
+  const nested = new Map<string, string>();
+  let flat = "";
+  for (let i = 0; i < selection.length; i += 1) {
+    if (selection[i] !== "{") {
+      flat += selection[i];
+      continue;
+    }
+    const name = flat.trim().split(/\s+/).pop() ?? "";
+    let depth = 0;
+    let j = i;
+    for (; j < selection.length; j += 1) {
+      if (selection[j] === "{") depth += 1;
+      if (selection[j] === "}") depth -= 1;
+      if (depth === 0) break;
+    }
+    nested.set(name, selection.slice(i + 1, j));
+    i = j;
+  }
+  return { fields: flat.split(/\s+/).filter(Boolean), nested };
+}
+
+describe("관리자 MCP 토큰·워크스페이스 MCP 정책 쿼리 ↔ 스키마 필드 정합", () => {
+  it.each([
+    ["adminListMcpTokens", mcpQueries.ADMIN_LIST_MCP_TOKENS, "items", "AdminMcpToken"],
+    ["adminRevokeMcpToken", mcpQueries.ADMIN_REVOKE_MCP_TOKEN, "adminRevokeMcpToken(", "AdminMcpToken"],
+    ["adminRevokeMcpTokensByMember", mcpQueries.ADMIN_REVOKE_MCP_TOKENS_BY_MEMBER, "items", "AdminMcpToken"],
+    ["setWorkspaceMcpPolicy", workspaceQueries.SET_WORKSPACE_MCP_POLICY, "setWorkspaceMcpPolicy(", "Workspace"],
+    ["listMyWorkspaces", workspaceQueries.LIST_MY_WORKSPACES, "listMyWorkspaces", "Workspace"],
+  ])("%s 요청 필드 ⊆ %s", (_op, query, anchor, typeName) => {
+    const { fields, nested } = topLevelFields(balancedSelection(query as string, anchor as string));
+    const typeFields = exactTypeFields(typeName as string);
+    expect(fields.filter((f) => !typeFields.has(f))).toEqual([]);
+    if (nested.has("workspaces")) {
+      const inner = topLevelFields(nested.get("workspaces") as string).fields;
+      expect(inner.filter((f) => !exactTypeFields("McpTokenWorkspace").has(f))).toEqual([]);
+    }
+  });
+
+  it("listMyWorkspaces 는 mcpPolicy 를 요청하고, listMcpTokens 는 관리자 폐기 표시 필드를 요청한다", () => {
+    expect(workspaceQueries.LIST_MY_WORKSPACES).toContain("mcpPolicy");
+    expect(mcpQueries.LIST_MCP_TOKENS).toMatch(/revokedByAdmin[\s\S]*revokeReason/);
   });
 });

@@ -2,8 +2,11 @@
 // 서버는 토큰 해시만 저장하므로 원문은 발급 직후 패널에서 한 번만 보여 준다.
 import { useEffect, useState } from "react";
 import { Ban } from "lucide-react";
+import { useMemberStore } from "../../store/memberStore";
 import { useUiStore } from "../../store/uiStore";
 import { useWorkspaceStore } from "../../store/workspaceStore";
+import { WorkspaceMcpPolicySelect } from "../workspace/WorkspaceMcpPolicySelect";
+import { McpAdminTokensSection } from "./McpAdminTokensSection";
 import {
   createMcpTokenApi,
   getMcpServerUrl,
@@ -24,9 +27,15 @@ function formatDate(iso: string | null): string {
 
 const SCOPE_LABEL: Record<string, string> = { read: "읽기", write: "쓰기" };
 
+// 토큰 관리 섹션 노출 기준 — 설정 모달의 관리 탭(isAdmin)과 같다. 서버도 manager 이상만 허용한다.
+const ADMIN_ROLES = new Set(["developer", "owner", "leader", "manager"]);
+
 export function McpSettingsTab() {
   const showToast = useUiStore((s) => s.showToast);
   const workspaces = useWorkspaceStore((s) => s.workspaces);
+  const role = useMemberStore((s) => s.me?.workspaceRole ?? "member");
+  const personalWorkspaceId = useMemberStore((s) => s.me?.personalWorkspaceId ?? null);
+  const personalWorkspace = workspaces.find((w) => w.workspaceId === personalWorkspaceId && w.type === "personal");
   const [tokens, setTokens] = useState<McpToken[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -148,11 +157,14 @@ export function McpSettingsTab() {
                     ))}
                     {t.revokedAt && (
                       <span className="rounded bg-red-100 px-1.5 py-0.5 text-[10px] text-red-700 dark:bg-red-900/40 dark:text-red-300">
-                        폐기됨
+                        {t.revokedByAdmin ? "관리자에 의해 폐기됨" : "폐기됨"}
                       </span>
                     )}
                   </div>
                   <p className="text-xs text-zinc-500 dark:text-zinc-400">{workspaceSummary(t.workspaceIds)}</p>
+                  {t.revokedByAdmin && t.revokeReason && (
+                    <p className="text-xs text-red-500 dark:text-red-400">폐기 사유: {t.revokeReason}</p>
+                  )}
                   <p className="text-xs text-zinc-400">
                     생성 {formatDate(t.createdAt)} · 마지막 사용 {formatDate(t.lastUsedAt)} · 만료{" "}
                     {t.expiresAt ? formatDate(t.expiresAt) : "없음"}
@@ -175,6 +187,15 @@ export function McpSettingsTab() {
           </ul>
         )}
       </section>
+
+      {personalWorkspace && (
+        <section className="space-y-2">
+          <h3 className="text-sm font-semibold">내 개인 워크스페이스</h3>
+          <WorkspaceMcpPolicySelect workspaceId={personalWorkspace.workspaceId} value={personalWorkspace.mcpPolicy ?? null} />
+        </section>
+      )}
+
+      {ADMIN_ROLES.has(role) && <McpAdminTokensSection />}
 
       <SimpleConfirmDialog
         open={revokeTarget != null}

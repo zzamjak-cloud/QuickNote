@@ -25,6 +25,30 @@
 - `scopes`: "읽기" = `["read"]`, "읽기+쓰기" = `["read","write"]`. 쓰기를 고르면 폼에 경고(편집·휴지통 이동 가능, 영구삭제 불가, 본문 교체 전 버전 저장)를 띄운다.
 - `expiresInDays`: 30/90(기본)/365, 무기한은 `null`.
 
+## 관리자 토큰 관리 (manager 이상)
+
+- **관리자 판정**: `requireRoleAtLeast(caller, "manager")` — 설정 모달의 관리 탭(구성원·워크스페이스 등) 노출 기준 `isAdmin`(developer·owner·leader·manager)과 서버 `getMember`·`updateMember`·`updateWorkspace`·`setWorkspaceAccess` 의 규칙과 같다. 탭 UI 노출과 무관하게 서버가 다시 검사한다.
+- `adminListMcpTokens(filter: {memberId, kind: pat|oauth, status: active|revoked|expired}, limit≤100, nextToken)` — mcp-tokens Scan(작은 테이블, 페이지네이션). **PAT 와 OAuth grant(`oauth-family#`) 만**: 단명 access token(`oat#`) 항목은 스캔 필터와 코드 양쪽에서 제외, 해시는 응답에 없다. 멤버 이름·이메일, 워크스페이스 이름, 상태, `revokedBy`·`revokeReason` 포함.
+- `adminRevokeMcpToken(tokenId, reason?)` — PAT 즉시 폐기, OAuth 는 family 레코드 폐기 = 그 연결의 access·refresh 전부 거부. `revokedBy`(관리자)·`revokeReason` 기록 + 감사 로그 `{evt:"mcp.admin.revoke", adminMemberId, tokenId, kind, ownerMemberId, reason}`.
+- `adminRevokeMcpTokensByMember(memberId, reason?)` — 그 멤버의 활성 PAT·OAuth 연결 일괄 폐기(byMember GSI).
+- 본인 `listMcpTokens` 에 `revokedByAdmin`(폐기자 ≠ 소유자)·`revokeReason` — 목록에 "관리자에 의해 폐기됨"·사유 표시.
+- UI: AI 연결(MCP) 탭 하단 "토큰 관리"(`McpAdminTokensSection`) — 구성원·종류·상태 필터, 강제 폐기(사유 입력 다이얼로그), 구성원 선택 시 일괄 폐기, 더 보기.
+
+### 퇴사자 처리 절차
+
+1. 설정 > AI 연결(MCP) > 토큰 관리 → 구성원 필터에서 대상 선택 → "이 구성원의 토큰·연결 모두 폐기"(사유 예: 퇴사). 즉시 PAT·OAuth 연결이 모두 401.
+2. 구성원 관리에서 멤버 제거(`removeMember` → status removed). 제거된 멤버의 토큰은 인증 단계(`member inactive`)에서도 거부되지만, 1 을 먼저 해 두면 감사 로그·목록에 폐기 사유가 남는다.
+3. 필요하면 상태 "활성" 필터로 남은 토큰이 없는지 확인.
+
+## 워크스페이스 MCP 허용 정책
+
+- Workspace `mcpPolicy: "disabled" | "read" | "readWrite"`(미설정 = readWrite, 정책 도입 전 동작). `setWorkspaceMcpPolicy(workspaceId, policy)` — 공유 워크스페이스는 manager 이상(워크스페이스 설정 규칙), **개인 워크스페이스는 소유자 본인만**(역할 무관), LC 스케줄러 가상 WS 는 거부.
+- 시행(MCP 서버 `workspacePolicy.ts` → `access.ts`·`writeAccess.ts`):
+  - `disabled`: MCP 에서 존재하지 않는 것처럼 — list_workspaces·search 대상에서 빠지고 fetch·query·get_comments·get_users(워크스페이스 지정) 등 직접 접근은 not found. PAT 발급 시 범위로도 고를 수 없다(서버 거부).
+  - `read`: 모든 쓰기 툴이 `workspace MCP policy is read-only`. list_workspaces 결과에 `mcpPolicy: "read"`.
+  - 워크스페이스 레코드는 요청 안에서 한 번만 읽고(요청 캐시), 요청 사이 컨테이너 캐시는 15초 — 정책 변경은 늦어도 30초 안에 반영된다.
+- UI: 워크스페이스 관리 > 편집 모달의 "AI 연결(MCP) 허용"(즉시 저장), 개인 워크스페이스는 AI 연결(MCP) 탭의 "내 개인 워크스페이스". 토큰 발급 폼·OAuth 동의 화면은 disabled 를 빼고 read 에 "읽기 전용" 표시.
+
 ## 보안 규칙 (회귀 금지)
 
 - **원문은 발급 직후 한 번만** 보여 준다. 패널 "닫기" 시 컴포넌트 상태에서 원문을 지우며, 목록 상태에는 원문을 넣지 않는다(`{ token, ...meta }` 분리).
@@ -184,5 +208,6 @@ CORS(`*`)는 메타데이터·register·token·revoke 에만. `/authorize`·`/ca
 
 서버 OAuth: `infra/lambda/mcp-server/__tests__/oauth.test.ts` — 메타데이터·DCR 검증·authorize 파라미터·쿠키 바인딩·CSRF·PKCE·코드 단일 사용·refresh 회전/재사용 감지·qn_oat_ 의 scope/워크스페이스 인가·`/revoke`·설정 탭 family 폐기.
 
+`src/components/settings/__tests__/McpAdminAndPolicy.test.tsx` — 관리자 섹션 노출·강제/일괄 폐기·관리자 폐기 표시·정책 선택·발급 폼 정책 반영.
 `src/components/settings/__tests__/McpSettingsTab.test.tsx` — 목록 렌더, 발급 시 원문 1회 표시·닫으면 제거, 읽기+쓰기 경고·write scope 발급, 폐기 mutation 호출, URL 미설정 자리표시자.
-서버: `infra/lambda/mcp-server/__tests__/{updatePage,pageOps,collabWriter,concurrency,guards,queryDatabase,dbWrite,publish,edgeAndCost,handler.e2e}.test.ts`, CloudFront: `infra/lib/mcp-edge-construct.test.ts`(엣지 함수 코드 직접 실행·배포 설정).
+서버: `infra/lambda/mcp-server/__tests__/{updatePage,pageOps,collabWriter,concurrency,guards,queryDatabase,dbWrite,publish,edgeAndCost,adminPolicy,handler.e2e}.test.ts`, CloudFront: `infra/lib/mcp-edge-construct.test.ts`(엣지 함수 코드 직접 실행·배포 설정).

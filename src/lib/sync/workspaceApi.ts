@@ -7,9 +7,10 @@ import {
   LIST_MY_WORKSPACES,
   RESTORE_WORKSPACE,
   SET_WORKSPACE_ACCESS,
+  SET_WORKSPACE_MCP_POLICY,
   UPDATE_WORKSPACE,
 } from "./queries/workspace";
-import type { WorkspaceAccessSummary, WorkspaceSummary } from "../../store/workspaceStore";
+import type { WorkspaceAccessSummary, WorkspaceMcpPolicy, WorkspaceSummary } from "../../store/workspaceStore";
 
 export type WorkspaceAccessInput = {
   subjectType: "TEAM" | "MEMBER" | "EVERYONE";
@@ -127,6 +128,13 @@ export async function setWorkspaceAccessApi(input: {
     "setWorkspaceAccess",
   );
   if (!ws) throw new Error("setWorkspaceAccess 응답이 비어 있습니다.");
+  return normalizeWorkspace(ws);
+}
+
+/** 워크스페이스 MCP 허용 정책 — 공유는 manager 이상, 개인은 소유자(서버가 검사). */
+export async function setWorkspaceMcpPolicyApi(workspaceId: string, policy: WorkspaceMcpPolicy): Promise<WorkspaceSummary> {
+  const ws = await gqlOptional<WorkspaceResponse>(SET_WORKSPACE_MCP_POLICY, { workspaceId, policy }, "setWorkspaceMcpPolicy");
+  if (!ws) throw new Error("setWorkspaceMcpPolicy 응답이 비어 있습니다.");
   return normalizeWorkspace(ws);
 }
 

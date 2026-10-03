@@ -95,6 +95,8 @@ type Workspace {
   createdAt: AWSDateTime!
   removedAt: AWSDateTime
   options: WorkspaceOptions!
+  """MCP 허용 정책: disabled | read | readWrite(미설정 = readWrite)."""
+  mcpPolicy: String
 }
 
 type WorkspaceMeta {
@@ -661,6 +663,8 @@ type Query {
 
   """본인 MCP 토큰 목록 — 메타만 반환(원문·해시 없음)."""
   listMcpTokens: [McpToken!]!
+  """관리자(manager 이상) 전용 — 전 멤버의 PAT·OAuth 연결 현황."""
+  adminListMcpTokens(filter: AdminMcpTokenFilter, limit: Int, nextToken: String): AdminMcpTokenConnection!
 }
 
 # ========== AI ==========
@@ -724,6 +728,54 @@ type McpToken {
   expiresAt: AWSDateTime
   lastUsedAt: AWSDateTime
   revokedAt: AWSDateTime
+  """소유자가 아닌 관리자가 강제 폐기했는지."""
+  revokedByAdmin: Boolean
+  revokeReason: String
+}
+
+type McpTokenWorkspace {
+  workspaceId: ID!
+  name: String!
+}
+
+"""관리자 토큰 현황 — 해시·원문은 없다. OAuth 는 grant(연결 앱) 단위."""
+type AdminMcpToken {
+  tokenId: ID!
+  """pat | oauth"""
+  kind: String!
+  name: String!
+  clientName: String
+  memberId: ID!
+  memberName: String
+  memberEmail: String
+  scopes: [String!]!
+  workspaceIds: [ID!]!
+  workspaces: [McpTokenWorkspace!]!
+  tokenHint: String!
+  """active | revoked | expired"""
+  status: String!
+  createdAt: AWSDateTime!
+  expiresAt: AWSDateTime
+  lastUsedAt: AWSDateTime
+  revokedAt: AWSDateTime
+  revokedBy: ID
+  revokeReason: String
+}
+
+type AdminMcpTokenConnection { items: [AdminMcpToken!]! nextToken: String }
+
+type AdminMcpTokenBulkRevokeResult {
+  memberId: ID!
+  revokedCount: Int!
+  items: [AdminMcpToken!]!
+}
+
+input AdminMcpTokenFilter {
+  memberId: ID
+  """pat | oauth"""
+  kind: String
+  """active | revoked | expired"""
+  status: String
 }
 
 """발급 결과 — token 원문은 이 응답에서 한 번만 제공된다."""
@@ -740,6 +792,8 @@ type CreatedMcpToken {
   expiresAt: AWSDateTime
   lastUsedAt: AWSDateTime
   revokedAt: AWSDateTime
+  revokedByAdmin: Boolean
+  revokeReason: String
 }
 
 input CreateMcpTokenInput {
@@ -877,6 +931,12 @@ type Mutation {
   createMcpToken(input: CreateMcpTokenInput!): CreatedMcpToken!
   """본인 MCP 토큰 폐기(즉시 무효)."""
   revokeMcpToken(tokenId: ID!): McpToken!
+  """관리자 강제 폐기 — OAuth 는 연결(family) 전체."""
+  adminRevokeMcpToken(tokenId: ID!, reason: String): AdminMcpToken!
+  """관리자 일괄 폐기(퇴사자 처리) — 그 멤버의 활성 PAT·OAuth 연결 전부."""
+  adminRevokeMcpTokensByMember(memberId: ID!, reason: String): AdminMcpTokenBulkRevokeResult!
+  """워크스페이스 MCP 허용 정책 — 공유는 manager 이상, 개인은 소유자."""
+  setWorkspaceMcpPolicy(workspaceId: ID!, policy: String!): Workspace!
 }
 
 # ========== Subscription ==========

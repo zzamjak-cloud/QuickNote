@@ -28,6 +28,10 @@ export type McpTokenRecord = {
   kind?: "pat" | "oauth";
   /** OAuth grant 전용: DCR 로 등록된 client_id. */
   clientId?: string;
+  /** 폐기한 멤버 id(본인 폐기면 소유자 본인, 관리자 강제 폐기면 관리자). */
+  revokedBy?: string | null;
+  /** 관리자 강제 폐기 사유(선택). */
+  revokeReason?: string | null;
 };
 
 const BASE62 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";

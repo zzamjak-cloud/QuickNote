@@ -57,6 +57,8 @@ async function deleteAllByWorkspaceGsi(args: {
   }
 }
 
+import { normalizeMcpPolicy, type McpPolicy } from "../../_shared/mcpPolicy";
+
 type AccessLevel = "edit" | "view";
 type AccessSubjectType = "member" | "team" | "everyone";
 
@@ -81,11 +83,14 @@ type WorkspaceRow = {
   removedAt?: string;
   jobFunctions?: string[];
   jobTitles?: string[];
+  mcpPolicy?: McpPolicy;
 };
 
 export type Workspace = WorkspaceRow & {
   access: WorkspaceAccessEntry[];
   myEffectiveLevel: AccessLevel;
+  /** MCP 허용 정책(없으면 readWrite). */
+  mcpPolicy: McpPolicy;
   options: {
     jobFunctions: string[];
     jobTitles: string[];
@@ -199,6 +204,7 @@ async function hydrateWorkspace(
   if (row.workspaceId === LC_SCHEDULER_WORKSPACE_ID) {
     return {
       ...row,
+      mcpPolicy: normalizeMcpPolicy(row.mcpPolicy),
       access: [{ subjectType: "everyone", subjectId: null, level: "edit" }],
       myEffectiveLevel: "edit",
       options: {
@@ -214,6 +220,7 @@ async function hydrateWorkspace(
   if (!level) return null;
   return {
     ...row,
+    mcpPolicy: normalizeMcpPolicy(row.mcpPolicy),
     access,
     myEffectiveLevel: level,
     options: {
@@ -279,6 +286,7 @@ export async function createWorkspace(args: {
     type: "shared",
     ownerMemberId: args.caller.memberId,
     createdAt,
+    mcpPolicy: "readWrite",
     access: normalizedAccess,
     myEffectiveLevel: "edit",
     options: {
@@ -335,6 +343,7 @@ export async function updateWorkspace(args: {
   const access = await getWorkspaceAccess(args.doc, args.tables, args.input.workspaceId);
   return {
     ...updated,
+    mcpPolicy: normalizeMcpPolicy(updated.mcpPolicy),
     access,
     myEffectiveLevel: "edit",
     options: {
@@ -401,6 +410,7 @@ export async function setWorkspaceAccess(args: {
   }
   return {
     ...row,
+    mcpPolicy: normalizeMcpPolicy(row.mcpPolicy),
     access: normalized,
     myEffectiveLevel: "edit",
     options: {
@@ -635,6 +645,26 @@ export async function listMyWorkspaces(args: {
   return hydrated.filter((w): w is Workspace => Boolean(w));
 }
 
+/**
+ * 관리 작업(정책 변경 등) 응답용 — 관리자는 접근 엔트리 없이도 설정할 수 있으므로 hydrate 의 접근 필터 없이
+ * updateWorkspace 와 같은 모양(myEffectiveLevel edit)으로 돌려준다.
+ */
+export async function workspaceViewForAdmin(
+  doc: DynamoDBDocumentClient,
+  tables: Tables,
+  workspaceId: string,
+): Promise<Workspace | null> {
+  const row = await getWorkspaceRow(doc, tables, workspaceId);
+  if (!row) return null;
+  return {
+    ...row,
+    mcpPolicy: normalizeMcpPolicy(row.mcpPolicy),
+    access: await getWorkspaceAccess(doc, tables, workspaceId),
+    myEffectiveLevel: "edit",
+    options: { jobFunctions: row.jobFunctions ?? [], jobTitles: row.jobTitles ?? [] },
+  };
+}
+
 export async function getWorkspace(args: {
   doc: DynamoDBDocumentClient;
   tables: Tables;
@@ -681,6 +711,7 @@ export async function archiveWorkspace(args: {
   const access = await getWorkspaceAccess(args.doc, args.tables, args.workspaceId);
   return {
     ...row,
+    mcpPolicy: normalizeMcpPolicy(row.mcpPolicy),
     removedAt: now,
     access,
     myEffectiveLevel: "edit",
@@ -713,6 +744,7 @@ export async function restoreWorkspace(args: {
   const access = await getWorkspaceAccess(args.doc, args.tables, args.workspaceId);
   return {
     ...row,
+    mcpPolicy: normalizeMcpPolicy(row.mcpPolicy),
     access,
     myEffectiveLevel: "edit",
     options: {

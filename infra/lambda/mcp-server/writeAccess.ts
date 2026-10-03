@@ -9,9 +9,11 @@ import { NOT_ACCESSIBLE, requireWorkspace } from "./access";
 import { ToolError, type McpContext } from "./context";
 import { getItem } from "./ddb";
 import { consumeDailyWrite } from "./rateLimit";
+import { workspaceInfo } from "./workspacePolicy";
 
 export const WRITE_SCOPE_ERROR = "token lacks write scope";
 export const EDIT_ACCESS_ERROR = "Edit access to this workspace is required";
+export const READ_ONLY_POLICY_ERROR = "workspace MCP policy is read-only";
 
 type Item = Record<string, unknown>;
 
@@ -24,6 +26,8 @@ export async function requireWritableWorkspace(ctx: McpContext, workspaceId: str
   requireWriteScope(ctx);
   if (workspaceId === LC_SCHEDULER_WORKSPACE_ID) throw new ToolError(NOT_ACCESSIBLE);
   await requireWorkspace(ctx, workspaceId);
+  // 워크스페이스 관리자가 MCP 를 읽기 전용으로 둔 곳은 모든 쓰기 툴을 거부한다.
+  if ((await workspaceInfo(ctx, workspaceId)).mcpPolicy === "read") throw new ToolError(READ_ONLY_POLICY_ERROR);
   try {
     await requireWorkspaceAccess({
       doc: ctx.doc,

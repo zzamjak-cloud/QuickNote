@@ -1,7 +1,14 @@
 // MCP 개인 액세스 토큰 API 래퍼 — 서버는 해시만 저장하므로 원문은 발급 응답에서 한 번만 받는다.
 
 import { appsyncClient } from "./graphql/client";
-import { CREATE_MCP_TOKEN, LIST_MCP_TOKENS, REVOKE_MCP_TOKEN } from "./queries/mcp";
+import {
+  ADMIN_LIST_MCP_TOKENS,
+  ADMIN_REVOKE_MCP_TOKEN,
+  ADMIN_REVOKE_MCP_TOKENS_BY_MEMBER,
+  CREATE_MCP_TOKEN,
+  LIST_MCP_TOKENS,
+  REVOKE_MCP_TOKEN,
+} from "./queries/mcp";
 
 export type McpTokenScope = "read" | "write";
 
@@ -19,7 +26,36 @@ export type McpToken = {
   expiresAt: string | null;
   lastUsedAt: string | null;
   revokedAt: string | null;
+  /** 소유자가 아닌 관리자가 강제 폐기했는지. */
+  revokedByAdmin?: boolean | null;
+  revokeReason?: string | null;
 };
+
+export type McpTokenStatus = "active" | "revoked" | "expired";
+
+/** 관리자 토큰 현황 항목(해시·원문 없음). */
+export type AdminMcpToken = {
+  tokenId: string;
+  kind: "pat" | "oauth";
+  name: string;
+  clientName: string | null;
+  memberId: string;
+  memberName: string | null;
+  memberEmail: string | null;
+  scopes: string[];
+  workspaceIds: string[];
+  workspaces: { workspaceId: string; name: string }[];
+  tokenHint: string;
+  status: McpTokenStatus;
+  createdAt: string;
+  expiresAt: string | null;
+  lastUsedAt: string | null;
+  revokedAt: string | null;
+  revokedBy: string | null;
+  revokeReason: string | null;
+};
+
+export type AdminMcpTokenFilter = { memberId?: string; kind?: "pat" | "oauth"; status?: McpTokenStatus };
 
 export type CreatedMcpToken = McpToken & { token: string };
 
@@ -59,6 +95,24 @@ export async function createMcpTokenApi(input: CreateMcpTokenInput): Promise<Cre
 
 export async function revokeMcpTokenApi(tokenId: string): Promise<McpToken> {
   return callField(REVOKE_MCP_TOKEN, "revokeMcpToken", { tokenId });
+}
+
+export async function adminListMcpTokensApi(
+  filter: AdminMcpTokenFilter,
+  nextToken?: string | null,
+): Promise<{ items: AdminMcpToken[]; nextToken: string | null }> {
+  return callField(ADMIN_LIST_MCP_TOKENS, "adminListMcpTokens", { filter, limit: 100, nextToken: nextToken ?? null });
+}
+
+export async function adminRevokeMcpTokenApi(tokenId: string, reason: string): Promise<AdminMcpToken> {
+  return callField(ADMIN_REVOKE_MCP_TOKEN, "adminRevokeMcpToken", { tokenId, reason: reason || null });
+}
+
+export async function adminRevokeMcpTokensByMemberApi(
+  memberId: string,
+  reason: string,
+): Promise<{ memberId: string; revokedCount: number; items: AdminMcpToken[] }> {
+  return callField(ADMIN_REVOKE_MCP_TOKENS_BY_MEMBER, "adminRevokeMcpTokensByMember", { memberId, reason: reason || null });
 }
 
 /** CDK McpServerUrl output. 미설정 빌드면 빈 문자열. */

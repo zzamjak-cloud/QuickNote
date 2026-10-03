@@ -1819,6 +1819,10 @@ export function response(ctx) {
 
     // MCP Personal Access Token
     v5Ds.createResolver("QuerylistMcpTokens", { typeName: "Query", fieldName: "listMcpTokens" });
+    v5Ds.createResolver("QueryadminListMcpTokens", { typeName: "Query", fieldName: "adminListMcpTokens" });
+    v5Ds.createResolver("MutationadminRevokeMcpToken", { typeName: "Mutation", fieldName: "adminRevokeMcpToken" });
+    v5Ds.createResolver("MutationadminRevokeMcpTokensByMember", { typeName: "Mutation", fieldName: "adminRevokeMcpTokensByMember" });
+    v5Ds.createResolver("MutationsetWorkspaceMcpPolicy", { typeName: "Mutation", fieldName: "setWorkspaceMcpPolicy" });
     v5Ds.createResolver("MutationcreateMcpToken", { typeName: "Mutation", fieldName: "createMcpToken" });
     v5Ds.createResolver("MutationrevokeMcpToken", { typeName: "Mutation", fieldName: "revokeMcpToken" });
 

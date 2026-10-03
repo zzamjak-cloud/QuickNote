@@ -46,7 +46,7 @@ export type ConsentView = {
   redirectUri: string;
   memberEmail: string;
   requestedScopes: string[];
-  workspaces: { id: string; name: string }[];
+  workspaces: { id: string; name: string; readOnly?: boolean }[];
 };
 
 const KNOWN_HOSTS = ["claude.ai", "claude.com"];
@@ -72,7 +72,7 @@ export function consentPage(view: ConsentView): Result {
     ? ""
     : `<p class="alert">확인되지 않은 앱 — 이 주소로 권한이 전달됩니다: <strong>${escapeHtml(redirect.host)}</strong></p>`;
   const workspaceField = view.workspaces
-    .map((w) => `<label><input type="checkbox" name="workspaceIds" value="${escapeHtml(w.id)}"> ${escapeHtml(w.name)}</label>`)
+    .map((w) => `<label><input type="checkbox" name="workspaceIds" value="${escapeHtml(w.id)}"> ${escapeHtml(w.name)}${w.readOnly ? " <small>(읽기 전용)</small>" : ""}</label>`)
     .join("");
 
   const inner = `<h1>QuickNote 연결 승인</h1>

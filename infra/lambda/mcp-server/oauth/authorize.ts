@@ -158,13 +158,16 @@ async function findMemberBySub(deps: OAuthDeps, sub: string): Promise<Member | n
   return (r.Items?.[0] as Member | undefined) ?? null;
 }
 
-/** 동의 화면 워크스페이스 — MCP access.ts 와 같은 기준(스케줄러 가상 WS·삭제 WS·타인 개인 WS 제외). */
-async function consentWorkspaces(deps: OAuthDeps, caller: Member): Promise<{ id: string; name: string }[]> {
+/**
+ * 동의 화면 워크스페이스 — MCP access.ts 와 같은 기준(스케줄러 가상 WS·삭제 WS·타인 개인 WS·MCP 정책 disabled 제외).
+ * 정책 read 인 곳은 "읽기 전용" 표시.
+ */
+async function consentWorkspaces(deps: OAuthDeps, caller: Member): Promise<{ id: string; name: string; readOnly: boolean }[]> {
   const all = await listMyWorkspaces({ doc: deps.doc, tables: deps.tables, caller });
   return all
-    .filter((w) => !w.removedAt && w.workspaceId !== LC_SCHEDULER_WORKSPACE_ID)
+    .filter((w) => !w.removedAt && w.workspaceId !== LC_SCHEDULER_WORKSPACE_ID && w.mcpPolicy !== "disabled")
     .filter((w) => w.type !== "personal" || w.workspaceId === caller.personalWorkspaceId)
-    .map((w) => ({ id: w.workspaceId, name: w.name }));
+    .map((w) => ({ id: w.workspaceId, name: w.name, readOnly: w.mcpPolicy === "read" }));
 }
 
 const EXPIRED_MESSAGE = "연결 요청이 만료되었거나 다른 브라우저에서 시작되었습니다.";

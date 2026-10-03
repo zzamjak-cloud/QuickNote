@@ -23,9 +23,9 @@ export function McpTokenCreateForm({ busy, onSubmit }: Props) {
   const [expiry, setExpiry] = useState("90");
   const [access, setAccess] = useState<"read" | "write">("read");
 
-  // 스케줄러 가상 워크스페이스·삭제된 워크스페이스는 MCP 범위 대상이 아니다.
+  // 스케줄러 가상 워크스페이스·삭제된 워크스페이스·MCP 정책이 차단인 워크스페이스는 MCP 범위 대상이 아니다.
   const selectable = workspaces.filter(
-    (w) => w.workspaceId !== LC_SCHEDULER_WORKSPACE_ID && !w.removedAt,
+    (w) => w.workspaceId !== LC_SCHEDULER_WORKSPACE_ID && !w.removedAt && w.mcpPolicy !== "disabled",
   );
   const trimmedName = name.trim();
 
@@ -116,6 +116,11 @@ export function McpTokenCreateForm({ busy, onSubmit }: Props) {
                 onChange={() => toggleWorkspace(w.workspaceId)}
               />
               <span className="truncate">{w.name}</span>
+              {w.mcpPolicy === "read" && (
+                <span className="shrink-0 rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
+                  읽기 전용
+                </span>
+              )}
             </label>
           ))}
         </div>

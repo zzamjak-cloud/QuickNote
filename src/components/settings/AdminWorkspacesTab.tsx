@@ -336,6 +336,7 @@ export function AdminWorkspacesTab() {
           workspaceId={editingWorkspace.workspaceId}
           workspaceName={editingWorkspace.name}
           initialEntries={editEntries}
+          mcpPolicy={editingWorkspace.mcpPolicy ?? null}
           description={editDescription}
           onDescriptionChange={setEditDescription}
           onClose={closeEditModal}

@@ -1,7 +1,8 @@
 // MCP Personal Access Token 발급·조회·폐기 리졸버.
 // 원문 토큰은 createMcpToken 응답에 한 번만 반환하고, 저장·조회 응답에는 해시를 절대 싣지 않는다.
 import { randomUUID } from "node:crypto";
-import { PutCommand, QueryCommand, UpdateCommand, type DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
+import { GetCommand, PutCommand, QueryCommand, UpdateCommand, type DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
+import { normalizeMcpPolicy } from "../../_shared/mcpPolicy";
 import { z } from "zod";
 import {
   generateMcpToken,
@@ -33,7 +34,12 @@ const createInputSchema = z.object({
 
 export type CreateMcpTokenInput = z.input<typeof createInputSchema>;
 
-export type McpTokenMeta = Omit<McpTokenRecord, "tokenHash" | "memberId" | "clientId"> & { kind: "pat" | "oauth" };
+export type McpTokenMeta = Omit<McpTokenRecord, "tokenHash" | "memberId" | "clientId" | "revokedBy" | "revokeReason"> & {
+  kind: "pat" | "oauth";
+  /** 소유자가 아닌 사람(관리자)이 폐기했는지 — 본인 목록의 "관리자에 의해 폐기됨" 표시용. */
+  revokedByAdmin: boolean;
+  revokeReason: string | null;
+};
 
 type BaseArgs = { doc: DynamoDBDocumentClient; tables: Tables; caller: Member };
 
@@ -55,6 +61,8 @@ export function toMcpTokenMeta(record: McpTokenRecord): McpTokenMeta {
     expiresAt: record.expiresAt ?? null,
     lastUsedAt: record.lastUsedAt ?? null,
     revokedAt: record.revokedAt ?? null,
+    revokedByAdmin: Boolean(record.revokedAt && record.revokedBy && record.revokedBy !== record.memberId),
+    revokeReason: record.revokeReason ?? null,
   };
 }
 
@@ -88,6 +96,9 @@ async function assertWorkspacesAccessible(args: BaseArgs, workspaceIds: string[]
       workspaceId,
     });
     if (!ok) badRequest(`접근할 수 없는 워크스페이스: ${workspaceId}`);
+    // MCP 정책이 disabled 인 워크스페이스는 토큰 범위로 고를 수 없다(어차피 MCP 에서 보이지 않는다).
+    const row = await args.doc.send(new GetCommand({ TableName: args.tables.Workspaces, Key: { workspaceId } }));
+    if (normalizeMcpPolicy(row.Item?.mcpPolicy) === "disabled") badRequest(`MCP 가 꺼진 워크스페이스: ${workspaceId}`);
   }
 }
 
@@ -152,10 +163,10 @@ export async function revokeMcpToken(args: BaseArgs & { tokenId: string }): Prom
     new UpdateCommand({
       TableName: requireTable(args.tables),
       Key: { tokenHash: target.tokenHash },
-      UpdateExpression: "SET revokedAt = :r",
+      UpdateExpression: "SET revokedAt = :r, revokedBy = :m",
       ConditionExpression: "memberId = :m",
       ExpressionAttributeValues: { ":r": revokedAt, ":m": args.caller.memberId },
     }),
   );
-  return toMcpTokenMeta({ ...target, revokedAt });
+  return toMcpTokenMeta({ ...target, revokedAt, revokedBy: args.caller.memberId });
 }

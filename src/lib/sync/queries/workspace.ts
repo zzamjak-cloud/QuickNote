@@ -14,6 +14,13 @@ const WORKSPACE_FIELDS = `
   removedAt
   access { ${ACCESS_ENTRY_FIELDS} }
   options { jobFunctions jobTitles }
+  mcpPolicy
+`;
+
+export const SET_WORKSPACE_MCP_POLICY = `
+  mutation SetWorkspaceMcpPolicy($workspaceId: ID!, $policy: String!) {
+    setWorkspaceMcpPolicy(workspaceId: $workspaceId, policy: $policy) { ${WORKSPACE_FIELDS} }
+  }
 `;
 
 export const LIST_MY_WORKSPACES = `

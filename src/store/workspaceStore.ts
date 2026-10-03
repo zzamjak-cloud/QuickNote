@@ -15,12 +15,16 @@ export type WorkspaceAccessSummary = {
   level: WorkspaceAccessLevel;
 };
 
+/** 워크스페이스 MCP 허용 정책 — 미설정(null) = readWrite. */
+export type WorkspaceMcpPolicy = "disabled" | "read" | "readWrite";
+
 export type WorkspaceSummary = {
   workspaceId: string;
   name: string;
   type: WorkspaceType;
   ownerMemberId: string;
   myEffectiveLevel: WorkspaceAccessLevel;
+  mcpPolicy?: WorkspaceMcpPolicy | null;
   access?: WorkspaceAccessSummary[];
   createdAt?: string;
   removedAt?: string;
