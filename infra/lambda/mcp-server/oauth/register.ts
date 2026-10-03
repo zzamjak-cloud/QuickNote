@@ -9,6 +9,13 @@ import { CLIENT_TTL_DAYS, consumeIpQuota, daysFrom, epochSeconds, putClient, typ
 
 /** IP 당 시간당 등록 상한. */
 export const DCR_LIMIT_PER_HOUR = 20;
+/** 전역 시간당 등록 상한(IP 분산 남용 방어). env MCP_OAUTH_DCR_GLOBAL_LIMIT(양의 정수) > 기본 500. */
+export const DCR_GLOBAL_LIMIT_PER_HOUR = 500;
+
+export function dcrGlobalLimit(): number {
+  const n = Number(process.env.MCP_OAUTH_DCR_GLOBAL_LIMIT);
+  return Number.isInteger(n) && n > 0 ? n : DCR_GLOBAL_LIMIT_PER_HOUR;
+}
 const MAX_REDIRECT_URIS = 5;
 const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]"]);
 const SUPPORTED_GRANTS = new Set(["authorization_code", "refresh_token"]);
@@ -50,14 +57,10 @@ function sanitizeName(value: string | undefined): string {
 
 export async function handleRegister(event: APIGatewayProxyEventV2, deps: OAuthDeps): Promise<Result> {
   const now = deps.now();
-  const allowed = await consumeIpQuota({
-    doc: deps.doc,
-    table: deps.tables.RateLimit,
-    key: `dcr#${clientIp(event)}`,
-    windowSec: 3600,
-    limit: DCR_LIMIT_PER_HOUR,
-    nowMs: now.getTime(),
-  });
+  const quota = (key: string, limit: number) =>
+    consumeIpQuota({ doc: deps.doc, table: deps.tables.RateLimit, key, windowSec: 3600, limit, nowMs: now.getTime() });
+  // IP 상한을 먼저 확인해 한 IP 의 남용이 전역 카운터를 소모하지 않게 한다.
+  const allowed = (await quota(`dcr#${clientIp(event, deps.config)}`, DCR_LIMIT_PER_HOUR)) && (await quota("dcr-global", dcrGlobalLimit()));
   if (!allowed) return oauthError(429, "too_many_requests", "registration rate limit exceeded");
 
   let body: unknown;

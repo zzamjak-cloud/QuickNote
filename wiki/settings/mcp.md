@@ -85,6 +85,7 @@ Claude.ai 커스텀 커넥터 등 PAT 를 넣을 수 없는 클라이언트용. 
 2. 클라이언트가 PRM → AS 메타데이터 → `/register`(DCR) → `/authorize`(PKCE S256).
 3. `/authorize` 가 tx 를 만들고 `__Host-qn_oauth_tx` 바인딩 쿠키를 심은 뒤 Cognito `/oauth2/authorize`(`identity_provider=Google`, 파사드 전용 앱 클라이언트, Cognito 용 PKCE·nonce)로 보낸다.
 4. `/callback`: tx·쿠키 확인 → Cognito 코드 서버 교환 → ID 토큰 검증(aws-jwt-verify, nonce) → `byCognitoSub` 로 Member(active 만) → 동의 화면(서버 렌더, CSRF 토큰).
+   - **DCR 피싱 완화(회귀 금지)**: 쓰기를 요청받아도 기본 선택은 "읽기만", 앱 이름 옆 "(앱이 직접 입력한 이름)", redirect 호스트 굵게, claude.ai·claude.com(하위 도메인)·루프백이 아니면 "확인되지 않은 앱 — 이 주소로 권한이 전달됩니다" 경고, 워크스페이스 미선택 = **전체 워크스페이스** 경고.
 5. `/consent`(POST): 쿠키·CSRF 확인, tx 단일 사용 → 인가 코드(60초, 단일 사용) → `redirect_uri?code&state&iss` (303).
 6. `/token`: `authorization_code`(PKCE·redirect_uri·client 검증) → grant family 생성 + access/refresh 발급. `refresh_token` 은 매번 회전.
 
@@ -94,8 +95,8 @@ Claude.ai 커스텀 커넥터 등 PAT 를 넣을 수 없는 클라이언트용. 
 |---|---|---|
 | `/.well-known/oauth-protected-resource`, `…/mcp` | GET | RFC 9728. `resource=<origin>/mcp`, `authorization_servers=[origin]` |
 | `/.well-known/oauth-authorization-server` | GET | RFC 8414. S256 only, auth method `none`, scopes `read write`, `iss` 응답 파라미터 |
-| `/register` | POST(JSON) | RFC 7591. public 만(`none`), redirect_uri 는 https 또는 루프백 http(127.0.0.1/localhost/[::1]), fragment·userinfo 금지, 최대 5개. IP 당 시간당 20회 |
-| `/authorize` | GET | client·redirect_uri(정확 일치) 검증 전에는 **절대 리다이렉트하지 않음**(HTML 오류). 이후 오류는 RFC 6749 형식으로 redirect. `resource` 는 이 서버만(`invalid_target`). scope 미지정 = read. IP 당 분당 30회 |
+| `/register` | POST(JSON) | RFC 7591. public 만(`none`), redirect_uri 는 https 또는 루프백 http(127.0.0.1/localhost/[::1]), fragment·userinfo 금지, 최대 5개. IP 당 시간당 20회 + 전역 시간당 500회(env `MCP_OAUTH_DCR_GLOBAL_LIMIT`). IP 는 `publicOrigin` 설정 시에만 `CloudFront-Viewer-Address` 를 신뢰 |
+| `/authorize` | GET | 사용자 인증 전 오류(client·redirect_uri·PKCE·scope·resource·response_type)는 **모두 리다이렉트하지 않고 HTML 400**(RFC 9700 §4.11.2 사전 인증 오픈 리다이렉트 방지). Cognito 로그인 취소도 HTML. 클라이언트로의 error redirect 는 동의 화면 "거부"(access_denied)뿐. `resource` 는 이 서버만. scope 미지정 = read. IP 당 분당 30회 |
 | `/callback` | GET | Cognito 콜백 = `<FunctionURL>/callback` |
 | `/consent` | POST(form) | 동의 제출 |
 | `/token` | POST(form) | IP 당 분당 60회(`/revoke` 공용). `Cache-Control: no-store` |
@@ -113,7 +114,8 @@ CORS(`*`)는 메타데이터·register·token·revoke 에만. `/authorize`·`/ca
 | 〃 | `oat#<sha256>` | access token(1시간, `kind:"oauth_access"`, memberId 없음 → GSI 미노출). TTL `ttl` |
 
 - 상태 전이는 모두 조건부 Update(`#s = :from`) — 코드·refresh·tx 동시 사용 중 하나만 성공.
-- **refresh 재사용 감지**: 이미 `used` 인 refresh 가 오면 family 를 `revokedAt` 으로 폐기 → 그 family 의 모든 access·refresh 가 즉시 거부.
+- **refresh 재사용 감지**: 이미 `used` 인 refresh 가 회전 후 **10초 유예**(`REFRESH_REUSE_GRACE_MS`, 네트워크 재시도·동시 요청) 안에 오면 invalid_grant 만, 유예 이후면 family 를 `revokedAt` 으로 폐기 → 그 family 의 모든 access·refresh 가 즉시 거부.
+- **인가 코드 재사용**: 코드 항목에 발급한 `familyId` 를 기록해 두고, 이미 쓴 코드가 다시 오면 그 family 를 폐기한다.
 - `/mcp` 인증(`auth.ts`): `qn_oat_` → access 항목 → family 레코드를 토큰으로 사용(폐기·만료·멤버 활성 검사 동일). **tokenId = familyId** 라 분당 120회·일일 쓰기 500 상한이 family 단위. scope 는 family ∩ access(refresh 시 축소 가능). 워크스페이스 인가는 PAT 와 같은 `access.ts`/`writeAccess.ts`.
 - 설정 탭 `revokeMcpToken(familyId)` 은 family 레코드만 폐기하면 된다. `createMcpToken` 활성 상한 20개는 PAT 만 센다.
 
@@ -128,8 +130,7 @@ CORS(`*`)는 메타데이터·register·token·revoke 에만. `/authorize`·`/ca
 
 ### 알려진 한계
 
-- 인가 코드 재사용 시 이미 발급된 토큰까지 폐기하지는 않는다(코드는 60초·단일 사용).
-- 동시 refresh(같은 refresh 를 거의 동시에 두 번)는 재사용으로 판정돼 family 가 폐기된다 — 재연결 필요.
+- 커스텀 URI 스킴(`myapp://cb`) redirect 는 DCR 에서 거부한다(https·루프백 http 만). 네이티브 앱은 루프백 리다이렉트를 써야 한다. 스킴을 허용하려면 스킴 하이재킹(다른 앱이 같은 스킴 등록) 위험 때문에 PKCE 외 추가 검증·동의 화면 경고가 필요하다.
 - `/mcp` 자체는 CORS 를 열지 않는다(브라우저 MCP Inspector 직접 연결 불가, Claude.ai 는 서버 측 호출이라 무관).
 
 ## 테스트

@@ -51,7 +51,16 @@ export function getCookie(event: APIGatewayProxyEventV2, name: string): string |
   return undefined;
 }
 
-export function clientIp(event: APIGatewayProxyEventV2): string {
+/**
+ * 요청자 IP. publicOrigin(CloudFront 등)이 설정된 경우에만 CloudFront 가 채우는 CloudFront-Viewer-Address("ip:port")를
+ * 신뢰한다 — Function URL 직접 호출에서는 클라이언트가 임의로 넣을 수 있어 sourceIp 를 쓴다.
+ */
+export function clientIp(event: APIGatewayProxyEventV2, config: { publicOrigin?: string } = {}): string {
+  if (config.publicOrigin) {
+    const viewer = header(event, "cloudfront-viewer-address");
+    const idx = viewer?.lastIndexOf(":") ?? -1;
+    if (viewer && idx > 0) return viewer.slice(0, idx);
+  }
   return event.requestContext?.http?.sourceIp ?? "unknown";
 }
 

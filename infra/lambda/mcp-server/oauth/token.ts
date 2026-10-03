@@ -32,6 +32,7 @@ import {
   putFamily,
   putGrantItem,
   revokeFamily,
+  setCodeFamily,
   transitionGrantItem,
   type CodeItem,
   type OAuthClient,
@@ -40,6 +41,8 @@ import {
 
 export const ACCESS_TOKEN_TTL_SEC = 3600;
 const TOKEN_LIMIT_PER_MIN = 60;
+/** 회전 직후 이 시간 안에 직전 refresh 가 다시 오면(네트워크 재시도) family 를 폐기하지 않는다. */
+export const REFRESH_REUSE_GRACE_MS = 10_000;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 type Issued = { access_token: string; token_type: "Bearer"; expires_in: number; refresh_token: string; scope: string };
@@ -96,17 +99,27 @@ async function exchangeAuthorizationCode(
   }
 
   const now = deps.now();
+  const codeKey = grantKey("code", code);
   // 단일 사용: active → used 조건부 전이에 성공한 요청만 토큰을 받는다.
   const item = await transitionGrantItem<CodeItem>({
     doc: deps.doc,
     table: deps.config.grantsTable,
-    pk: grantKey("code", code),
+    pk: codeKey,
     attr: "status",
     from: "active",
     to: "used",
   });
   const invalid = () => oauthError(400, "invalid_grant", "authorization code is invalid or expired");
-  if (!item || item.expiresAt <= now.toISOString()) return invalid();
+  if (!item) {
+    // 이미 쓴 코드 재제출 — 코드 탈취 가능성이 있으므로 그 코드로 발급한 family 를 폐기한다(RFC 6749 §4.1.2).
+    const used = await getGrantItem<CodeItem>(deps.doc, deps.config.grantsTable, codeKey);
+    if (used?.familyId) {
+      console.warn("oauth 인가 코드 재사용 감지 — family 폐기", { familyId: used.familyId });
+      await revokeFamily(deps.doc, deps.tables.McpTokens, used.familyId, now.toISOString());
+    }
+    return invalid();
+  }
+  if (item.expiresAt <= now.toISOString()) return invalid();
   if (item.clientId !== client.clientId || item.redirectUri !== redirectUri) return invalid();
   if (!verifyPkceS256(verifier, item.codeChallenge)) return invalid();
 
@@ -130,7 +143,9 @@ async function exchangeAuthorizationCode(
     ttl: epochSeconds(expiresAt, 7 * DAY_MS),
   };
   await putFamily(deps.doc, deps.tables.McpTokens, family);
-  return tokenJson(await issuePair(deps, family, item.scopes, now));
+  const issued = await issuePair(deps, family, item.scopes, now);
+  await setCodeFamily(deps.doc, deps.config.grantsTable, codeKey, familyId);
+  return tokenJson(issued);
 }
 
 async function exchangeRefreshToken(form: URLSearchParams, client: OAuthClient, deps: OAuthDeps): Promise<Result> {
@@ -155,7 +170,11 @@ async function exchangeRefreshToken(form: URLSearchParams, client: OAuthClient, 
     set: { usedAt: nowIso },
   });
   if (!rotated) {
-    // 이미 회전된 refresh token 재사용 — 탈취 가능성이 있으므로 family 전체를 폐기한다.
+    // 회전 직후 짧은 유예 안의 재시도(또는 동시 요청)는 폐기하지 않고 거부만 한다.
+    const latest = await getGrantItem<RefreshItem>(deps.doc, deps.config.grantsTable, pk);
+    const usedAtMs = latest?.usedAt ? Date.parse(latest.usedAt) : now.getTime();
+    if (now.getTime() - usedAtMs < REFRESH_REUSE_GRACE_MS) return invalid();
+    // 유예가 지난 재사용 — 탈취 가능성이 있으므로 family 전체를 폐기한다.
     console.warn("oauth refresh token 재사용 감지 — family 폐기", { familyId: current.familyId });
     await revokeFamily(deps.doc, deps.tables.McpTokens, current.familyId, nowIso);
     return invalid();
@@ -184,7 +203,7 @@ async function prepare(
   const allowed = await consumeIpQuota({
     doc: deps.doc,
     table: deps.tables.RateLimit,
-    key: `token#${clientIp(event)}`,
+    key: `token#${clientIp(event, deps.config)}`,
     windowSec: 60,
     limit: TOKEN_LIMIT_PER_MIN,
     nowMs: deps.now().getTime(),

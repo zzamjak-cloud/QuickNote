@@ -6,7 +6,10 @@ import { createHandler } from "../index";
 import type { CognitoOps } from "../oauth/cognito";
 import type { OAuthConfig } from "../oauth/config";
 import { pkceS256, randomId } from "../oauth/crypto";
+import { consentPage, isKnownRedirectHost } from "../oauth/consentPage";
+import { clientIp } from "../oauth/http";
 import { DCR_LIMIT_PER_HOUR, isAllowedRedirectUri } from "../oauth/register";
+import { REFRESH_REUSE_GRACE_MS } from "../oauth/token";
 import { createFakeDdb, type Item } from "./fakeDdb";
 import { baseTables, member, TABLES } from "./fixtures";
 
@@ -88,8 +91,8 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-async function register(env: Env, body: unknown = { client_name: "Claude", redirect_uris: [REDIRECT] }) {
-  return env.call(ev("POST", "/register", { body: JSON.stringify(body), headers: { "content-type": "application/json" } }));
+async function register(env: Env, body: unknown = { client_name: "Claude", redirect_uris: [REDIRECT] }, ip?: string) {
+  return env.call(ev("POST", "/register", { body: JSON.stringify(body), headers: { "content-type": "application/json" }, ip }));
 }
 
 /** register → authorize → callback → (동의 화면) 까지. */
@@ -243,6 +246,26 @@ describe("DCR(RFC 7591)", () => {
     const env = setup();
     for (let i = 0; i < DCR_LIMIT_PER_HOUR; i += 1) expect((await register(env)).statusCode).toBe(201);
     expect((await register(env)).statusCode).toBe(429);
+    expect((await register(env, undefined, "5.6.7.8")).statusCode).toBe(201);
+  });
+
+  it("전역 시간당 상한(L3) — IP 를 바꿔도 막힌다", async () => {
+    vi.stubEnv("MCP_OAUTH_DCR_GLOBAL_LIMIT", "3");
+    try {
+      const env = setup();
+      for (let i = 0; i < 3; i += 1) expect((await register(env, undefined, `10.0.0.${i}`)).statusCode).toBe(201);
+      expect((await register(env, undefined, "10.0.0.99")).statusCode).toBe(429);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("CloudFront-Viewer-Address 는 publicOrigin 이 있을 때만 신뢰한다", () => {
+    const e = ev("POST", "/register", { headers: { "CloudFront-Viewer-Address": "9.9.9.9:443" }, ip: "1.2.3.4" });
+    expect(clientIp(e)).toBe("1.2.3.4");
+    expect(clientIp(e, { publicOrigin: "https://mcp.example.com" })).toBe("9.9.9.9");
+    const v6 = ev("POST", "/register", { headers: { "cloudfront-viewer-address": "2001:db8::1:51234" } });
+    expect(clientIp(v6, { publicOrigin: "https://x" })).toBe("2001:db8::1");
   });
 });
 
@@ -259,7 +282,6 @@ describe("/authorize 검증", () => {
     };
     return env.call(ev("GET", "/authorize", { query: { ...base, ...query } }));
   }
-  const errorOf = (r: { headers?: Record<string, unknown> }) => new URL(String(r.headers?.location)).searchParams;
 
   it("미등록 client·redirect_uri 는 리다이렉트하지 않고 HTML 오류", async () => {
     const env = setup();
@@ -278,13 +300,13 @@ describe("/authorize 검증", () => {
     [{ response_type: "token" }, "unsupported_response_type"],
     [{ scope: "admin" }, "invalid_scope"],
     [{ resource: "https://other.example.com/mcp" }, "invalid_target"],
-  ])("%o → %s (state 유지)", async (query, error) => {
+  ])("%o → %s 는 사전 인증 오류라 리다이렉트하지 않는다(RFC 9700 §4.11.2)", async (query, _error) => {
     const env = setup();
     const r = await authorize(env, query as Record<string, string>);
-    expect(r.statusCode).toBe(302);
-    expect(errorOf(r).get("error")).toBe(error);
-    expect(errorOf(r).get("state")).toBe("st-1");
-    expect(String(r.headers?.location).startsWith(REDIRECT)).toBe(true);
+    expect(r.statusCode).toBe(400);
+    expect(r.headers?.location).toBeUndefined();
+    expect(String(r.headers?.["content-type"])).toContain("text/html");
+    expect(env.tables["oauth-grants"] ?? []).toHaveLength(0);
   });
 
   it("정상 요청은 Cognito(Google)로 보내고 바인딩 쿠키를 심는다", async () => {
@@ -317,6 +339,26 @@ describe("/callback · /consent", () => {
     expect(body).toContain("claude.ai");
     expect(body).toContain('value="ws-a"');
     expect(body).not.toContain('value="ws-c"');
+    // 피싱 완화: 쓰기를 요청받아도 기본은 읽기만, 이름은 자기 신고, 전체 WS 경고, 확인된 호스트는 경고 없음
+    expect(body).toContain('value="read" checked');
+    expect(body).not.toContain('value="write" checked');
+    expect(body).toContain("(앱이 직접 입력한 이름)");
+    expect(body).toContain("<strong>claude.ai</strong>");
+    expect(body).toContain("<strong>전체 워크스페이스</strong>");
+    expect(body).not.toContain("확인되지 않은 앱");
+  });
+
+  it("확인되지 않은 redirect 호스트는 경고를 띄운다", async () => {
+    expect(isKnownRedirectHost("https://claude.ai/cb")).toBe(true);
+    expect(isKnownRedirectHost("https://www.claude.com/cb")).toBe(true);
+    expect(isKnownRedirectHost("http://127.0.0.1:5000/cb")).toBe(true);
+    expect(isKnownRedirectHost("https://claude.ai.evil.com/cb")).toBe(false);
+    const page = consentPage({
+      txId: "t", csrf: "c", clientName: "Claude", redirectUri: "https://evil.example.com/cb",
+      memberEmail: "a@b.c", requestedScopes: ["read"], workspaces: [],
+    });
+    expect(String(page.body)).toContain("확인되지 않은 앱 — 이 주소로 권한이 전달됩니다");
+    expect(String(page.body)).toContain("<strong>evil.example.com</strong>");
   });
 
   it("바인딩 쿠키 없음·불일치·nonce 불일치·비활성 멤버는 거부", async () => {
@@ -335,6 +377,19 @@ describe("/callback · /consent", () => {
     expect(env.cognito.exchangeCode).not.toHaveBeenCalled();
     expect((await callback(cookie)).statusCode).toBe(200);
     expect((await callback(cookie)).statusCode).toBe(400); // 같은 tx 재진입 불가
+
+    // 로그인 취소도 사전 인증 → 리다이렉트 없이 HTML
+    const cancelEnv = setup();
+    const cancelReg = JSON.parse(String((await register(cancelEnv)).body));
+    const cancelAuthz = await cancelEnv.call(ev("GET", "/authorize", {
+      query: { response_type: "code", client_id: cancelReg.client_id, redirect_uri: REDIRECT, code_challenge: pkceS256(randomId(48)), code_challenge_method: "S256" },
+    }));
+    const cancelled = await cancelEnv.call(ev("GET", "/callback", {
+      query: { error: "access_denied", state: new URL(String(cancelAuthz.headers?.location)).searchParams.get("state") ?? "" },
+      cookie: String(cancelAuthz.cookies?.[0]).split(";")[0],
+    }));
+    expect(cancelled.statusCode).toBe(400);
+    expect(cancelled.headers?.location).toBeUndefined();
 
     expect((await startFlow(setup({ badNonce: true }))).consent.statusCode).toBe(400);
     expect((await startFlow(setup({ memberStatus: "removed" }))).consent.statusCode).toBe(403);
@@ -390,7 +445,10 @@ describe("/token", () => {
     const first = await token(env3, base3);
     expect(first.statusCode).toBe(200);
     expect(first.headers?.["cache-control"]).toBe("no-store");
+    expect((await mcp(env3, JSON.parse(String(first.body)).access_token)).statusCode).toBe(200);
     expect(JSON.parse(String((await token(env3, base3)).body)).error).toBe("invalid_grant");
+    // 코드 재사용 → 그 코드로 발급한 family 폐기(L1)
+    expect((await mcp(env3, JSON.parse(String(first.body)).access_token)).statusCode).toBe(401);
   });
 
   it("만료된 코드·미지원 grant·form 아닌 본문·미등록 client", async () => {
@@ -436,7 +494,12 @@ describe("refresh 회전 · 재사용 감지", () => {
     // 축소된 access token 은 write 툴을 못 쓴다.
     expect((await toolText(env, narrowed.access_token, "trash_page", { pageId: "p1" })).content[0].text).toMatch(/write scope/);
 
-    // 옛 refresh 재사용 → invalid_grant + family 폐기 → 새 access·refresh 도 거부
+    // 유예(10초) 안의 재시도는 거부만 하고 family 는 유지(L2)
+    expect(JSON.parse(String((await refresh(body.refresh_token)).body)).error).toBe("invalid_grant");
+    expect((await mcp(env, narrowed.access_token)).statusCode).toBe(200);
+
+    // 유예가 지난 옛 refresh 재사용 → invalid_grant + family 폐기 → 새 access·refresh 도 거부
+    env.advance(REFRESH_REUSE_GRACE_MS + 1000);
     expect(JSON.parse(String((await refresh(body.refresh_token)).body)).error).toBe("invalid_grant");
     expect((await mcp(env, narrowed.access_token)).statusCode).toBe(401);
     expect(JSON.parse(String((await refresh(narrowed.refresh_token)).body)).error).toBe("invalid_grant");

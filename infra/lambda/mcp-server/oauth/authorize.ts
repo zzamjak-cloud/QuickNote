@@ -68,9 +68,9 @@ export async function handleAuthorize(event: APIGatewayProxyEventV2, deps: OAuth
     return errorPage(400, "등록되지 않은 redirect_uri 입니다.");
   }
 
+  // 사용자 인증 전 파라미터 오류는 redirect_uri 로 돌려보내지 않는다(RFC 9700 §4.11.2 — 사전 인증 오픈 리다이렉트 방지).
   const state = single(q, "state");
-  const fail = (error: string, description: string) =>
-    redirect(withParams(redirectUri, { error, error_description: description, state: state ?? undefined }));
+  const fail = (_error: string, description: string) => errorPage(400, `잘못된 연결 요청입니다 (${description}).`);
   if (state === null || (state && state.length > MAX_STATE_LENGTH)) return fail("invalid_request", "invalid state");
   if (single(q, "response_type") !== "code") return fail("unsupported_response_type", "response_type must be code");
 
@@ -89,7 +89,7 @@ export async function handleAuthorize(event: APIGatewayProxyEventV2, deps: OAuth
   const allowed = await consumeIpQuota({
     doc: deps.doc,
     table: deps.tables.RateLimit,
-    key: `authz#${clientIp(event)}`,
+    key: `authz#${clientIp(event, deps.config)}`,
     windowSec: 60,
     limit: AUTHORIZE_LIMIT_PER_MIN,
     nowMs: now.getTime(),
@@ -175,14 +175,14 @@ export async function handleCallback(event: APIGatewayProxyEventV2, deps: OAuthD
   const tx = await loadBoundTx(event, deps, txId, "login");
   if (!tx || !txId) return errorPage(400, EXPIRED_MESSAGE, [CLEAR_BINDING]);
 
-  const deny = async (error: string, description: string) => {
-    await transitionGrantItem({ doc: deps.doc, table: deps.config.grantsTable, pk: tx.pk, attr: "stage", from: "login", to: "done" });
-    return redirect(withParams(tx.redirectUri, { error, error_description: description, state: tx.state }), {
-      cookies: [CLEAR_BINDING],
-    });
-  };
+  // 로그인 취소·실패도 사용자 인증 전이므로 클라이언트로 리다이렉트하지 않는다(RFC 9700 §4.11.2).
+  const closeTx = () =>
+    transitionGrantItem({ doc: deps.doc, table: deps.config.grantsTable, pk: tx.pk, attr: "stage", from: "login", to: "done" });
   const code = single(q, "code");
-  if (single(q, "error") || !code) return deny("access_denied", "login was cancelled");
+  if (single(q, "error") || !code) {
+    await closeTx();
+    return errorPage(400, "로그인이 취소되었습니다.", [CLEAR_BINDING]);
+  }
 
   let sub: string;
   try {
@@ -199,7 +199,7 @@ export async function handleCallback(event: APIGatewayProxyEventV2, deps: OAuthD
 
   const member = await findMemberBySub(deps, sub);
   if (!member || member.status !== "active") {
-    await deny("access_denied", "not an active QuickNote member");
+    await closeTx();
     return errorPage(403, "QuickNote 활성 멤버만 연결할 수 있습니다.", [CLEAR_BINDING]);
   }
 

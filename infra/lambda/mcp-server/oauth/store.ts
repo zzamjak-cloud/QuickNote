@@ -55,6 +55,8 @@ export type CodeItem = {
   workspaceIds: string[];
   resource: string;
   grantDays: number;
+  /** 이 코드로 발급한 family — 코드 재사용 시 폐기 대상. */
+  familyId?: string;
   expiresAt: string;
   ttl: number;
 };
@@ -193,6 +195,23 @@ export async function transitionGrantItem<T>(args: {
   } catch (err) {
     if (isConditionalFailure(err)) return null;
     throw err;
+  }
+}
+
+/** 코드로 발급한 family 를 기록한다(재사용 감지 시 폐기용). 실패해도 발급은 유지한다. */
+export async function setCodeFamily(doc: DynamoDBDocumentClient, table: string, pk: string, familyId: string): Promise<void> {
+  try {
+    await doc.send(
+      new UpdateCommand({
+        TableName: table,
+        Key: { pk },
+        UpdateExpression: "SET familyId = :f",
+        ConditionExpression: "attribute_exists(pk)",
+        ExpressionAttributeValues: { ":f": familyId },
+      }),
+    );
+  } catch (err) {
+    console.error("oauth 코드 family 기록 실패", (err as Error)?.name);
   }
 }
 
