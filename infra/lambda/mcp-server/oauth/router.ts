@@ -57,7 +57,7 @@ function resolveDeps(deps: OAuthRouterDeps): OAuthDeps | null {
     if (defaultCognito?.config !== config) defaultCognito = { config, ops: defaultCognitoOps(config) };
     cognito = defaultCognito.ops;
   }
-  return { doc: deps.doc, tables: deps.tables, config, cognito, now: deps.now ?? (() => new Date()) };
+  return { doc: deps.doc, tables: deps.tables, config, cognito, now: deps.now ?? (() => new Date()), viaEdge: deps.viaEdge ?? false };
 }
 
 export function isOAuthPath(path: string): boolean {

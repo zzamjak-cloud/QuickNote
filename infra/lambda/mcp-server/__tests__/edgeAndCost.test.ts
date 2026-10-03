@@ -70,11 +70,11 @@ describe("공개 origin(SSM)·뷰어 IP", () => {
     expect(await primePublicOrigin(async () => "https://ok.cloudfront.net")).toBe(true);
   });
 
-  it("뷰어 IP: CloudFront 경유(publicOrigin)일 때만 x-qn-viewer-address → CloudFront-Viewer-Address 순으로 신뢰", () => {
-    const viaEdge = event({ "x-qn-viewer-address": "2001:db8::1:0", "cloudfront-viewer-address": "198.51.100.2:443" });
-    expect(clientIp(viaEdge, { publicOrigin: "https://d.cloudfront.net" })).toBe("2001:db8::1");
-    expect(clientIp(event({ "cloudfront-viewer-address": "198.51.100.2:443" }), { publicOrigin: "https://d" })).toBe("198.51.100.2");
-    expect(clientIp(viaEdge, {})).toBe("10.0.0.1"); // 직접 호출 구성에서는 헤더를 믿지 않는다
+  it("뷰어 IP: origin-verify 통과(viaEdge)일 때만 x-qn-viewer-address → CloudFront-Viewer-Address 순으로 신뢰", () => {
+    const spoofable = event({ "x-qn-viewer-address": "2001:db8::1:0", "cloudfront-viewer-address": "198.51.100.2:443" });
+    expect(clientIp(spoofable, { viaEdge: true })).toBe("2001:db8::1");
+    expect(clientIp(event({ "cloudfront-viewer-address": "198.51.100.2:443" }), { viaEdge: true })).toBe("198.51.100.2");
+    expect(clientIp(spoofable, { viaEdge: false })).toBe("10.0.0.1"); // 검증 안 된 요청은 헤더를 믿지 않는다
   });
 });
 

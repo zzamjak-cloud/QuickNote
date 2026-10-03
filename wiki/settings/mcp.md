@@ -39,9 +39,12 @@
 
 - **왜**: Lambda Function URL 은 응답의 `WWW-Authenticate` 를 `x-amzn-Remapped-WWW-Authenticate` 로 바꿔 내보내 MCP 클라이언트가 OAuth discovery 를 못 한다. viewer-response CloudFront Function(`infra/lib/mcp-edge/viewer-response.js`)이 원래 이름으로 되돌린다.
 - 배포: 원본 = Function URL, `CachingDisabled`, `AllViewerExceptHostHeader`, 메서드 ALL, 압축 끔, HTTP/2, PriceClass_200(한국 엣지 포함).
-- **원본 보호**: CloudFront 가 `x-qn-origin-verify` 커스텀 원본 헤더를 붙이고 함수 env `ORIGIN_VERIFY` 와 일치할 때만 처리(불일치·누락 403, DDB 미접근). 값은 construct 주소로 결정적으로 만든 리터럴(템플릿 노출 허용 — 직접 호출 우회만 막는다).
+- **원본 보호**: CloudFront 가 `x-qn-origin-verify` 커스텀 원본 헤더를 붙이고, 함수는 그 값이 비밀과 일치할 때만 처리(불일치·누락 403, DDB 미접근).
+  - 값은 Secrets Manager `{envPrefix}quicknote/mcp-origin-verify`(48자 랜덤, 구두점 제외). **저장소가 공개라 결정적 값은 금지** — 누구나 재현해 Function URL 을 직접 호출하며 뷰어 IP 헤더를 위조할 수 있다.
+  - CloudFront 원본 헤더에는 CFN 동적 참조(`{{resolve:secretsmanager:…}}`)로 들어가 템플릿에 평문이 없다. 함수 env 에는 비밀 **이름**(`ORIGIN_VERIFY_SECRET_ID`)만 두고 런타임 `GetSecretValue`(그 비밀만 허용)로 읽어 5분 캐시, 못 읽으면 503(fail-closed, 만료된 옛 값으로 허용하지 않음).
+  - **교체 절차**(자동 회전 없음): ① Secrets Manager 에서 값 변경(`put-secret-value` 또는 콘솔 "Retrieve/Edit") → ② Sync 스택 재배포(CloudFront 가 동적 참조를 배포 시점에 해석하므로 재배포해야 새 값이 원본 헤더에 들어간다, 배포 전파 수 분) → ③ 함수 캐시 TTL(5분) 경과. ①~③ 사이 옛 값/새 값 불일치 구간에는 403 이 날 수 있으니 트래픽이 적을 때 한다.
 - **공개 origin**: 배포 도메인을 함수 env 로 넣으면 순환(배포→URL→함수)이라 SSM `/{envPrefix}quicknote/mcp-public-origin` 에 게시하고 함수가 첫 요청에서 읽어 캐시한다(env `MCP_PUBLIC_ORIGIN_PARAM`; `MCP_PUBLIC_ORIGIN` 이 있으면 우선). 못 읽으면 503 — issuer·resource 가 Function URL 로 잘못 나가지 않게.
-- **뷰어 IP**: 관리형 `AllViewerExceptHostHeader` 는 `CloudFront-Viewer-Address` 를 원본에 싣지 않으므로 viewer-request 함수(`viewer-request.js`)가 `x-qn-viewer-address`(ip:0)를 덮어써 싣는다. `clientIp` 는 공개 origin 이 설정됐을 때만 `x-qn-viewer-address` → `CloudFront-Viewer-Address` 순으로 신뢰한다(직접 호출은 origin-verify 로 차단).
+- **뷰어 IP**: 관리형 `AllViewerExceptHostHeader` 는 `CloudFront-Viewer-Address` 를 원본에 싣지 않으므로 viewer-request 함수(`viewer-request.js`)가 `x-qn-viewer-address`(ip:0)를 덮어써 싣는다. `clientIp` 는 **그 요청이 origin-verify 를 통과했을 때만**(핸들러가 `viaEdge` 플래그를 OAuth deps 로 전달) `x-qn-viewer-address` → `CloudFront-Viewer-Address` 순으로 신뢰한다.
 - 배포 후 `VITE_MCP_SERVER_URL`·기존 커넥터 URL 을 새 `McpServerUrl` 로 바꿔야 한다(구 Function URL 은 403).
 - 미설정 빌드에서는 스니펫에 `<MCP 서버 URL>` 자리표시자와 안내 문구를 표시한다(UI 는 정상 동작).
 
@@ -123,7 +126,7 @@ Claude.ai 커스텀 커넥터 등 PAT 를 넣을 수 없는 클라이언트용. 
 |---|---|---|
 | `/.well-known/oauth-protected-resource`, `…/mcp` | GET | RFC 9728. `resource=<origin>/mcp`, `authorization_servers=[origin]` |
 | `/.well-known/oauth-authorization-server` | GET | RFC 8414. S256 only, auth method `none`, scopes `read write`, `iss` 응답 파라미터 |
-| `/register` | POST(JSON) | RFC 7591. public 만(`none`), redirect_uri 는 https 또는 루프백 http(127.0.0.1/localhost/[::1]), fragment·userinfo 금지, 최대 5개. IP 당 시간당 20회 + 전역 시간당 500회(env `MCP_OAUTH_DCR_GLOBAL_LIMIT`). IP 는 `publicOrigin` 설정 시에만 `CloudFront-Viewer-Address` 를 신뢰 |
+| `/register` | POST(JSON) | RFC 7591. public 만(`none`), redirect_uri 는 https 또는 루프백 http(127.0.0.1/localhost/[::1]), fragment·userinfo 금지, 최대 5개. IP 당 시간당 20회 + 전역 시간당 500회(env `MCP_OAUTH_DCR_GLOBAL_LIMIT`). IP 는 origin-verify 를 통과한 요청에서만 CloudFront 뷰어 IP 헤더를 신뢰 |
 | `/authorize` | GET | 사용자 인증 전 오류(client·redirect_uri·PKCE·scope·resource·response_type)는 **모두 리다이렉트하지 않고 HTML 400**(RFC 9700 §4.11.2 사전 인증 오픈 리다이렉트 방지). Cognito 로그인 취소도 HTML. 클라이언트로의 error redirect 는 동의 화면 "거부"(access_denied)뿐. `resource` 는 이 서버만. scope 미지정 = read. IP 당 분당 30회 |
 | `/callback` | GET | Cognito 콜백 = `<FunctionURL>/callback` |
 | `/consent` | POST(form) | 동의 제출 |

@@ -10,4 +10,6 @@ export type OAuthDeps = {
   config: OAuthConfig;
   cognito: CognitoOps;
   now: () => Date;
+  /** 이 요청이 origin-verify 를 통과했는지(=CloudFront 경유) — 뷰어 IP 헤더 신뢰 조건. */
+  viaEdge: boolean;
 };

@@ -6,7 +6,7 @@ import * as cdk from "aws-cdk-lib";
 import { Match, Template } from "aws-cdk-lib/assertions";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import { describe, expect, it } from "vitest";
-import { McpEdge, ORIGIN_VERIFY_HEADER, mcpPublicOriginParamName } from "./mcp-edge-construct";
+import { McpEdge, ORIGIN_VERIFY_HEADER, mcpPublicOriginParamName, originVerifySecretName } from "./mcp-edge-construct";
 
 type Headers = Record<string, { value: string }>;
 
@@ -59,11 +59,22 @@ describe("McpEdge 배포", () => {
         Origins: [Match.objectLike({ OriginCustomHeaders: [Match.objectLike({ HeaderName: ORIGIN_VERIFY_HEADER })] })],
       }),
     });
-    const verify = (t.findResources("AWS::CloudFront::Distribution") as Record<string, { Properties: { DistributionConfig: { Origins: { OriginCustomHeaders: { HeaderValue: string }[] }[] } } }>);
-    const headerValue = Object.values(verify)[0].Properties.DistributionConfig.Origins[0].OriginCustomHeaders[0].HeaderValue;
-    expect(headerValue).toMatch(/^[0-9a-f]{40}$/);
+    // 원본 헤더 값은 평문이 아니라 Secrets Manager 동적 참조({{resolve:secretsmanager:…}})여야 한다.
+    const dist = t.findResources("AWS::CloudFront::Distribution") as Record<string, { Properties: { DistributionConfig: { Origins: { OriginCustomHeaders: { HeaderValue: unknown }[] }[] } } }>;
+    const headerValue = JSON.stringify(Object.values(dist)[0].Properties.DistributionConfig.Origins[0].OriginCustomHeaders[0].HeaderValue);
+    expect(headerValue).toContain("{{resolve:secretsmanager:");
+    t.hasResourceProperties("AWS::SecretsManager::Secret", {
+      Name: originVerifySecretName("dev-"),
+      GenerateSecretString: Match.objectLike({ PasswordLength: 48, ExcludePunctuation: true }),
+    });
     t.hasResourceProperties("AWS::Lambda::Function", {
-      Environment: { Variables: Match.objectLike({ ORIGIN_VERIFY: headerValue, MCP_PUBLIC_ORIGIN_PARAM: mcpPublicOriginParamName("dev-") }) },
+      Environment: { Variables: Match.objectLike({ ORIGIN_VERIFY_SECRET_ID: originVerifySecretName("dev-"), MCP_PUBLIC_ORIGIN_PARAM: mcpPublicOriginParamName("dev-") }) },
+    });
+    const fnEnv = JSON.stringify(t.findResources("AWS::Lambda::Function"));
+    expect(fnEnv).not.toContain("ORIGIN_VERIFY\"");
+    // 함수 권한: 그 비밀의 GetSecretValue 만
+    t.hasResourceProperties("AWS::IAM::Policy", {
+      PolicyDocument: { Statement: Match.arrayWith([Match.objectLike({ Action: "secretsmanager:GetSecretValue", Resource: { Ref: Match.stringLikeRegexp("OriginVerifySecret") } })]) },
     });
     t.hasResourceProperties("AWS::SSM::Parameter", { Name: mcpPublicOriginParamName("dev-") });
     expect(Object.keys(t.findOutputs("McpServerUrl"))).toHaveLength(1);

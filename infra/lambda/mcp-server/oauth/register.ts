@@ -60,7 +60,7 @@ export async function handleRegister(event: APIGatewayProxyEventV2, deps: OAuthD
   const quota = (key: string, limit: number) =>
     consumeIpQuota({ doc: deps.doc, table: deps.tables.RateLimit, key, windowSec: 3600, limit, nowMs: now.getTime() });
   // IP 상한을 먼저 확인해 한 IP 의 남용이 전역 카운터를 소모하지 않게 한다.
-  const allowed = (await quota(`dcr#${clientIp(event, deps.config)}`, DCR_LIMIT_PER_HOUR)) && (await quota("dcr-global", dcrGlobalLimit()));
+  const allowed = (await quota(`dcr#${clientIp(event, deps)}`, DCR_LIMIT_PER_HOUR)) && (await quota("dcr-global", dcrGlobalLimit()));
   if (!allowed) return oauthError(429, "too_many_requests", "registration rate limit exceeded");
 
   let body: unknown;

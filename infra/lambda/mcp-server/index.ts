@@ -10,6 +10,7 @@ import { checkTokenRateLimit } from "./rateLimit";
 import { buildMcpServer } from "./server";
 import { timingSafeEqual } from "node:crypto";
 import { primePublicOrigin } from "./oauth/config";
+import { resolveOriginVerify } from "./originVerify";
 import { resourceMetadataFor, routeOAuth, type OAuthRouterDeps } from "./oauth/router";
 
 type Result = Exclude<APIGatewayProxyResultV2, string>;
@@ -85,7 +86,7 @@ export type HandlerDeps = {
   collabRoomEpoch?: string;
   /** OAuth 파사드 의존성(테스트 주입). 미지정이면 env 설정. */
   oauth?: Partial<Omit<OAuthRouterDeps, "doc" | "tables">>;
-  /** 원본 보호 값(테스트 주입). 미지정이면 env ORIGIN_VERIFY — 비어 있으면 검사하지 않는다. */
+  /** 원본 보호 값(테스트 주입). 미지정이면 Secrets Manager(env ORIGIN_VERIFY_SECRET_ID) — 빈 문자열이면 검사하지 않는다. */
   originVerify?: string;
 };
 
@@ -106,11 +107,16 @@ async function serveMcp(event: APIGatewayProxyEventV2, body: string | undefined,
 
 export function createHandler(deps: HandlerDeps = {}) {
   return async (event: APIGatewayProxyEventV2): Promise<Result> => {
-    // Function URL 직접 호출 차단 — CloudFront 만 아는 원본 보호 헤더가 맞아야 처리한다.
-    const originVerify = deps.originVerify ?? process.env.ORIGIN_VERIFY ?? "";
-    if (originVerify && !sameSecret(header(event, ORIGIN_VERIFY_HEADER), originVerify)) {
+    // Function URL 직접 호출 차단 — CloudFront 만 아는 원본 보호 비밀이 맞아야 처리한다.
+    const verify = deps.originVerify !== undefined
+      ? (deps.originVerify ? { kind: "ready" as const, value: deps.originVerify } : { kind: "disabled" as const })
+      : await resolveOriginVerify();
+    if (verify.kind === "unavailable") return jsonRpcError(503, -32603, "Server misconfigured");
+    if (verify.kind === "ready" && !sameSecret(header(event, ORIGIN_VERIFY_HEADER), verify.value)) {
       return jsonRpcError(403, -32000, "Forbidden");
     }
+    // 이 요청이 CloudFront 를 거쳤음이 검증됐을 때만 뷰어 IP 헤더를 신뢰한다(oauth/http.ts clientIp).
+    const viaEdge = verify.kind === "ready";
     if (!deps.oauth?.config && !(await primePublicOrigin())) {
       return jsonRpcError(503, -32603, "Server misconfigured");
     }
@@ -119,6 +125,7 @@ export function createHandler(deps: HandlerDeps = {}) {
       doc: deps.doc ?? defaultDocClient(),
       tables: deps.tables ?? tablesFromEnv(),
       ...deps.oauth,
+      viaEdge,
     });
     if (oauthResult) return oauthResult;
 

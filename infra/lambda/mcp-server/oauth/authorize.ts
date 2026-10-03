@@ -89,7 +89,7 @@ export async function handleAuthorize(event: APIGatewayProxyEventV2, deps: OAuth
   const allowed = await consumeIpQuota({
     doc: deps.doc,
     table: deps.tables.RateLimit,
-    key: `authz#${clientIp(event, deps.config)}`,
+    key: `authz#${clientIp(event, deps)}`,
     windowSec: 60,
     limit: AUTHORIZE_LIMIT_PER_MIN,
     nowMs: now.getTime(),

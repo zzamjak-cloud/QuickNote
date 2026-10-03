@@ -203,7 +203,7 @@ async function prepare(
   const allowed = await consumeIpQuota({
     doc: deps.doc,
     table: deps.tables.RateLimit,
-    key: `token#${clientIp(event, deps.config)}`,
+    key: `token#${clientIp(event, deps)}`,
     windowSec: 60,
     limit: TOKEN_LIMIT_PER_MIN,
     nowMs: deps.now().getTime(),

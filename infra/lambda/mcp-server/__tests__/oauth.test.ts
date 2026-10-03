@@ -260,12 +260,13 @@ describe("DCR(RFC 7591)", () => {
     }
   });
 
-  it("CloudFront-Viewer-Address 는 publicOrigin 이 있을 때만 신뢰한다", () => {
+  it("CloudFront-Viewer-Address 는 origin-verify 를 통과한 요청(viaEdge)에서만 신뢰한다", () => {
     const e = ev("POST", "/register", { headers: { "CloudFront-Viewer-Address": "9.9.9.9:443" }, ip: "1.2.3.4" });
     expect(clientIp(e)).toBe("1.2.3.4");
-    expect(clientIp(e, { publicOrigin: "https://mcp.example.com" })).toBe("9.9.9.9");
+    expect(clientIp(e, { viaEdge: false })).toBe("1.2.3.4");
+    expect(clientIp(e, { viaEdge: true })).toBe("9.9.9.9");
     const v6 = ev("POST", "/register", { headers: { "cloudfront-viewer-address": "2001:db8::1:51234" } });
-    expect(clientIp(v6, { publicOrigin: "https://x" })).toBe("2001:db8::1");
+    expect(clientIp(v6, { viaEdge: true })).toBe("2001:db8::1");
   });
 });
 

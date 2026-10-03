@@ -52,13 +52,12 @@ export function getCookie(event: APIGatewayProxyEventV2, name: string): string |
 }
 
 /**
- * 요청자 IP. publicOrigin(CloudFront)이 설정된 경우에만 CloudFront 경유 헤더를 신뢰한다:
+ * 요청자 IP. 이 요청이 origin-verify 를 통과했을 때(viaEdge = CloudFront 경유 확인)만 CloudFront 경유 헤더를 신뢰한다:
  * viewer-request 함수가 덮어쓰는 x-qn-viewer-address(관리형 AllViewerExceptHostHeader 정책은 CloudFront-Viewer-Address 를
- * 원본에 싣지 않는다) → CloudFront-Viewer-Address 순. 둘 다 "ip:port". Function URL 직접 호출은 origin-verify 로 막히고,
- * 막지 않는 구성(ORIGIN_VERIFY 미설정)에서는 publicOrigin 도 없으므로 sourceIp 를 쓴다.
+ * 원본에 싣지 않는다) → CloudFront-Viewer-Address 순. 둘 다 "ip:port". 그 외에는 클라가 헤더를 위조할 수 있어 sourceIp.
  */
-export function clientIp(event: APIGatewayProxyEventV2, config: { publicOrigin?: string } = {}): string {
-  if (config.publicOrigin) {
+export function clientIp(event: APIGatewayProxyEventV2, opts: { viaEdge?: boolean } = {}): string {
+  if (opts.viaEdge) {
     for (const name of ["x-qn-viewer-address", "cloudfront-viewer-address"]) {
       const viewer = header(event, name);
       const idx = viewer?.lastIndexOf(":") ?? -1;
