@@ -29,6 +29,7 @@ export const ORIGIN_VERIFY_HEADER = "x-qn-origin-verify";
  * 우선순위: env MCP_PUBLIC_ORIGIN > `-c mcpPublicOrigin=` > 이 표. live 는 첫 배포 후 채운다.
  */
 export const KNOWN_MCP_PUBLIC_ORIGINS: Record<string, string> = {
+  "": "https://dsribnko50l8y.cloudfront.net",
   "dev-": "https://dbeovncdo410b.cloudfront.net",
 };
 
