@@ -18,6 +18,15 @@
 - Claude.ai 웹 커넥터는 조직 관리자 등록이 필요하다(아래 OAuth 절 참고).
 - `VITE_MCP_SERVER_URL` 이 없는 빌드는 섹션이 비활성(`aria-disabled`)이고 안내 문구만 보인다(명령·복사 버튼 없음).
 
+### Google 계정 선택 · 한 PC 에서 여러 계정 연결
+
+- OAuth 로그인은 **매번 Google 계정 선택 화면**을 띄운다 — 파사드가 Cognito authorize 에 `prompt=login select_account` 를 붙인다(`oauth/cognito.ts`). `login` 은 Cognito 세션 쿠키(1시간)가 있어도 IdP 로 다시 보내게 하고, `select_account` 는 Google 로 그대로 전달된다. 브라우저에 로그인된 Google 계정을 조용히 재사용하지 않는다.
+- `prompt` 는 Cognito **managed login(v2) 도메인에서만** 동작한다(classic hosted UI 는 무시 — dev 실측: classic 에서 Google 리다이렉트에 prompt 가 빠짐). 그래서 도메인을 v2 로 전환했다(`wiki/store/authStore.md` 참고).
+- 계정마다 **서버 항목을 따로** 등록하고 각각 인증한다. 같은 이름으로 다시 add 하면 덮어쓰므로 이름을 구분한다.
+  - Claude Code: `claude mcp add --transport http -s user quicknote-work "<URL>"`, `claude mcp add --transport http -s user quicknote-personal "<URL>"` → `/mcp` 에서 각 항목 Authenticate → 계정 선택 화면에서 해당 Google 계정 선택.
+  - Codex: `codex mcp add quicknote-work --url "<URL>"`, `codex mcp add quicknote-personal --url "<URL>"`(안 열리면 `codex mcp login <이름>`).
+  - 각 연결은 고른 계정의 멤버로 동작하고, 그 계정의 설정 > "연결된 앱"에 따로 나타난다. 계정을 바꾸려면 그 항목만 다시 인증(또는 해제 후 재등록)한다.
+
 ## PAT 연결 (대안 — "고급: 개인 액세스 토큰(PAT)")
 
 OAuth 를 지원하지 않는 클라이언트(Cursor 등)·자동화용. 기본 접힘(토글 헤더에 활성 PAT 개수 표시, 패널은 항상 렌더하고 `hidden` 으로 숨김 — `aria-controls` 대상 유지), 펼치면 발급 폼과 PAT 목록. 발급 패널 스니펫(`mcpPatSnippets.ts`)은 **셸 명령에 원문을 넣지 않는다**(셸 히스토리 노출 방지). 셸 탭(기본: Windows 브라우저 → PowerShell, 그 외 zsh):
@@ -191,7 +200,7 @@ Claude.ai 커스텀 커넥터 등 PAT 를 넣을 수 없는 클라이언트용. 
 
 1. `/mcp` 무토큰·무효 토큰 → 401 `WWW-Authenticate: Bearer resource_metadata="<origin>/.well-known/oauth-protected-resource/mcp"`.
 2. 클라이언트가 PRM → AS 메타데이터 → `/register`(DCR) → `/authorize`(PKCE S256).
-3. `/authorize` 가 tx 를 만들고 `__Host-qn_oauth_tx` 바인딩 쿠키를 심은 뒤 Cognito `/oauth2/authorize`(`identity_provider=Google`, 파사드 전용 앱 클라이언트, Cognito 용 PKCE·nonce)로 보낸다.
+3. `/authorize` 가 tx 를 만들고 `__Host-qn_oauth_tx` 바인딩 쿠키를 심은 뒤 Cognito `/oauth2/authorize`(`identity_provider=Google`, `prompt=login select_account`, 파사드 전용 앱 클라이언트, Cognito 용 PKCE·nonce)로 보낸다.
 4. `/callback`: tx·쿠키 확인 → Cognito 코드 서버 교환 → ID 토큰 검증(aws-jwt-verify, nonce) → `byCognitoSub` 로 Member(active 만) → 동의 화면(서버 렌더, CSRF 토큰).
    - **DCR 피싱 완화(회귀 금지)**: 쓰기를 요청받아도 기본 선택은 "읽기만", 앱 이름 옆 "(앱이 직접 입력한 이름)", redirect 호스트 굵게, claude.ai·claude.com(하위 도메인)·루프백이 아니면 "확인되지 않은 앱 — 이 주소로 권한이 전달됩니다" 경고, 워크스페이스 미선택 = **전체 워크스페이스** 경고.
 5. `/consent`(POST): 쿠키·CSRF 확인, tx 단일 사용 → 인가 코드(60초, 단일 사용) → `redirect_uri?code&state&iss` (303).
@@ -232,6 +241,7 @@ CORS(`*`)는 메타데이터·register·token·revoke 에만. `/authorize`·`/ca
 - SyncStack 에서 `cognitoDomainPrefix` prop 이 있을 때만 생성(bin 이 전달).
 - 파사드 전용 Cognito 앱 클라이언트(`{env}quicknote-mcp-oauth`, public, Google, callback=`<CloudFront origin>/callback`)는 **SyncStack** 에 둔다 — CognitoStack 은 CloudFront 도메인을 알 수 없다. 함수 env 가 클라이언트 ID 를 참조하면 순환(URL→함수→env→클라이언트→URL)이라 SSM `/{envPrefix}quicknote/mcp-oauth-cognito-client-id` 로 게시하고 런타임에 읽는다(권한 ARN 도 이름으로 구성).
 - Hosted UI 도메인은 기존 CognitoStack 도메인(`<prefix>.auth.<region>.amazoncognito.com`)을 그대로 쓴다 — 수동 작업 없음.
+- 도메인이 managed login(v2)이라 CFN 으로 만든 클라이언트는 스타일이 있어야 한다 — 파사드 클라이언트의 기본 스타일(`CfnManagedLoginBranding`, `useCognitoProvidedValues: true`)도 여기(SyncStack)에서 만든다.
 - mcp-tokens 테이블 TTL(`ttl`) 활성화(escape hatch). PAT 항목에는 `ttl` 이 없어 영향 없음.
 - IAM: mcp-tokens `PutItem`(LeadingKeys `oat#*`·`oauth-family#*`)·`UpdateItem`(`oauth-family#*`), ai-usage `UpdateItem`(`mcp-oa#*`), 두 신규 테이블 RW, SSM GetParameter.
 - env `MCP_PUBLIC_ORIGIN` 으로 CloudFront·커스텀 도메인 origin 을 지정할 수 있으나, 그 경우 Cognito callback URL 도 같은 origin 으로 바꿔야 한다.

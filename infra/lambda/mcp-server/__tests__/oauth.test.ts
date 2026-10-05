@@ -316,6 +316,8 @@ describe("/authorize 검증", () => {
     const loc = new URL(String(r.headers?.location));
     expect(loc.origin).toBe(CONFIG.cognitoDomain);
     expect(loc.searchParams.get("identity_provider")).toBe("Google");
+    // 같은 PC 에서 계정별 연결을 위해 Cognito 세션이 있어도 Google 계정 선택을 강제한다.
+    expect(loc.searchParams.get("prompt")).toBe("login select_account");
     expect(loc.searchParams.get("redirect_uri")).toBe(`${ORIGIN}/callback`);
     expect(loc.searchParams.get("code_challenge_method")).toBe("S256");
     expect(String(r.cookies?.[0])).toMatch(/^__Host-qn_oauth_tx=[^;]+; Path=\/; Secure; HttpOnly; SameSite=Lax/);

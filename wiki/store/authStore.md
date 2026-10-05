@@ -46,6 +46,13 @@ OIDC 기반 인증 상태(로딩·익명·인증됨)와 토큰 생명주기(자�
   `oidcClient` 의 StateStore prefix 는 Cognito user pool + client id 로 스코프를 나눠야 하며,
   legacy 공용 키의 토큰은 현재 빌드의 issuer/audience 와 다르면 복구하지 않는다.
 
+## Cognito managed login(v2) — prompt 동작
+
+- Cognito 도메인(`quicknote-auth`·`quicknote-auth-dev`)은 **managed login(v2)** 이다(`infra/lib/cognito-stack.ts` `ManagedLoginVersion.NEWER_MANAGED_LOGIN`). 버전 변경은 CFN "No interruption"(도메인·풀·클라이언트 교체 없음)이지만, 전환 시 Cognito 세션 쿠키는 유지되지 않고 새 버전 페이지 반영까지 최대 4분 걸린다. 앱 토큰(refresh 포함)은 쿠키와 무관.
+- v2 에서는 CFN/SDK 로 만든 앱 클라이언트마다 스타일이 있어야 한다 → 웹·데스크톱(CognitoStack)·MCP 파사드(SyncStack) 클라이언트에 Cognito 기본 스타일(`CfnManagedLoginBranding`, `useCognitoProvidedValues: true`). 도메인은 웹·데스크톱 스타일 뒤에 갱신된다(DependsOn).
+- `prompt` 는 v2 에서만 동작한다(classic 은 무시). 따라서 `signIn` 의 `prompt=select_account`(로그아웃 후 `login select_account` + `max_age=0`)는 **v2 전환 후 실제로 Google 계정 선택 화면을 띄운다** — 이전(classic)에는 Google 리다이렉트에서 빠져 효과가 없었다(dev 실측).
+- `identity_provider=Google` 은 계속 필수(sub 고정, 위 `signIn` 주석). 로그아웃(`/logout`)·콜백 URL 은 변경 없음.
+
 ## 의존 관계
 
 - `src/lib/auth/oidcClient.ts` — `getOidcManager`, `resetOidcManager` (oidc-client-ts 래퍼)

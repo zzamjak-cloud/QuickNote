@@ -26,8 +26,12 @@ export function cognitoAuthorizeUrl(
     code_challenge: args.challenge,
     code_challenge_method: "S256",
     nonce: args.nonce,
-    // 계정 선택 화면 없이 Google 로 바로 보낸다(앱과 같은 IdP).
+    // Cognito 로그인 화면 없이 Google 로 바로 보낸다(앱과 같은 IdP).
     identity_provider: "Google",
+    // 같은 PC 에서 서버 항목마다 다른 Google 계정을 고를 수 있게 매번 계정 선택을 띄운다.
+    // login = Cognito 세션 쿠키가 있어도 재인증(IdP 로 다시 보냄), select_account = Google 로 전달돼 계정 선택 화면.
+    // prompt 는 managed login(v2) 도메인에서만 동작한다 — classic hosted UI 는 무시한다.
+    prompt: "login select_account",
   }).toString();
   return url.toString();
 }

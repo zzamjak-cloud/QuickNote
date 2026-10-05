@@ -76,6 +76,12 @@ export class McpOAuth extends Construct {
       accessTokenValidity: cdk.Duration.minutes(5),
       refreshTokenValidity: cdk.Duration.minutes(60),
     });
+    // 도메인이 managed login(v2)이라 CFN 으로 만든 클라이언트는 스타일이 있어야 한다(Cognito 기본 스타일).
+    new cognito.CfnManagedLoginBranding(this, "CognitoClientBranding", {
+      userPoolId: props.userPoolId,
+      clientId: appClient.userPoolClientId,
+      useCognitoProvidedValues: true,
+    });
     new ssm.StringParameter(this, "CognitoClientIdParam", {
       parameterName: mcpOAuthClientIdParamName(envPrefix),
       stringValue: appClient.userPoolClientId,

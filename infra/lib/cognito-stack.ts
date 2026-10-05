@@ -189,9 +189,24 @@ export class CognitoStack extends cdk.Stack {
     });
     desktopClient.node.addDependency(googleProvider);
 
+    // managed login(v2) — authorize 의 prompt(select_account 등)는 v2 에서만 동작한다(classic 은 무시).
+    // 버전 변경은 도메인 교체 없이 갱신된다. SDK/CFN 으로 만든 클라이언트는 스타일이 있어야 v2 로그인 페이지를 쓸 수 있어
+    // 클라이언트마다 Cognito 기본 스타일을 붙이고, 도메인 전환 전에 만들어지도록 의존성을 건다.
     const domain = userPool.addDomain("HostedUiDomain", {
       cognitoDomain: { domainPrefix: props.cognitoDomainPrefix },
+      managedLoginVersion: cognito.ManagedLoginVersion.NEWER_MANAGED_LOGIN,
     });
+    for (const [id, client] of [
+      ["WebClientBranding", webClient],
+      ["DesktopClientBranding", desktopClient],
+    ] as const) {
+      const branding = new cognito.CfnManagedLoginBranding(this, id, {
+        userPoolId: userPool.userPoolId,
+        clientId: client.userPoolClientId,
+        useCognitoProvidedValues: true,
+      });
+      domain.node.addDependency(branding);
+    }
 
     new cdk.CfnOutput(this, "Region", { value: this.region });
     new cdk.CfnOutput(this, "UserPoolId", { value: userPool.userPoolId });
