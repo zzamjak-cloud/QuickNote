@@ -1,11 +1,16 @@
-import { describe, it, expect, vi } from "vitest";
+import { beforeEach, describe, it, expect, vi } from "vitest";
 import {
   createMember, listMembers, getMember, buildCreateMemberTxItems,
   updateMember, updateMyClientPrefs, promoteToManager, demoteToMember,
-  transferOwnership, removeMember, buildRemoveMemberPlan,
+  transferOwnership, removeMember, buildRemoveMemberPlan, deleteMember,
   assignMemberToTeam, unassignMemberFromTeam,
 } from "./member";
 import type { Member, Tables } from "./member";
+
+const deleteCognitoUserBySubMock = vi.fn();
+vi.mock("./cognitoUser", () => ({
+  deleteCognitoUserBySub: (poolId: string, sub: string) => deleteCognitoUserBySubMock(poolId, sub),
+}));
 
 const tables: Tables = {
   Members: "M", Teams: "T", MemberTeams: "MT",
@@ -593,6 +598,79 @@ describe("removeMember", () => {
     expect(result.memberId).toBe("tgt-1");
     expect(result.status).toBe("removed");
     expect(doc.send).toHaveBeenCalledTimes(6);
+  });
+});
+
+// ─── deleteMember ─────────────────────────────────────────────────────────────
+
+describe("deleteMember", () => {
+  beforeEach(() => deleteCognitoUserBySubMock.mockReset());
+  const removedMember: Member = { ...activeMember, status: "removed", removedAt: "2026-10-01T00:00:00Z" };
+  const tablesWithOrg: Tables = { ...tables, MemberOrganizations: "MO", UserPoolId: "pool-1" };
+
+  it("Member caller 권한 거부", async () => {
+    const doc = mockDoc();
+    await expect(deleteMember({ doc, tables, caller: memberCaller, memberId: "tgt-1" }))
+      .rejects.toThrow(/권한 부족/);
+  });
+
+  it("활성 멤버는 영구 삭제 거부", async () => {
+    const doc = mockDoc({ Item: activeMember });
+    await expect(deleteMember({ doc, tables, caller: ownerCaller, memberId: "tgt-1" }))
+      .rejects.toThrow(/보관함 멤버만/);
+  });
+
+  it("Owner target 삭제 거부", async () => {
+    const doc = mockDoc({ Item: { ...ownerTarget, status: "removed" } });
+    await expect(deleteMember({ doc, tables, caller: ownerCaller, memberId: "owner-2" }))
+      .rejects.toThrow(/Owner 는 삭제 불가/);
+  });
+
+  it("target not found → false", async () => {
+    const doc = mockDoc({ Item: undefined });
+    await expect(deleteMember({ doc, tables, caller: ownerCaller, memberId: "no-such" })).resolves.toBe(false);
+  });
+
+  it("정상 케이스 — 잔여 관계 batch 삭제 후 status 조건부 Member 삭제", async () => {
+    // GetItem, Query MT, Query MO, Query WA, BatchWrite MT, BatchWrite WA, Delete
+    const doc = mockDoc(
+      { Item: removedMember },
+      { Items: [{ memberId: "tgt-1", teamId: "t1" }] },
+      { Items: [] },
+      { Items: [{ workspaceId: "ws-x", subjectKey: "member#tgt-1" }] },
+      {}, {}, {},
+    );
+    await expect(deleteMember({ doc, tables: tablesWithOrg, caller: ownerCaller, memberId: "tgt-1" })).resolves.toBe(true);
+    const send = doc.send as unknown as ReturnType<typeof vi.fn>;
+    expect(send).toHaveBeenCalledTimes(7);
+    const batchTables = send.mock.calls
+      .map((c) => (c[0] as { input: { RequestItems?: Record<string, unknown> } }).input.RequestItems)
+      .filter(Boolean)
+      .map((r) => Object.keys(r!)[0]);
+    expect(batchTables).toEqual(["MT", "WA"]);
+    const last = (send.mock.calls[6]![0] as { input: Record<string, unknown> }).input;
+    expect(last).toMatchObject({ TableName: "M", Key: { memberId: "tgt-1" }, ConditionExpression: "#s = :removed" });
+    expect(deleteCognitoUserBySubMock).toHaveBeenCalledWith("pool-1", "owner-sub");
+  });
+
+  it("BatchWrite UnprocessedItems 는 재시도 후 처리", async () => {
+    const doc = mockDoc(
+      { Item: { ...removedMember, cognitoSub: null } },
+      { Items: [{ memberId: "tgt-1", teamId: "t1" }] },
+      { Items: [] },
+      { Items: [] },
+      { UnprocessedItems: { MT: [{ DeleteRequest: { Key: { memberId: "tgt-1", teamId: "t1" } } }] } },
+      {},
+      {},
+    );
+    await expect(deleteMember({ doc, tables: tablesWithOrg, caller: ownerCaller, memberId: "tgt-1" })).resolves.toBe(true);
+    expect(doc.send).toHaveBeenCalledTimes(7);
+  });
+
+  it("UserPoolId 미설정 + cognitoSub 있음 → Member 삭제 전에 중단", async () => {
+    const doc = mockDoc({ Item: removedMember }, { Items: [] }, { Items: [] });
+    await expect(deleteMember({ doc, tables, caller: ownerCaller, memberId: "tgt-1" })).rejects.toThrow(/USER_POOL_ID/);
+    expect(doc.send).toHaveBeenCalledTimes(3);
   });
 });
 

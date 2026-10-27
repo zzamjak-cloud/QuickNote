@@ -8,10 +8,12 @@ import { useWorkspaceOptionsStore } from "../../../store/workspaceOptionsStore";
 const createMemberApiMock = vi.fn();
 const removeMemberApiMock = vi.fn();
 const unassignTeamMock = vi.fn();
+const deleteMemberApiMock = vi.fn();
 
 vi.mock("../../../lib/sync/memberApi", () => ({
   createMemberApi: (input: unknown) => createMemberApiMock(input),
   removeMemberApi: (id: string) => removeMemberApiMock(id),
+  deleteMemberApi: (id: string) => deleteMemberApiMock(id),
   unassignMemberFromTeamApi: (memberId: string, teamId: string) => unassignTeamMock(memberId, teamId),
 }));
 
@@ -23,6 +25,7 @@ describe("AdminMembersTab", () => {
   beforeEach(() => {
     createMemberApiMock.mockReset();
     removeMemberApiMock.mockReset();
+    deleteMemberApiMock.mockReset();
     unassignTeamMock.mockReset().mockResolvedValue(true);
     // 직무 select 옵션에 "PM"이 나타나도록 초기화
     useWorkspaceOptionsStore.setState({ jobFunctions: ["PM"], jobTitles: [] });
@@ -173,5 +176,26 @@ describe("AdminMembersTab", () => {
 
     await waitFor(() => expect(screen.getByText(/1명 제거 실패: Alice/)).toBeTruthy());
     expect((screen.getByRole("checkbox", { name: "Alice 선택" }) as HTMLInputElement).checked).toBe(true);
+  });
+
+  it("보관함 구성원을 일괄 영구 삭제하면 목록에서 사라지고, 실패는 선택 유지", async () => {
+    useMemberStore.setState((st) => ({
+      members: st.members.map((m) => ({ ...m, status: "removed" as const })),
+    }));
+    deleteMemberApiMock.mockImplementation((id: string) =>
+      id === "m1" ? Promise.resolve(true) : Promise.reject(new Error("boom")),
+    );
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    render(<AdminMembersTab />);
+
+    fireEvent.click(screen.getByRole("button", { name: "보관함" }));
+    fireEvent.click(screen.getByRole("checkbox", { name: "구성원 전체 선택" }));
+    fireEvent.click(screen.getByRole("button", { name: "선택 영구 삭제 (2)" }));
+    fireEvent.click(screen.getByRole("button", { name: "영구 삭제" }));
+
+    await waitFor(() => expect(deleteMemberApiMock).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.getByText(/1명 영구 삭제 실패: Bob/)).toBeTruthy());
+    expect(useMemberStore.getState().members.map((m) => m.memberId)).toEqual(["m2"]);
+    expect((screen.getByRole("checkbox", { name: "Bob 선택" }) as HTMLInputElement).checked).toBe(true);
   });
 });

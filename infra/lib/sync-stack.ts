@@ -1399,6 +1399,7 @@ export function response(ctx) {
         WORKSPACE_AI_CONFIG_TABLE_NAME: workspaceAiConfigTable.tableName,
         AI_USAGE_TABLE_NAME: aiUsageTable.tableName,
         MCP_TOKENS_TABLE_NAME: mcpTokensTable.tableName,
+        USER_POOL_ID: userPool.userPoolId,
         AI_KMS_KEY_ARN: aiKmsKey.keyArn,
         TEMPLATE_AUTOMATION_SCHEDULE_GROUP_NAME: templateAutomationScheduleGroupName,
         TEMPLATE_AUTOMATION_RUNNER_ARN: templateAutomationRunnerFn.functionArn,
@@ -1414,6 +1415,13 @@ export function response(ctx) {
 
     // 5개 테이블 read/write 권한
     this.membersTable.grantReadWriteData(v5ResolversFn);
+    // 멤버 영구 삭제 시 Cognito 로그인 계정도 제거 (deleteMember)
+    v5ResolversFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["cognito-idp:ListUsers", "cognito-idp:AdminDeleteUser"],
+        resources: [userPool.userPoolArn],
+      }),
+    );
     this.teamsTable.grantReadWriteData(v5ResolversFn);
     this.memberTeamsTable.grantReadWriteData(v5ResolversFn);
     this.workspacesTable.grantReadWriteData(v5ResolversFn);
@@ -1508,6 +1516,7 @@ export function response(ctx) {
     v5Ds.createResolver("TransferOwnershipMutation", { typeName: "Mutation", fieldName: "transferOwnership" });
     v5Ds.createResolver("RemoveMemberMutation", { typeName: "Mutation", fieldName: "removeMember" });
     v5Ds.createResolver("RestoreMemberMutation", { typeName: "Mutation", fieldName: "restoreMember" });
+    v5Ds.createResolver("DeleteMemberMutation", { typeName: "Mutation", fieldName: "deleteMember" });
     v5Ds.createResolver("AssignMemberToTeamMutation", { typeName: "Mutation", fieldName: "assignMemberToTeam" });
     v5Ds.createResolver("UnassignMemberFromTeamMutation", { typeName: "Mutation", fieldName: "unassignMemberFromTeam" });
     v5Ds.createResolver("ListTeamsQuery", { typeName: "Query", fieldName: "listTeams" });

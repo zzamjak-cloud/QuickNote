@@ -817,6 +817,8 @@ type Mutation {
   transferOwnership(toMemberId: ID!): Member!
   removeMember(memberId: ID!): Member!
   restoreMember(memberId: ID!): Member!
+  """보관함(removed) 멤버 영구 삭제. 개인 워크스페이스 콘텐츠는 유지."""
+  deleteMember(memberId: ID!): Boolean!
   assignMemberToTeam(memberId: ID!, teamId: ID!): Boolean!
   unassignMemberFromTeam(memberId: ID!, teamId: ID!): Boolean!
   """로그인한 멤버 본인의 clientPrefs 저장(LWW 타임스탬프 포함 JSON). MEMBER 역할 허용."""

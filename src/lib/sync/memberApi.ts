@@ -12,6 +12,7 @@ import {
   UNASSIGN_MEMBER_FROM_TEAM,
   UPDATE_MEMBER,
   RESTORE_MEMBER,
+  DELETE_MEMBER,
 } from "./queries/member";
 import type { Member, MemberMini } from "../../store/memberStore";
 import { GqlMemberSchema, parseGqlList } from "./schemas";
@@ -183,4 +184,13 @@ export async function restoreMemberApi(memberId: string): Promise<Member> {
   const member = result.data?.restoreMember;
   if (!member) throw new Error("restoreMember 응답이 비어 있습니다.");
   return normalizeMemberFields(member);
+}
+
+/** 보관함 멤버 영구 삭제. 서버에 해당 멤버가 없으면 false. */
+export async function deleteMemberApi(memberId: string): Promise<boolean> {
+  const result = (await appsyncClient().graphql({
+    query: DELETE_MEMBER,
+    variables: { memberId },
+  })) as { data?: { deleteMember?: boolean } };
+  return result.data?.deleteMember === true;
 }

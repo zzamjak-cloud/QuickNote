@@ -10,9 +10,13 @@ export type BulkRemoveResult = {
   failed: Member[];
 };
 
-/** 오너·본인은 일괄 제거 대상에서 제외한다 (단건 모달과 동일한 보호). */
+/** 오너·개발자·본인은 일괄 제거/삭제 대상에서 제외한다 (서버도 거부함). */
 export function isBulkRemovable(member: Member, meId: string | undefined): boolean {
-  return member.workspaceRole !== "owner" && member.memberId !== meId;
+  return (
+    member.workspaceRole !== "owner" &&
+    member.workspaceRole !== "developer" &&
+    member.memberId !== meId
+  );
 }
 
 /**

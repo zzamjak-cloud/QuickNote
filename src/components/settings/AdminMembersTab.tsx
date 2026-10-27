@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 import { Plus, Search, Trash2, Upload, X } from "lucide-react";
-import { createMemberApi } from "../../lib/sync/memberApi";
+import { createMemberApi, deleteMemberApi } from "../../lib/sync/memberApi";
 import { useMemberStore, type Member } from "../../store/memberStore";
 import { useTeamStore } from "../../store/teamStore";
 import { useOrganizationStore } from "../../store/organizationStore";
@@ -9,6 +9,7 @@ import { MemberModal } from "./MemberModal";
 import { CsvImportModal } from "./CsvImportModal";
 import { SimpleConfirmDialog } from "../ui/SimpleConfirmDialog";
 import { isBulkRemovable, useBulkRemoveMembers } from "./useBulkRemoveMembers";
+import { runSequentially, useBulkSelection } from "./useBulkSelection";
 
 /** 역할 표시 문자열 반환 */
 function toUpperRole(role: Member["workspaceRole"]): string {
@@ -38,8 +39,9 @@ export function AdminMembersTab() {
   const [selectedMember, setSelectedMember] = useState<Member | null>(null);
   const [archivedMember, setArchivedMember] = useState<Member | null>(null);
   const meId = useMemberStore((s) => s.me?.memberId);
-  const [checkedIds, setCheckedIds] = useState<Set<string>>(() => new Set());
-  const [confirmBulkRemove, setConfirmBulkRemove] = useState(false);
+  const removeMemberFromCache = useMemberStore((s) => s.removeMemberFromCache);
+  const [bulkConfirm, setBulkConfirm] = useState<"remove" | "delete" | null>(null);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
   const [bulkError, setBulkError] = useState<string | null>(null);
   const { removeMembers, running: bulkRunning } = useBulkRemoveMembers();
 
@@ -129,56 +131,82 @@ export function AdminMembersTab() {
   const displayList = activeTab === "active" ? activeMembers : archivedMembers;
   const isActiveTab = activeTab === "active";
 
-  // 검색으로 가려진 구성원은 체크돼 있어도 제거 대상에서 제외한다.
-  const removableVisible = useMemo(
-    () => activeMembers.filter((m) => isBulkRemovable(m, meId)),
+  // 선택 가능 id 만 넘겨, 검색으로 가려졌거나 보호 대상인 구성원은 일괄 작업에서 빠지게 한다.
+  const activeSelectableIds = useMemo(
+    () => activeMembers.filter((m) => isBulkRemovable(m, meId)).map((m) => m.memberId),
     [activeMembers, meId],
   );
-  const checkedTargets = useMemo(
-    () => removableVisible.filter((m) => checkedIds.has(m.memberId)),
-    [removableVisible, checkedIds],
+  const archivedSelectableIds = useMemo(
+    () => archivedMembers.filter((m) => isBulkRemovable(m, meId)).map((m) => m.memberId),
+    [archivedMembers, meId],
   );
-  const allChecked = removableVisible.length > 0 && checkedTargets.length === removableVisible.length;
+  const activeSelection = useBulkSelection(activeSelectableIds);
+  const archivedSelection = useBulkSelection(archivedSelectableIds);
+  const tabSelection = isActiveTab ? activeSelection : archivedSelection;
+  const tabSelectableCount = isActiveTab ? activeSelectableIds.length : archivedSelectableIds.length;
+  const tabAllChecked = tabSelectableCount > 0 && tabSelection.selectedIds.length === tabSelectableCount;
+  const busy = bulkRunning || bulkDeleting;
 
-  const toggleChecked = (memberId: string) => {
-    setCheckedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(memberId)) next.delete(memberId);
-      else next.add(memberId);
-      return next;
-    });
-  };
-
-  const toggleAllChecked = () => {
-    setCheckedIds(allChecked ? new Set() : new Set(removableVisible.map((m) => m.memberId)));
-  };
+  const membersById = useMemo(() => new Map(members.map((m) => [m.memberId, m])), [members]);
+  const nameOf = (id: string) => membersById.get(id)?.name || membersById.get(id)?.email || id;
 
   const runBulkRemove = async () => {
-    setConfirmBulkRemove(false);
     setBulkError(null);
-    const { removed, failed } = await removeMembers(checkedTargets);
+    const targets = activeMembers.filter((m) => activeSelection.selectedIds.includes(m.memberId));
+    const { removed, failed } = await removeMembers(targets);
     for (const member of removed) {
       detachMemberFromGroupsInStore(member.memberId);
       upsertMember(member);
     }
-    setCheckedIds(new Set(failed.map((m) => m.memberId)));
+    activeSelection.reset(failed.map((m) => m.memberId));
     if (failed.length > 0) {
       setBulkError(`${failed.length}명 제거 실패: ${failed.map((m) => m.name || m.email).join(", ")}`);
     }
   };
 
+  const runBulkDelete = async () => {
+    setBulkError(null);
+    setBulkDeleting(true);
+    try {
+      const { failedIds } = await runSequentially(
+        archivedSelection.selectedIds,
+        async (id) => {
+          // false 는 서버에 이미 없다는 뜻이므로 실패가 아니라 캐시 정리 대상
+          await deleteMemberApi(id);
+          removeMemberFromCache(id);
+        },
+        "AdminMembersTab",
+      );
+      archivedSelection.reset(failedIds);
+      if (failedIds.length > 0) {
+        setBulkError(`${failedIds.length}명 영구 삭제 실패: ${failedIds.map(nameOf).join(", ")}`);
+      }
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
+
+  const onConfirmBulk = () => {
+    const mode = bulkConfirm;
+    setBulkConfirm(null);
+    if (mode === "remove") void runBulkRemove();
+    else if (mode === "delete") void runBulkDelete();
+  };
+
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-end gap-1.5">
-          {isActiveTab && checkedTargets.length > 0 && (
+          {tabSelection.selectedIds.length > 0 && (
             <button
               type="button"
-              onClick={() => setConfirmBulkRemove(true)}
-              disabled={bulkRunning}
+              onClick={() => setBulkConfirm(isActiveTab ? "remove" : "delete")}
+              disabled={busy}
               className="inline-flex items-center gap-1 rounded bg-red-600 px-3 py-1.5 text-sm text-white hover:bg-red-700 disabled:opacity-60"
             >
               <Trash2 size={13} />
-              {bulkRunning ? "제거 중…" : `선택 제거 (${checkedTargets.length})`}
+              {busy
+                ? "처리 중…"
+                : `${isActiveTab ? "선택 제거" : "선택 영구 삭제"} (${tabSelection.selectedIds.length})`}
             </button>
           )}
           <button
@@ -206,7 +234,8 @@ export function AdminMembersTab() {
           onClick={() => {
             setActiveTab("active");
             setQuery("");
-            setCheckedIds(new Set());
+            activeSelection.reset();
+            archivedSelection.reset();
           }}
           className={`h-9 px-3 text-sm font-medium transition-colors ${
             activeTab === "active"
@@ -221,7 +250,8 @@ export function AdminMembersTab() {
           onClick={() => {
             setActiveTab("archived");
             setQuery("");
-            setCheckedIds(new Set());
+            activeSelection.reset();
+            archivedSelection.reset();
             setBulkError(null);
           }}
           className={`h-9 px-3 text-sm font-medium transition-colors ${
@@ -259,17 +289,15 @@ export function AdminMembersTab() {
         <table className="w-full text-left text-sm">
           <thead className="bg-zinc-50 dark:bg-zinc-900">
             <tr>
-              {isActiveTab && (
-                <th className="w-8 px-3 py-2">
-                  <input
-                    type="checkbox"
-                    aria-label="구성원 전체 선택"
-                    checked={allChecked}
-                    disabled={removableVisible.length === 0 || bulkRunning}
-                    onChange={toggleAllChecked}
-                  />
-                </th>
-              )}
+              <th className="w-8 px-3 py-2">
+                <input
+                  type="checkbox"
+                  aria-label="구성원 전체 선택"
+                  checked={tabAllChecked}
+                  disabled={tabSelectableCount === 0 || busy}
+                  onChange={tabSelection.toggleAll}
+                />
+              </th>
               <th className="px-3 py-2 font-medium">이름</th>
               <th className="px-3 py-2 font-medium">이메일</th>
               <th className="px-3 py-2 font-medium">직무</th>
@@ -280,7 +308,7 @@ export function AdminMembersTab() {
           <tbody>
             {displayList.length === 0 ? (
               <tr>
-                <td colSpan={isActiveTab ? 6 : 5} className="px-3 py-4 text-zinc-500">
+                <td colSpan={6} className="px-3 py-4 text-zinc-500">
                   결과가 없습니다.
                 </td>
               </tr>
@@ -297,17 +325,15 @@ export function AdminMembersTab() {
                     }
                   }}
                 >
-                  {isActiveTab && (
-                    <td className="w-8 px-3 py-2" onClick={(e) => e.stopPropagation()}>
-                      <input
-                        type="checkbox"
-                        aria-label={`${m.name} 선택`}
-                        checked={checkedIds.has(m.memberId)}
-                        disabled={!isBulkRemovable(m, meId) || bulkRunning}
-                        onChange={() => toggleChecked(m.memberId)}
-                      />
-                    </td>
-                  )}
+                  <td className="w-8 px-3 py-2" onClick={(e) => e.stopPropagation()}>
+                    <input
+                      type="checkbox"
+                      aria-label={`${m.name} 선택`}
+                      checked={tabSelection.isSelected(m.memberId)}
+                      disabled={!isBulkRemovable(m, meId) || busy}
+                      onChange={() => tabSelection.toggle(m.memberId)}
+                    />
+                  </td>
                   <td className="whitespace-nowrap px-3 py-2">{m.name}</td>
                   <td className="whitespace-nowrap px-3 py-2">{m.email}</td>
                   <td className="whitespace-nowrap px-3 py-2">{m.jobRole}</td>
@@ -323,14 +349,18 @@ export function AdminMembersTab() {
       </div>
 
       <SimpleConfirmDialog
-        open={confirmBulkRemove}
+        open={bulkConfirm !== null}
         zIndex={540}
-        title="구성원 일괄 제거"
-        message={`선택한 ${checkedTargets.length}명을 보관함으로 이동합니다. 팀·조직에서도 분리됩니다. 계속할까요?`}
-        confirmLabel="제거"
+        title={bulkConfirm === "delete" ? "구성원 영구 삭제" : "구성원 일괄 제거"}
+        message={
+          bulkConfirm === "delete"
+            ? `선택한 ${archivedSelection.selectedIds.length}명을 영구 삭제합니다. 되돌릴 수 없으며, 같은 이메일로 다시 등록할 수 있게 됩니다. 개인 노트 등 작성한 콘텐츠는 유지됩니다.`
+            : `선택한 ${activeSelection.selectedIds.length}명을 보관함으로 이동합니다. 팀·조직에서도 분리됩니다. 계속할까요?`
+        }
+        confirmLabel={bulkConfirm === "delete" ? "영구 삭제" : "제거"}
         danger
-        onCancel={() => setConfirmBulkRemove(false)}
-        onConfirm={() => void runBulkRemove()}
+        onCancel={() => setBulkConfirm(null)}
+        onConfirm={onConfirmBulk}
       />
 
       <CsvImportModal

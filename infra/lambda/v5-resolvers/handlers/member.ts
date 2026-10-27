@@ -7,8 +7,9 @@ import {
   UpdateCommand,
   BatchGetCommand,
   BatchWriteCommand,
+  DeleteCommand,
 } from "@aws-sdk/lib-dynamodb";
-import type { TransactWriteCommandInput } from "@aws-sdk/lib-dynamodb";
+import type { QueryCommandInput, TransactWriteCommandInput } from "@aws-sdk/lib-dynamodb";
 import { v4 as uuid } from "uuid";
 import {
   requireRoleAtLeast,
@@ -21,6 +22,7 @@ import {
   type Member,
   type WorkspaceRole,
 } from "./_auth";
+import { deleteCognitoUserBySub } from "./cognitoUser";
 
 export type Tables = {
   Members: string;
@@ -58,6 +60,8 @@ export type Tables = {
   PublishedPages?: string;
   /** 웹 게시 방문자 분석 테이블 (기록은 public-view Lambda, 여기서는 집계 조회) */
   PublishAnalytics?: string;
+  /** Cognito User Pool ID (멤버 영구 삭제 시 로그인 계정 제거용) */
+  UserPoolId?: string;
   /** S3 자산 버킷 이름 (자산 영구 삭제 시 객체 제거용) */
   ImagesBucketName?: string;
   /** 워크스페이스 공유 커스텀 아이콘 프리셋 테이블 */
@@ -1044,4 +1048,128 @@ export async function restoreMember(args: {
   );
 
   return { ...target, status: "active", removedAt: undefined };
+}
+
+// ─── deleteMember (보관함 멤버 영구 삭제) ──────────────────────────────────────
+// 보관함(status=removed) 멤버만 대상. removeMember 시점에 개인 워크스페이스는 이미 호출자에게
+// 이관됐으므로 콘텐츠는 건드리지 않고, 잔여 관계 행·Cognito 사용자·Member 행만 지운다.
+// 각 단계가 멱등이라 중간 실패 시 같은 요청을 다시 보내면 이어서 정리된다.
+export async function deleteMember(args: {
+  doc: DynamoDBDocumentClient;
+  tables: Tables;
+  caller: Member;
+  memberId: string;
+}): Promise<boolean> {
+  requireRoleAtLeast(args.caller, "leader");
+
+  const target = await getMemberById(args.doc, args.tables, args.memberId);
+  if (!target) return false;
+  if (target.workspaceRole === "developer") forbidden("Developer 는 삭제 불가");
+  if (target.workspaceRole === "owner") forbidden("Owner 는 삭제 불가");
+  if (target.status !== "removed") badRequest("보관함 멤버만 영구 삭제 가능");
+
+  const deletes = await collectMemberRelationDeletes(args.doc, args.tables, args.memberId);
+  for (const [tableName, keys] of deletes) {
+    await batchDeleteAll(args.doc, tableName, keys);
+  }
+
+  // Cognito 사용자를 남기면 같은 이메일 재등록 시 로그인이 영구 거부된다 (cognitoUser.ts 참고)
+  if (target.cognitoSub) {
+    if (!args.tables.UserPoolId) throw new ResolverError("USER_POOL_ID 미설정", "InternalError");
+    await deleteCognitoUserBySub(args.tables.UserPoolId, target.cognitoSub);
+  }
+
+  // 조회~삭제 사이에 복원된 경우를 막기 위해 status 조건부 삭제
+  await args.doc.send(
+    new DeleteCommand({
+      TableName: args.tables.Members,
+      Key: { memberId: args.memberId },
+      ConditionExpression: "#s = :removed",
+      ExpressionAttributeNames: { "#s": "status" },
+      ExpressionAttributeValues: { ":removed": "removed" },
+    }),
+  );
+  return true;
+}
+
+/** 멤버를 가리키는 팀·조직·워크스페이스 권한 관계 행 키를 테이블별로 모은다. */
+async function collectMemberRelationDeletes(
+  doc: DynamoDBDocumentClient,
+  tables: Tables,
+  memberId: string,
+): Promise<Map<string, Array<Record<string, unknown>>>> {
+  const byTable = new Map<string, Array<Record<string, unknown>>>();
+  const add = (table: string, keys: Array<Record<string, unknown>>) => {
+    if (keys.length > 0) byTable.set(table, keys);
+  };
+
+  const teams = await queryAll(doc, {
+    TableName: tables.MemberTeams,
+    KeyConditionExpression: "memberId = :m",
+    ExpressionAttributeValues: { ":m": memberId },
+  });
+  add(
+    tables.MemberTeams,
+    teams.map((i) => ({ memberId, teamId: i["teamId"] })),
+  );
+
+  if (tables.MemberOrganizations) {
+    const orgs = await queryAll(doc, {
+      TableName: tables.MemberOrganizations,
+      KeyConditionExpression: "memberId = :m",
+      ExpressionAttributeValues: { ":m": memberId },
+    });
+    add(
+      tables.MemberOrganizations,
+      orgs.map((i) => ({ memberId, organizationId: i["organizationId"] })),
+    );
+  }
+
+  const access = await queryAll(doc, {
+    TableName: tables.WorkspaceAccess,
+    IndexName: "bySubject",
+    KeyConditionExpression: "subjectKey = :sk",
+    ExpressionAttributeValues: { ":sk": `member#${memberId}` },
+  });
+  add(
+    tables.WorkspaceAccess,
+    access.map((i) => ({ workspaceId: i["workspaceId"], subjectKey: i["subjectKey"] })),
+  );
+
+  return byTable;
+}
+
+async function queryAll(
+  doc: DynamoDBDocumentClient,
+  input: QueryCommandInput,
+): Promise<Array<Record<string, unknown>>> {
+  const items: Array<Record<string, unknown>> = [];
+  let startKey: Record<string, unknown> | undefined;
+  do {
+    const r = await doc.send(new QueryCommand({ ...input, ExclusiveStartKey: startKey }));
+    items.push(...(r.Items ?? []));
+    startKey = r.LastEvaluatedKey;
+  } while (startKey);
+  return items;
+}
+
+const BATCH_DELETE_MAX_ATTEMPTS = 5;
+
+/** 25개씩 BatchWrite 삭제. UnprocessedItems 는 재시도하고, 끝내 남으면 throw 해 Member 삭제를 막는다. */
+async function batchDeleteAll(
+  doc: DynamoDBDocumentClient,
+  tableName: string,
+  keys: Array<Record<string, unknown>>,
+): Promise<void> {
+  for (let i = 0; i < keys.length; i += 25) {
+    let requests = keys.slice(i, i + 25).map((Key) => ({ DeleteRequest: { Key } }));
+    for (let attempt = 1; requests.length > 0; attempt++) {
+      if (attempt > BATCH_DELETE_MAX_ATTEMPTS) {
+        throw new ResolverError(`${tableName} 관계 행 삭제 미완료 — 다시 시도해주세요`, "InternalError");
+      }
+      const r = await doc.send(new BatchWriteCommand({ RequestItems: { [tableName]: requests } }));
+      requests = (r.UnprocessedItems?.[tableName] ?? []) as typeof requests;
+      if (requests.length > 0) await new Promise((res) => setTimeout(res, 100 * attempt));
+    }
+  }
 }

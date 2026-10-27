@@ -124,3 +124,9 @@ export const RESTORE_MEMBER = `
     restoreMember(memberId: $memberId) { ${MEMBER_FIELDS} }
   }
 `;
+
+export const DELETE_MEMBER = `
+  mutation DeleteMember($memberId: ID!) {
+    deleteMember(memberId: $memberId)
+  }
+`;

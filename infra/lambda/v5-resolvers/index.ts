@@ -15,6 +15,7 @@ import {
   transferOwnership,
   removeMember,
   restoreMember,
+  deleteMember,
   assignMemberToTeam,
   unassignMemberFromTeam,
 } from "./handlers/member";
@@ -190,6 +191,7 @@ const tables: Tables = {
   WorkspaceAiConfig: process.env.WORKSPACE_AI_CONFIG_TABLE_NAME,
   AiUsage: process.env.AI_USAGE_TABLE_NAME,
   McpTokens: process.env.MCP_TOKENS_TABLE_NAME,
+  UserPoolId: process.env.USER_POOL_ID,
 };
 
 type AppsyncEvent = {
@@ -366,6 +368,8 @@ const RESOLVERS: Record<
     normalizeMemberForGql((await transferOwnership({ ...base, toMemberId: event.arguments.toMemberId as string })) as Record<string, unknown>),
   removeMember: async (event, base) =>
     normalizeMemberForGql((await removeMember({ ...base, memberId: event.arguments.memberId as string })) as Record<string, unknown>),
+  deleteMember: async (event, base) =>
+    await deleteMember({ ...base, memberId: event.arguments.memberId as string }),
   restoreMember: async (event, base) =>
     normalizeMemberForGql((await restoreMember({
       ...base,
