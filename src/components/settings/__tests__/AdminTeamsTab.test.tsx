@@ -77,4 +77,28 @@ describe("AdminTeamsTab", () => {
     fireEvent.click(screen.getByRole("button", { name: "보관함으로 이동" }));
     await waitFor(() => expect(archiveTeamApiMock).toHaveBeenCalledWith("t1"));
   });
+
+  it("체크한 팀을 일괄 보관함 이동, 실패한 팀은 선택 유지", async () => {
+    useTeamStore.setState((st) => ({
+      teams: [...st.teams, { teamId: "t2", name: "Platform", leaderMemberIds: [], members: [] }],
+    }));
+    archiveTeamApiMock.mockImplementation((teamId: string) =>
+      teamId === "t2"
+        ? Promise.reject(new Error("boom"))
+        : Promise.resolve({ teamId, name: "Design", leaderMemberIds: [], members: [], removedAt: "2026-10-27T00:00:00.000Z" }),
+    );
+    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    render(<AdminTeamsTab />);
+    fireEvent.click(screen.getByRole("checkbox", { name: "전체 선택" }));
+    fireEvent.click(screen.getByRole("button", { name: "선택한 2개 보관함 이동" }));
+    fireEvent.click(screen.getByRole("button", { name: "보관함 이동" }));
+
+    await waitFor(() => expect(archiveTeamApiMock).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(alertSpy).toHaveBeenCalled());
+    expect(useTeamStore.getState().teams.find((t) => t.teamId === "t1")?.removedAt).toBeTruthy();
+    expect((screen.getByRole("checkbox", { name: "Platform 선택" }) as HTMLInputElement).checked).toBe(true);
+    expect(screen.queryByRole("checkbox", { name: "Design 선택" })).toBeNull();
+  });
 });

@@ -19,6 +19,9 @@ import { sortByKoreanName } from "../../lib/memberSearch";
 import { AdminListHeader } from "./AdminListHeader";
 import { EntityCard } from "../common/EntityCard";
 import { EntityEditModal } from "../common/EntityEditModal";
+import { SimpleConfirmDialog } from "../ui/SimpleConfirmDialog";
+import { BulkSelectBar } from "./BulkSelectBar";
+import { runSequentially, useBulkSelection } from "./useBulkSelection";
 
 type TabType = "active" | "archived";
 
@@ -67,6 +70,11 @@ export function AdminTeamsTab() {
       .slice()
       .sort((a, b) => a.name.localeCompare(b.name, "ko"));
   }, [teams, listQuery]);
+
+  const activeIds = useMemo(() => activeTeams.map((x) => x.teamId), [activeTeams]);
+  const activeSelection = useBulkSelection(activeIds);
+  const [bulkArchiveConfirmOpen, setBulkArchiveConfirmOpen] = useState(false);
+  const [bulkArchiving, setBulkArchiving] = useState(false);
 
   const assignTeam = useMemo(
     () => teams.find((t) => t.teamId === openAssignTeamId) ?? null,
@@ -285,6 +293,28 @@ export function AdminTeamsTab() {
     }
   };
 
+  const onBulkArchive = async () => {
+    setBulkArchiveConfirmOpen(false);
+    setBulkArchiving(true);
+    try {
+      const { failedIds } = await runSequentially(
+        activeSelection.selectedIds,
+        async (id) => {
+          const archived = await archiveTeamApi(id);
+          if (!archived) throw new Error("보관함 이동 응답 없음");
+          upsertTeam(archived);
+          if (openAssignTeamId === id) setOpenAssignTeamId(null);
+        },
+        "AdminTeams",
+      );
+      activeSelection.reset(failedIds);
+      if (failedIds.length > 0)
+        alert(`보관함 이동 실패 ${failedIds.length}개. 콘솔을 확인해주세요.`);
+    } finally {
+      setBulkArchiving(false);
+    }
+  };
+
   const toggleBulkSelect = (teamId: string) =>
     setBulkSelectedIds((prev) => {
       const next = new Set(prev);
@@ -320,32 +350,53 @@ export function AdminTeamsTab() {
         activeTab={activeTab}
         query={listQuery}
         queryPlaceholder="팀 검색"
-        onChangeTab={setActiveTab}
+        onChangeTab={(tab) => {
+          setActiveTab(tab);
+          activeSelection.reset();
+          setBulkSelectedIds(new Set());
+        }}
         onChangeQuery={setListQuery}
       />
 
       {activeTab === "active" ? (
-        <ul className="grid grid-cols-1 gap-2 text-sm">
-          {activeTeams.length === 0 ? (
-            <li className="col-span-full rounded border border-dashed border-zinc-300 px-3 py-6 text-center text-zinc-500 dark:border-zinc-700">
-              등록된 팀이 없습니다.
-            </li>
-          ) : (
-            activeTeams.map((team) => (
-              <li key={team.teamId}>
-                <EntityCard
-                  icon={entityIcons[team.teamId] ?? null}
-                  name={team.name}
-                  memberCount={team.members.length}
-                  leaderLabel={formatLeaderNames(team.leaderMemberIds ?? [])}
-                  hasLeaders={(team.leaderMemberIds?.length ?? 0) > 0}
-                  onClick={() => onOpenAssignModal(team.teamId)}
-                  ariaLabel={`${team.name} 구성원 관리`}
-                />
+        <>
+          <BulkSelectBar
+            total={activeTeams.length}
+            selectedCount={activeSelection.selectedIds.length}
+            onToggleAll={activeSelection.toggleAll}
+            actionLabel={`선택한 ${activeSelection.selectedIds.length}개 보관함 이동`}
+            onAction={() => setBulkArchiveConfirmOpen(true)}
+            busy={bulkArchiving}
+          />
+          <ul className="grid grid-cols-1 gap-2 text-sm">
+            {activeTeams.length === 0 ? (
+              <li className="col-span-full rounded border border-dashed border-zinc-300 px-3 py-6 text-center text-zinc-500 dark:border-zinc-700">
+                등록된 팀이 없습니다.
               </li>
-            ))
-          )}
-        </ul>
+            ) : (
+              activeTeams.map((team) => (
+                <li key={team.teamId} className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    aria-label={`${team.name} 선택`}
+                    checked={activeSelection.isSelected(team.teamId)}
+                    disabled={bulkArchiving}
+                    onChange={() => activeSelection.toggle(team.teamId)}
+                  />
+                  <EntityCard
+                    icon={entityIcons[team.teamId] ?? null}
+                    name={team.name}
+                    memberCount={team.members.length}
+                    leaderLabel={formatLeaderNames(team.leaderMemberIds ?? [])}
+                    hasLeaders={(team.leaderMemberIds?.length ?? 0) > 0}
+                    onClick={() => onOpenAssignModal(team.teamId)}
+                    ariaLabel={`${team.name} 구성원 관리`}
+                  />
+                </li>
+              ))
+            )}
+          </ul>
+        </>
       ) : (
         <>
           <div className="flex items-center justify-between gap-2">
@@ -541,6 +592,17 @@ export function AdminTeamsTab() {
           saving={saving}
         />
       )}
+
+      <SimpleConfirmDialog
+        open={bulkArchiveConfirmOpen}
+        title="팀 일괄 보관"
+        message={`선택한 ${activeSelection.selectedIds.length}개 팀을(를) 보관함으로 이동합니다. 보관함에서 복원할 수 있습니다.`}
+        confirmLabel="보관함 이동"
+        danger
+        zIndex={540}
+        onCancel={() => setBulkArchiveConfirmOpen(false)}
+        onConfirm={() => void onBulkArchive()}
+      />
 
       {/* 일괄 영구 삭제 확인 */}
       {bulkConfirmOpen && (

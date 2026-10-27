@@ -324,6 +324,7 @@ export function AdminMembersTab() {
 
       <SimpleConfirmDialog
         open={confirmBulkRemove}
+        zIndex={540}
         title="구성원 일괄 제거"
         message={`선택한 ${checkedTargets.length}명을 보관함으로 이동합니다. 팀·조직에서도 분리됩니다. 계속할까요?`}
         confirmLabel="제거"

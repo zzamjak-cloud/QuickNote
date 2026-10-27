@@ -14,6 +14,9 @@ import { refreshWorkspaceMeta } from "../../../lib/sync/workspaceMetaCache";
 import { AdminListHeader } from "../../settings/AdminListHeader";
 import { EntityCard } from "../../common/EntityCard";
 import { EntityEditModal } from "../../common/EntityEditModal";
+import { SimpleConfirmDialog } from "../../ui/SimpleConfirmDialog";
+import { BulkSelectBar } from "../../settings/BulkSelectBar";
+import { runSequentially, useBulkSelection } from "../../settings/useBulkSelection";
 
 type FormState = {
   name: string;
@@ -86,6 +89,13 @@ export function ProjectsPanel() {
         .sort((a, b) => a.name.localeCompare(b.name, "ko")),
     [listQuery, projects],
   );
+
+  const activeIds = useMemo(() => activeProjects.map((p) => p.id), [activeProjects]);
+  const archivedIds = useMemo(() => archivedProjects.map((p) => p.id), [archivedProjects]);
+  const activeSelection = useBulkSelection(activeIds);
+  const archivedSelection = useBulkSelection(archivedIds);
+  const [bulkConfirm, setBulkConfirm] = useState<"archive" | "delete" | null>(null);
+  const [bulkRunning, setBulkRunning] = useState(false);
 
   const editingProject = useMemo(
     () => projects.find((p) => p.id === editingProjectId) ?? null,
@@ -242,6 +252,35 @@ export function ProjectsPanel() {
     await deleteProject(project.id, workspaceId);
   };
 
+  const runBulk = async () => {
+    const mode = bulkConfirm;
+    setBulkConfirm(null);
+    if (!mode || !workspaceId) return;
+    const selection = mode === "archive" ? activeSelection : archivedSelection;
+    setBulkRunning(true);
+    try {
+      const { failedIds } = await runSequentially(
+        selection.selectedIds,
+        (id) =>
+          mode === "archive"
+            ? updateProject({ id, workspaceId, isHidden: true })
+            : deleteProject(id, workspaceId),
+        "ProjectsPanel",
+      );
+      selection.reset(failedIds);
+      if (failedIds.length > 0) {
+        setErrorMessage(
+          `${mode === "archive" ? "보관함 이동" : "삭제"} 실패 ${failedIds.length}개. 콘솔을 확인해주세요.`,
+        );
+      }
+    } finally {
+      setBulkRunning(false);
+    }
+  };
+
+  const bulkCount =
+    bulkConfirm === "delete" ? archivedSelection.selectedIds.length : activeSelection.selectedIds.length;
+
   return (
     <div className="space-y-3">
       <div className="flex h-9 items-center justify-end">
@@ -261,7 +300,11 @@ export function ProjectsPanel() {
         activeTab={activeTab}
         query={listQuery}
         queryPlaceholder="프로젝트 검색"
-        onChangeTab={setActiveTab}
+        onChangeTab={(tab) => {
+          setActiveTab(tab);
+          activeSelection.reset();
+          archivedSelection.reset();
+        }}
         onChangeQuery={setListQuery}
       />
 
@@ -271,54 +314,88 @@ export function ProjectsPanel() {
             등록된 프로젝트가 없습니다.
           </div>
         ) : (
-          <ul className="grid grid-cols-1 gap-2">
-            {activeProjects.map((project) => (
-              <li key={project.id}>
-                <EntityCard
-                  icon={entityIcons[project.id] ?? null}
-                  name={project.name}
-                  memberCount={project.memberIds.length}
-                  leaderLabel={formatLeaderNames(project.leaderMemberIds ?? [])}
-                  hasLeaders={(project.leaderMemberIds ?? []).length > 0}
-                  onClick={() => setEditingProjectId(project.id)}
-                />
-              </li>
-            ))}
-          </ul>
+          <>
+            <BulkSelectBar
+              total={activeProjects.length}
+              selectedCount={activeSelection.selectedIds.length}
+              onToggleAll={activeSelection.toggleAll}
+              actionLabel={`선택한 ${activeSelection.selectedIds.length}개 보관함 이동`}
+              onAction={() => setBulkConfirm("archive")}
+              busy={bulkRunning}
+            />
+            <ul className="grid grid-cols-1 gap-2">
+              {activeProjects.map((project) => (
+                <li key={project.id} className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    aria-label={`${project.name} 선택`}
+                    checked={activeSelection.isSelected(project.id)}
+                    disabled={bulkRunning}
+                    onChange={() => activeSelection.toggle(project.id)}
+                  />
+                  <EntityCard
+                    icon={entityIcons[project.id] ?? null}
+                    name={project.name}
+                    memberCount={project.memberIds.length}
+                    leaderLabel={formatLeaderNames(project.leaderMemberIds ?? [])}
+                    hasLeaders={(project.leaderMemberIds ?? []).length > 0}
+                    onClick={() => setEditingProjectId(project.id)}
+                  />
+                </li>
+              ))}
+            </ul>
+          </>
         )
       ) : (
-        <ul className="grid grid-cols-1 gap-2 text-sm">
-          {archivedProjects.length === 0 ? (
-            <li className="col-span-full rounded border border-dashed border-zinc-300 px-3 py-6 text-center text-zinc-500 dark:border-zinc-700">
-              보관된 프로젝트가 없습니다.
-            </li>
-          ) : (
-            archivedProjects.map((project) => (
-              <li key={project.id}>
-                <div className="flex items-center gap-2 rounded border border-zinc-200 px-3 py-2 dark:border-zinc-700">
-                  <span className="min-w-0 flex-1 truncate text-zinc-500 line-through dark:text-zinc-400">
-                    {project.name}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => void handleRestore(project.id)}
-                    className="rounded border border-zinc-200 px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-700"
-                  >
-                    복원
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void handleDelete(project)}
-                    className="rounded border border-red-200 p-1.5 text-red-500 hover:bg-red-50 dark:border-red-900/60 dark:hover:bg-red-900/20"
-                    aria-label={`${project.name} 삭제`}
-                  >
-                    <Trash2 size={13} />
-                  </button>
-                </div>
+        <>
+          <BulkSelectBar
+            total={archivedProjects.length}
+            selectedCount={archivedSelection.selectedIds.length}
+            onToggleAll={archivedSelection.toggleAll}
+            actionLabel={`선택한 ${archivedSelection.selectedIds.length}개 영구 삭제`}
+            onAction={() => setBulkConfirm("delete")}
+            busy={bulkRunning}
+          />
+          <ul className="grid grid-cols-1 gap-2 text-sm">
+            {archivedProjects.length === 0 ? (
+              <li className="col-span-full rounded border border-dashed border-zinc-300 px-3 py-6 text-center text-zinc-500 dark:border-zinc-700">
+                보관된 프로젝트가 없습니다.
               </li>
-            ))
-          )}
-        </ul>
+            ) : (
+              archivedProjects.map((project) => (
+                <li key={project.id}>
+                  <div className="flex items-center gap-2 rounded border border-zinc-200 px-3 py-2 dark:border-zinc-700">
+                    <input
+                      type="checkbox"
+                      aria-label={`${project.name} 선택`}
+                      checked={archivedSelection.isSelected(project.id)}
+                      disabled={bulkRunning}
+                      onChange={() => archivedSelection.toggle(project.id)}
+                    />
+                    <span className="min-w-0 flex-1 truncate text-zinc-500 line-through dark:text-zinc-400">
+                      {project.name}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => void handleRestore(project.id)}
+                      className="rounded border border-zinc-200 px-2 py-1 text-xs text-zinc-600 hover:bg-zinc-100 dark:border-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-700"
+                    >
+                      복원
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleDelete(project)}
+                      className="rounded border border-red-200 p-1.5 text-red-500 hover:bg-red-50 dark:border-red-900/60 dark:hover:bg-red-900/20"
+                      aria-label={`${project.name} 삭제`}
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  </div>
+                </li>
+              ))
+            )}
+          </ul>
+        </>
       )}
 
       {/* 생성 모달 */}
@@ -365,6 +442,21 @@ export function ProjectsPanel() {
           saving={submitting}
         />
       )}
+
+      <SimpleConfirmDialog
+        open={bulkConfirm !== null}
+        title={bulkConfirm === "delete" ? "프로젝트 일괄 영구 삭제" : "프로젝트 일괄 보관"}
+        message={
+          bulkConfirm === "delete"
+            ? `선택한 ${bulkCount}개 프로젝트를 영구 삭제합니다. 이 작업은 되돌릴 수 없습니다.`
+            : `선택한 ${bulkCount}개 프로젝트를 보관함으로 이동합니다. 보관함에서 복원할 수 있습니다.`
+        }
+        confirmLabel={bulkConfirm === "delete" ? "영구 삭제" : "보관함 이동"}
+        danger
+        zIndex={540}
+        onCancel={() => setBulkConfirm(null)}
+        onConfirm={() => void runBulk()}
+      />
 
       {errorMessage && (
         <div className="fixed bottom-8 left-1/2 -translate-x-1/2 rounded bg-red-600 px-4 py-2 text-sm text-white shadow-lg">
