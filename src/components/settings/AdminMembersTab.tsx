@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from "react";
-import { Plus, Search, Upload, X } from "lucide-react";
+import { Plus, Search, Trash2, Upload, X } from "lucide-react";
 import { createMemberApi } from "../../lib/sync/memberApi";
 import { useMemberStore, type Member } from "../../store/memberStore";
 import { useTeamStore } from "../../store/teamStore";
@@ -7,6 +7,8 @@ import { useOrganizationStore } from "../../store/organizationStore";
 import { CreateMemberModal } from "./CreateMemberModal";
 import { MemberModal } from "./MemberModal";
 import { CsvImportModal } from "./CsvImportModal";
+import { SimpleConfirmDialog } from "../ui/SimpleConfirmDialog";
+import { isBulkRemovable, useBulkRemoveMembers } from "./useBulkRemoveMembers";
 
 /** 역할 표시 문자열 반환 */
 function toUpperRole(role: Member["workspaceRole"]): string {
@@ -35,6 +37,11 @@ export function AdminMembersTab() {
   const [openCsvImport, setOpenCsvImport] = useState(false);
   const [selectedMember, setSelectedMember] = useState<Member | null>(null);
   const [archivedMember, setArchivedMember] = useState<Member | null>(null);
+  const meId = useMemberStore((s) => s.me?.memberId);
+  const [checkedIds, setCheckedIds] = useState<Set<string>>(() => new Set());
+  const [confirmBulkRemove, setConfirmBulkRemove] = useState(false);
+  const [bulkError, setBulkError] = useState<string | null>(null);
+  const { removeMembers, running: bulkRunning } = useBulkRemoveMembers();
 
   const teamNamesByMemberId = useMemo(() => {
     const map = new Map<string, string[]>();
@@ -120,10 +127,60 @@ export function AdminMembersTab() {
   };
 
   const displayList = activeTab === "active" ? activeMembers : archivedMembers;
+  const isActiveTab = activeTab === "active";
+
+  // 검색으로 가려진 구성원은 체크돼 있어도 제거 대상에서 제외한다.
+  const removableVisible = useMemo(
+    () => activeMembers.filter((m) => isBulkRemovable(m, meId)),
+    [activeMembers, meId],
+  );
+  const checkedTargets = useMemo(
+    () => removableVisible.filter((m) => checkedIds.has(m.memberId)),
+    [removableVisible, checkedIds],
+  );
+  const allChecked = removableVisible.length > 0 && checkedTargets.length === removableVisible.length;
+
+  const toggleChecked = (memberId: string) => {
+    setCheckedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(memberId)) next.delete(memberId);
+      else next.add(memberId);
+      return next;
+    });
+  };
+
+  const toggleAllChecked = () => {
+    setCheckedIds(allChecked ? new Set() : new Set(removableVisible.map((m) => m.memberId)));
+  };
+
+  const runBulkRemove = async () => {
+    setConfirmBulkRemove(false);
+    setBulkError(null);
+    const { removed, failed } = await removeMembers(checkedTargets);
+    for (const member of removed) {
+      detachMemberFromGroupsInStore(member.memberId);
+      upsertMember(member);
+    }
+    setCheckedIds(new Set(failed.map((m) => m.memberId)));
+    if (failed.length > 0) {
+      setBulkError(`${failed.length}명 제거 실패: ${failed.map((m) => m.name || m.email).join(", ")}`);
+    }
+  };
 
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-end gap-1.5">
+          {isActiveTab && checkedTargets.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setConfirmBulkRemove(true)}
+              disabled={bulkRunning}
+              className="inline-flex items-center gap-1 rounded bg-red-600 px-3 py-1.5 text-sm text-white hover:bg-red-700 disabled:opacity-60"
+            >
+              <Trash2 size={13} />
+              {bulkRunning ? "제거 중…" : `선택 제거 (${checkedTargets.length})`}
+            </button>
+          )}
           <button
             type="button"
             onClick={() => setOpenCsvImport(true)}
@@ -149,6 +206,7 @@ export function AdminMembersTab() {
           onClick={() => {
             setActiveTab("active");
             setQuery("");
+            setCheckedIds(new Set());
           }}
           className={`h-9 px-3 text-sm font-medium transition-colors ${
             activeTab === "active"
@@ -163,6 +221,8 @@ export function AdminMembersTab() {
           onClick={() => {
             setActiveTab("archived");
             setQuery("");
+            setCheckedIds(new Set());
+            setBulkError(null);
           }}
           className={`h-9 px-3 text-sm font-medium transition-colors ${
             activeTab === "archived"
@@ -193,10 +253,23 @@ export function AdminMembersTab() {
         </div>
       </div>
 
+      {bulkError && <p className="text-xs text-red-500">{bulkError}</p>}
+
       <div className="overflow-x-auto rounded-md border border-zinc-200 dark:border-zinc-700">
         <table className="w-full text-left text-sm">
           <thead className="bg-zinc-50 dark:bg-zinc-900">
             <tr>
+              {isActiveTab && (
+                <th className="w-8 px-3 py-2">
+                  <input
+                    type="checkbox"
+                    aria-label="구성원 전체 선택"
+                    checked={allChecked}
+                    disabled={removableVisible.length === 0 || bulkRunning}
+                    onChange={toggleAllChecked}
+                  />
+                </th>
+              )}
               <th className="px-3 py-2 font-medium">이름</th>
               <th className="px-3 py-2 font-medium">이메일</th>
               <th className="px-3 py-2 font-medium">직무</th>
@@ -207,7 +280,7 @@ export function AdminMembersTab() {
           <tbody>
             {displayList.length === 0 ? (
               <tr>
-                <td colSpan={5} className="px-3 py-4 text-zinc-500">
+                <td colSpan={isActiveTab ? 6 : 5} className="px-3 py-4 text-zinc-500">
                   결과가 없습니다.
                 </td>
               </tr>
@@ -224,6 +297,17 @@ export function AdminMembersTab() {
                     }
                   }}
                 >
+                  {isActiveTab && (
+                    <td className="w-8 px-3 py-2" onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        aria-label={`${m.name} 선택`}
+                        checked={checkedIds.has(m.memberId)}
+                        disabled={!isBulkRemovable(m, meId) || bulkRunning}
+                        onChange={() => toggleChecked(m.memberId)}
+                      />
+                    </td>
+                  )}
                   <td className="whitespace-nowrap px-3 py-2">{m.name}</td>
                   <td className="whitespace-nowrap px-3 py-2">{m.email}</td>
                   <td className="whitespace-nowrap px-3 py-2">{m.jobRole}</td>
@@ -237,6 +321,16 @@ export function AdminMembersTab() {
           </tbody>
         </table>
       </div>
+
+      <SimpleConfirmDialog
+        open={confirmBulkRemove}
+        title="구성원 일괄 제거"
+        message={`선택한 ${checkedTargets.length}명을 보관함으로 이동합니다. 팀·조직에서도 분리됩니다. 계속할까요?`}
+        confirmLabel="제거"
+        danger
+        onCancel={() => setConfirmBulkRemove(false)}
+        onConfirm={() => void runBulkRemove()}
+      />
 
       <CsvImportModal
         open={openCsvImport}

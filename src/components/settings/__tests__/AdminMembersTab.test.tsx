@@ -6,14 +6,24 @@ import { useTeamStore } from "../../../store/teamStore";
 import { useWorkspaceOptionsStore } from "../../../store/workspaceOptionsStore";
 
 const createMemberApiMock = vi.fn();
+const removeMemberApiMock = vi.fn();
+const unassignTeamMock = vi.fn();
 
 vi.mock("../../../lib/sync/memberApi", () => ({
   createMemberApi: (input: unknown) => createMemberApiMock(input),
+  removeMemberApi: (id: string) => removeMemberApiMock(id),
+  unassignMemberFromTeamApi: (memberId: string, teamId: string) => unassignTeamMock(memberId, teamId),
+}));
+
+vi.mock("../../../lib/sync/organizationApi", () => ({
+  unassignMemberFromOrganizationApi: vi.fn().mockResolvedValue(true),
 }));
 
 describe("AdminMembersTab", () => {
   beforeEach(() => {
     createMemberApiMock.mockReset();
+    removeMemberApiMock.mockReset();
+    unassignTeamMock.mockReset().mockResolvedValue(true);
     // 직무 select 옵션에 "PM"이 나타나도록 초기화
     useWorkspaceOptionsStore.setState({ jobFunctions: ["PM"], jobTitles: [] });
     useMemberStore.setState({
@@ -125,5 +135,43 @@ describe("AdminMembersTab", () => {
       jobRole: "PM",
       workspaceRole: "MEMBER",
     });
+  });
+  it("체크한 구성원을 일괄 제거(보관함 이동)하고 팀에서 분리", async () => {
+    removeMemberApiMock.mockImplementation((id: string) => Promise.resolve({ memberId: id, status: "removed" }));
+    render(<AdminMembersTab />);
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "구성원 전체 선택" }));
+    fireEvent.click(screen.getByRole("button", { name: "선택 제거 (2)" }));
+    fireEvent.click(screen.getByRole("button", { name: "제거" }));
+
+    await waitFor(() => expect(removeMemberApiMock).toHaveBeenCalledTimes(2));
+    expect(unassignTeamMock).toHaveBeenCalledWith("m1", "t1");
+    await waitFor(() =>
+      expect(useMemberStore.getState().members.every((m) => m.status === "removed")).toBe(true),
+    );
+    expect(useTeamStore.getState().teams[0]?.members).toHaveLength(0);
+    expect(screen.queryByText("Alice")).toBeNull();
+  });
+
+  it("오너·본인은 체크 불가, 실패한 구성원은 선택 유지 + 오류 표시", async () => {
+    useMemberStore.setState((s) => ({
+      me: s.members[1] ?? null,
+      members: [
+        ...s.members,
+        { memberId: "m3", email: "o@x.com", name: "Owen", jobRole: "", workspaceRole: "owner", status: "active", personalWorkspaceId: "ws-3" },
+      ],
+    }));
+    removeMemberApiMock.mockRejectedValue(new Error("boom"));
+    render(<AdminMembersTab />);
+
+    expect((screen.getByRole("checkbox", { name: "Owen 선택" }) as HTMLInputElement).disabled).toBe(true);
+    expect((screen.getByRole("checkbox", { name: "Bob 선택" }) as HTMLInputElement).disabled).toBe(true);
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "Alice 선택" }));
+    fireEvent.click(screen.getByRole("button", { name: "선택 제거 (1)" }));
+    fireEvent.click(screen.getByRole("button", { name: "제거" }));
+
+    await waitFor(() => expect(screen.getByText(/1명 제거 실패: Alice/)).toBeTruthy());
+    expect((screen.getByRole("checkbox", { name: "Alice 선택" }) as HTMLInputElement).checked).toBe(true);
   });
 });
