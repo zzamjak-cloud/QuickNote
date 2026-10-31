@@ -138,9 +138,28 @@ export async function setWorkspaceMcpPolicyApi(workspaceId: string, policy: Work
   return normalizeWorkspace(ws);
 }
 
+// 서버가 한 호출의 시간 예산을 넘기면 이 마커로 "진행 중"을 알리며, 재호출하면 이어서 지운다.
+const DELETE_IN_PROGRESS_MARKER = "WORKSPACE_DELETE_IN_PROGRESS";
+const DELETE_MAX_ROUNDS = 30;
+
+function isDeleteInProgress(err: unknown): boolean {
+  const errors = (err as { errors?: Array<{ message?: string }> })?.errors;
+  const messages = [
+    ...(errors ?? []).map((e) => e.message ?? ""),
+    err instanceof Error ? err.message : "",
+  ];
+  return messages.some((m) => m.includes(DELETE_IN_PROGRESS_MARKER));
+}
+
 export async function deleteWorkspaceApi(workspaceId: string): Promise<boolean> {
-  const ok = await gqlOptional<boolean>(DELETE_WORKSPACE, { workspaceId }, "deleteWorkspace");
-  return Boolean(ok);
+  for (let round = 1; ; round++) {
+    try {
+      const ok = await gqlOptional<boolean>(DELETE_WORKSPACE, { workspaceId }, "deleteWorkspace");
+      return Boolean(ok);
+    } catch (err) {
+      if (!isDeleteInProgress(err) || round >= DELETE_MAX_ROUNDS) throw err;
+    }
+  }
 }
 
 export async function archiveWorkspaceApi(workspaceId: string): Promise<WorkspaceSummary | null> {

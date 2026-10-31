@@ -405,7 +405,12 @@ export function AdminWorkspacesTab() {
           }}
           onConfirmDelete={async () => {
             if (deletePhraseDraft !== `${editingWorkspace.name} 삭제`) return;
-            await deleteWorkspaceApi(editingWorkspace.workspaceId);
+            try {
+              await deleteWorkspaceApi(editingWorkspace.workspaceId);
+            } catch {
+              showToast("삭제에 실패했습니다. 잠시 후 다시 시도해 주세요.", { kind: "error" });
+              return;
+            }
             useWorkspaceStore.setState({
               workspaces: useWorkspaceStore
                 .getState()
