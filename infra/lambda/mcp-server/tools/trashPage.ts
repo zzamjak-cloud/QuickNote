@@ -20,7 +20,7 @@ export type TrashPageInput = z.input<typeof trashPageInput>;
 
 export async function trashPageTool(ctx: McpContext, raw: TrashPageInput) {
   const input = trashPageInput.parse(raw);
-  const page = await loadWritablePage(ctx, input.pageId);
+  const page = await loadWritablePage(ctx, input.pageId, { allowSchedulerRows: true });
   if (page.fullPageDatabaseId) throw new ToolError("Full-page database homes cannot be trashed via MCP; delete the database in QuickNote");
 
   const workspaceId = String(page.workspaceId);

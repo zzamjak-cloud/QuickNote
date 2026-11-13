@@ -47,6 +47,8 @@ export function optionId(col: ColumnLite, value: string): string {
   const hit = col.options.find((o) => o.label === value || o.id === value)
     ?? col.options.find((o) => o.label.toLowerCase() === value.toLowerCase());
   if (hit) return hit.id;
+  // 스케줄러 조직·팀·프로젝트처럼 옵션이 외부 원천인 컬럼은 그 원천의 id 를 그대로 저장한다.
+  if (col.linkedOptions) return value;
   const valid = col.options.map((o) => o.label).join(", ") || "(no options)";
   return fail(col, `unknown option "${value}". Valid options: ${valid}`);
 }

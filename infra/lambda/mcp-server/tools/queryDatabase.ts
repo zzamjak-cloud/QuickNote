@@ -15,7 +15,7 @@ const NO_VALUE_OPERATORS = new Set(["isEmpty", "isNotEmpty"]);
 const YMD = /^\d{4}-\d{2}-\d{2}$/;
 const TABLE_COLUMNS = 8;
 
-const filterInput = z
+export const filterInput = z
   .object({
     column: z.string().trim().min(1).max(200).describe("Column name or id"),
     operator: z.enum(OPERATORS),
@@ -92,17 +92,24 @@ async function filterValues(ctx: McpContext, col: ColumnLite, raw: unknown, work
   }
 }
 
-async function toFilterRules(ctx: McpContext, columns: ColumnLite[], input: z.infer<typeof queryDatabaseInput>, workspaceId: string) {
+/** 사람 값 필터 → 클라 FilterRule(뷰 프리셋 저장에도 같은 변환을 쓴다). */
+export async function toFilterRules(
+  ctx: McpContext,
+  columns: ColumnLite[],
+  filters: z.infer<typeof filterInput>[],
+  workspaceId: string,
+  ruleId: (index: number) => string = (i) => `f${i}`,
+) {
   const rules: FilterRule[] = [];
-  for (const [i, f] of (input.filter ?? []).entries()) {
+  for (const [i, f] of filters.entries()) {
     const col = resolveColumn(columns, f.column);
     if (NO_VALUE_OPERATORS.has(f.operator)) {
-      rules.push({ id: `f${i}`, columnId: col.id, operator: f.operator });
+      rules.push({ id: ruleId(i), columnId: col.id, operator: f.operator });
       continue;
     }
     if (f.value === undefined) throw new ToolError(`Filter on "${col.name}" with ${f.operator} needs a value`);
     const values = await filterValues(ctx, col, f.value, workspaceId);
-    rules.push({ id: `f${i}`, columnId: col.id, operator: f.operator, value: values.length === 1 ? values[0] : values });
+    rules.push({ id: ruleId(i), columnId: col.id, operator: f.operator, value: values.length === 1 ? values[0] : values });
   }
   return rules;
 }
@@ -135,7 +142,7 @@ export async function queryDatabaseTool(ctx: McpContext, raw: QueryDatabaseInput
 
   const columns = parseColumns(db.columns);
   const defs: ColumnDef[] = parseColumnDefs(db.columns);
-  const filterRules = await toFilterRules(ctx, columns, input, workspaceId);
+  const filterRules = await toFilterRules(ctx, columns, input.filter ?? [], workspaceId);
   const sortRules: SortRule[] = (input.sorts ?? []).map((s) => ({ columnId: resolveColumn(columns, s.column).id, dir: s.direction }));
   const offset = decodeCursor(input.cursor);
 

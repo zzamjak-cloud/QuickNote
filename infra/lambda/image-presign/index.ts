@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createStableAssetId } from "../_shared/assetId";
 import { requireEnv } from "../_shared/env";
 import {
   S3Client,
@@ -16,6 +16,8 @@ import {
   QueryCommand,
 } from "@aws-sdk/lib-dynamodb";
 import { getCallerMember, hasWorkspaceViewAccess } from "../v5-resolvers/handlers/_auth";
+
+export { createStableAssetId };
 
 // AppSync JS 리졸버에서 invoke 되는 단일 핸들러.
 // 3 fieldName(getImageUploadUrl/confirmImage/getImageDownloadUrl)을 분기 처리한다.
@@ -360,19 +362,6 @@ async function hasWorkspaceAccessToAsset(callerSub: string, assetId: string): Pr
     if (ok) return true;
   }
   return false;
-}
-
-export function createStableAssetId(ownerId: string, input: UploadInput): string {
-  const digest = createHash("sha256")
-    .update(ownerId)
-    .update("\0")
-    .update(input.mimeType)
-    .update("\0")
-    .update(String(input.size))
-    .update("\0")
-    .update(input.sha256)
-    .digest("hex");
-  return `asset-${digest}`;
 }
 
 function isConditionalCheckFailed(error: unknown): boolean {

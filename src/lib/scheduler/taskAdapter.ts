@@ -29,26 +29,15 @@ import {
 } from "./taskMeta";
 import { isDeletedSchedulePage, markDeletedSchedulePage } from "./deletedSchedulePages";
 import { computeScheduleAutoStatus, isAutoStatusExempt } from "./autoStatus";
+import { makeScheduleInstanceId, parseScheduleInstanceId } from "./schedulerSchema";
 
-const INSTANCE_SEPARATOR = "::";
-const GLOBAL_ASSIGNEE_ID = "__global__";
+// 카드 id 규칙은 클라·MCP 서버 공용(schedulerSchema.ts).
+export { makeScheduleInstanceId, parseScheduleInstanceId };
 
 type MemberLike = {
   memberId: string;
   name: string;
 };
-
-export function makeScheduleInstanceId(pageId: string, assigneeId: string | null): string {
-  return `${pageId}${INSTANCE_SEPARATOR}${assigneeId ?? GLOBAL_ASSIGNEE_ID}`;
-}
-
-export function parseScheduleInstanceId(id: string): { pageId: string; assigneeId: string | null } | null {
-  const idx = id.lastIndexOf(INSTANCE_SEPARATOR);
-  if (idx <= 0) return null;
-  const pageId = id.slice(0, idx);
-  const assigneeId = id.slice(idx + INSTANCE_SEPARATOR.length);
-  return { pageId, assigneeId: assigneeId === GLOBAL_ASSIGNEE_ID ? null : assigneeId };
-}
 
 function asDateRange(value: CellValue): DateRangeValue | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;

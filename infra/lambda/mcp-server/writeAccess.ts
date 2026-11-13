@@ -21,10 +21,28 @@ export function requireWriteScope(ctx: McpContext): void {
   if (!(ctx.token.scopes ?? []).includes("write")) throw new ToolError(WRITE_SCOPE_ERROR);
 }
 
-/** 쓰기 대상 워크스페이스 인가. 스케줄러 가상 WS 는 MCP 쓰기 대상이 아니다. */
-export async function requireWritableWorkspace(ctx: McpContext, workspaceId: string): Promise<void> {
+// 스케줄러 WS 의 마일스톤·피처 DB 행은 일반 셀 타입이라 범용 페이지 툴(create_pages·update_page·trash_page)로 쓴다.
+// 작업 DB(lc-scheduler-db:) 행은 프리셋·meta·auto-status 규칙이 있어 전용 스케줄러 툴(serverScheduler.ts)만 쓴다.
+const SCHEDULER_SIDE_DB_PREFIXES = ["lc-milestone-db:", "lc-feature-db:"];
+
+export function isSchedulerSideDatabaseId(databaseId: unknown): boolean {
+  return typeof databaseId === "string" && SCHEDULER_SIDE_DB_PREFIXES.some((p) => databaseId.startsWith(p));
+}
+
+/** allowSchedulerRows: 마일스톤·피처 DB 행 쓰기를 허용하는 툴(create_pages·update_page·trash_page)만 true. */
+export type SchedulerRowOption = { allowSchedulerRows?: boolean };
+
+/**
+ * 쓰기 대상 워크스페이스 인가. 스케줄러 가상 WS 는 범용 쓰기 대상이 아니다 —
+ * allowScheduler 는 전용 스케줄러 툴과 마일스톤·피처 행 경로만 넘긴다.
+ */
+export async function requireWritableWorkspace(
+  ctx: McpContext,
+  workspaceId: string,
+  opts: { allowScheduler?: boolean } = {},
+): Promise<void> {
   requireWriteScope(ctx);
-  if (workspaceId === LC_SCHEDULER_WORKSPACE_ID) throw new ToolError(NOT_ACCESSIBLE);
+  if (workspaceId === LC_SCHEDULER_WORKSPACE_ID && !opts.allowScheduler) throw new ToolError(NOT_ACCESSIBLE);
   await requireWorkspace(ctx, workspaceId);
   // 워크스페이스 관리자가 MCP 를 읽기 전용으로 둔 곳은 모든 쓰기 툴을 거부한다.
   if ((await workspaceInfo(ctx, workspaceId)).mcpPolicy === "read") throw new ToolError(READ_ONLY_POLICY_ERROR);
@@ -44,23 +62,30 @@ export async function requireWritableWorkspace(ctx: McpContext, workspaceId: str
 }
 
 /** 쓰기 가능한(휴지통 아님) 페이지. 없음·권한 없음은 같은 문구로 숨긴다. */
-export async function loadWritablePage(ctx: McpContext, pageId: string): Promise<Item> {
+export async function loadWritablePage(ctx: McpContext, pageId: string, opts: SchedulerRowOption = {}): Promise<Item> {
   requireWriteScope(ctx);
   const page = await getItem(ctx.doc, ctx.tables.Pages, { id: pageId });
   if (!page) throw new ToolError(NOT_ACCESSIBLE);
-  await requireWritableWorkspace(ctx, String(page.workspaceId ?? ""));
+  const schedulerRow = Boolean(opts.allowSchedulerRows) && isSchedulerSideDatabaseId(page.databaseId);
+  await requireWritableWorkspace(ctx, String(page.workspaceId ?? ""), { allowScheduler: schedulerRow });
   if (page.deletedAt) throw new ToolError("This page is in the trash. Restore it in QuickNote before editing.");
   return page;
 }
 
-export async function loadWritableDatabase(ctx: McpContext, databaseId: string): Promise<Item> {
+export async function loadWritableDatabase(ctx: McpContext, databaseId: string, opts: SchedulerRowOption = {}): Promise<Item> {
   requireWriteScope(ctx);
   if (isLCSchedulerDatabaseId(databaseId)) throw new ToolError(NOT_ACCESSIBLE);
   const db = await getItem(ctx.doc, ctx.tables.Databases, { id: databaseId });
   if (!db) throw new ToolError(NOT_ACCESSIBLE);
-  await requireWritableWorkspace(ctx, String(db.workspaceId ?? ""));
+  const schedulerRows = Boolean(opts.allowSchedulerRows) && isSchedulerSideDatabaseId(databaseId);
+  await requireWritableWorkspace(ctx, String(db.workspaceId ?? ""), { allowScheduler: schedulerRows });
   if (db.deletedAt) throw new ToolError("This database is in the trash.");
   return db;
+}
+
+/** 스케줄러 전용 툴의 쓰기 인가 — 토큰 범위·MCP 정책·write scope(멤버는 전원 edit). */
+export function requireSchedulerWrite(ctx: McpContext): Promise<void> {
+  return requireWritableWorkspace(ctx, LC_SCHEDULER_WORKSPACE_ID, { allowScheduler: true });
 }
 
 /**

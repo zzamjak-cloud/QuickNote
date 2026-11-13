@@ -52,10 +52,28 @@ describe("MCP handler e2e", () => {
 
     const list = await handler(event({ jsonrpc: "2.0", id: 2, method: "tools/list" }, { token }));
     const tools = JSON.parse(String(list.body)).result.tools.map((t: { name: string }) => t.name);
-    expect(tools.sort()).toEqual([
+    // 툴 묶음(serverWrite·serverHistory·serverScheduler …)이 각자 등록되므로 묶음별 포함 여부로 검사한다.
+    expect(new Set(tools).size).toBe(tools.length);
+    expect(tools).toEqual(expect.arrayContaining([
       "create_comment", "create_database", "create_pages", "duplicate_page", "fetch", "get_comments", "get_users",
       "list_workspaces", "move_pages", "query_database", "search", "trash_page", "update_database", "update_page",
-    ]);
+    ]));
+    expect(tools).toEqual(expect.arrayContaining([
+      "list_page_history", "save_page_version", "restore_page_version", "list_database_history", "restore_database_version",
+      "list_database_row_history", "list_trash", "restore_page", "restore_database", "trash_database",
+      "permanently_delete_page", "permanently_delete_database", "empty_trash",
+    ]));
+    expect(tools).toEqual(expect.arrayContaining([
+      "list_notifications", "mark_notification_read", "delete_notification", "create_workspace", "update_workspace",
+      "list_favorites", "add_favorite", "remove_favorite", "list_my_assets", "get_asset_usages", "list_custom_icons",
+      "create_custom_icon",
+    ]));
+    expect(tools).toEqual(expect.arrayContaining([
+      "list_database_views", "update_database_view", "save_database_filter_preset", "delete_database_filter_preset",
+      "publish_page", "unpublish_page", "get_publish_status", "list_flowcharts", "get_flowchart", "save_flowchart",
+      "list_flowchart_history", "update_comment", "delete_comment", "toggle_comment_reaction", "set_page_appearance", "upload_image",
+    ]));
+    expect(tools).not.toEqual(expect.arrayContaining(["delete_workspace"]));
 
     const search = await handler(event({
       jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "search", arguments: { query: "hello" } },

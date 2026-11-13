@@ -1,7 +1,6 @@
 // MCP 토큰 발급 폼 — 이름·권한·워크스페이스 범위·만료를 입력받아 onSubmit 으로 넘긴다.
 import { useState } from "react";
 import { useWorkspaceStore } from "../../store/workspaceStore";
-import { LC_SCHEDULER_WORKSPACE_ID } from "../../lib/scheduler/scope";
 import type { CreateMcpTokenInput } from "../../lib/sync/mcpTokenApi";
 
 const EXPIRY_OPTIONS: Array<{ value: string; label: string; days: number | null }> = [
@@ -23,10 +22,8 @@ export function McpTokenCreateForm({ busy, onSubmit }: Props) {
   const [expiry, setExpiry] = useState("90");
   const [access, setAccess] = useState<"read" | "write">("read");
 
-  // 스케줄러 가상 워크스페이스·삭제된 워크스페이스·MCP 정책이 차단인 워크스페이스는 MCP 범위 대상이 아니다.
-  const selectable = workspaces.filter(
-    (w) => w.workspaceId !== LC_SCHEDULER_WORKSPACE_ID && !w.removedAt && w.mcpPolicy !== "disabled",
-  );
+  // 삭제된 워크스페이스·MCP 정책이 차단인 워크스페이스는 MCP 범위 대상이 아니다(스케줄러 WS 는 선택 가능).
+  const selectable = workspaces.filter((w) => !w.removedAt && w.mcpPolicy !== "disabled");
   const trimmedName = name.trim();
 
   const toggleWorkspace = (id: string) => {
@@ -91,7 +88,7 @@ export function McpTokenCreateForm({ busy, onSubmit }: Props) {
         {access === "write" && (
           <p role="note" className="rounded-md bg-amber-50 px-2 py-1.5 text-xs text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
             AI가 편집 권한이 있는 워크스페이스에서 페이지를 만들고, 고치고, 휴지통으로 옮길 수 있습니다.
-            영구 삭제는 할 수 없고, 본문 전체를 바꾸기 전에는 버전 히스토리에 저장됩니다.
+            휴지통 항목의 영구 삭제는 AI가 명시적 확인(confirm)을 보낼 때만 실행되며, 본문 전체를 바꾸거나 버전을 복원하기 전에는 버전 히스토리에 저장됩니다.
           </p>
         )}
       </fieldset>

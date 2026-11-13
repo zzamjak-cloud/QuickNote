@@ -22,6 +22,10 @@ export const TABLES: McpTables = {
   Schedules: "schedules",
   DatabaseRowMembers: "db-row-members",
   Notifications: "notifications",
+  Projects: "projects",
+  Holidays: "holidays",
+  MmEntries: "mm-entries",
+  CustomIcons: "custom-icons",
 };
 
 export function member(overrides: Partial<Member> = {}): Member {

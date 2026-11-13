@@ -20,6 +20,12 @@ export type McpTables = Tables & {
   Schedules: string;
   DatabaseRowMembers: string;
   Notifications: string;
+  // 스케줄러 툴(serverScheduler.ts)이 재사용하는 project·holiday·mm 핸들러 테이블.
+  Projects: string;
+  Holidays: string;
+  MmEntries: string;
+  // 관리 툴(serverAdmin.ts)의 커스텀 아이콘 목록·생성.
+  CustomIcons: string;
 };
 
 export type McpContext = {
@@ -70,6 +76,10 @@ export function tablesFromEnv(): McpTables {
     Schedules: env("SCHEDULES_TABLE_NAME"),
     DatabaseRowMembers: env("DATABASE_ROW_MEMBERS_TABLE_NAME"),
     Notifications: env("NOTIFICATIONS_TABLE_NAME"),
+    Projects: env("PROJECTS_TABLE_NAME"),
+    Holidays: env("HOLIDAYS_TABLE_NAME"),
+    MmEntries: env("MM_ENTRIES_TABLE_NAME"),
+    CustomIcons: env("CUSTOM_ICONS_TABLE_NAME"),
   };
 }
 

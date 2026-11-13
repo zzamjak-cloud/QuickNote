@@ -37,6 +37,8 @@
     "teamsTableName": "quicknote-teams-v6",
     "memberTeamsTableName": "quicknote-member-teams-v6",
     "workspacesTableName": "quicknote-workspaces-v6",
-    "workspaceAccessTableName": "quicknote-workspace-access-v6"
+    "workspaceAccessTableName": "quicknote-workspace-access-v6",
+    "publicWebOrigin": "https://quick-note-khaki.vercel.app",
+    "publicWebOriginDev": "https://quick-note-git-develop-zzamjak-4139s-projects.vercel.app"
   }
 }

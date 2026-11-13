@@ -1050,17 +1050,19 @@ const RESOLVERS: Record<
     })) as unknown as Record<string, unknown>),
 };
 
-/** publish*Changed(IAM) 응답 — 입력 echo. 페이지는 deletedAt 인자를 tombstone 필드로 싣는다. */
+/** publish*Changed(IAM) 응답 — 입력 echo. 페이지·DB·댓글은 deletedAt 인자를 tombstone 필드로 싣는다. */
 export function publishOnlyResult(fieldName: string, args: Record<string, unknown>): Record<string, unknown> | null {
   const input = args.input as Record<string, unknown> | undefined;
   if (!input) return null;
   if (fieldName === "publishPageChanged") {
     return typeof args.deletedAt === "string" ? { ...input, deletedAt: args.deletedAt } : input;
   }
-  if (fieldName === "publishDatabaseChanged") return { ...input, deletedAt: null };
+  if (fieldName === "publishDatabaseChanged") {
+    return { ...input, deletedAt: typeof args.deletedAt === "string" ? args.deletedAt : null };
+  }
   if (fieldName === "publishCommentChanged") {
     const { importedAuthorMemberId: _ignored, ...comment } = input;
-    return { ...comment, deletedAt: null };
+    return { ...comment, deletedAt: typeof args.deletedAt === "string" ? args.deletedAt : null };
   }
   return null;
 }

@@ -1,6 +1,17 @@
 import type { ColumnDef, DatabaseBundle, DatabaseRowPreset } from "../../types/database";
 import { isInternalHiddenColumnId } from "../../types/database";
 import { LC_SCHEDULER_WORKSPACE_ID, resolveLCSchedulerWorkspaceId } from "./scope";
+import {
+  LC_SCHEDULER_ATTENDANCE_OPTIONS,
+  LC_SCHEDULER_ATTENDANCE_PRESET_ID,
+  LC_SCHEDULER_ATTENDANCE_TITLE,
+  LC_SCHEDULER_COLUMN_IDS,
+  LC_SCHEDULER_DATABASE_ID,
+  LC_SCHEDULER_DATABASE_ID_PREFIX,
+  LC_SCHEDULER_TASK_PRESET_ID,
+  lcSchedulerAttendancePresetDefaults,
+  lcSchedulerTaskPresetDefaults,
+} from "./schedulerSchema";
 // LC_FEATURE_DATABASE_ID 는 이 파일에서 상수로 선언되므로 직접 참조 (순환 import 방지)
 const LC_FEATURE_DATABASE_ID_CONST = `lc-feature-db:${LC_SCHEDULER_WORKSPACE_ID}`;
 // 피처 DB 컬럼 ID — featureDatabase.ts 순환 import 방지용 인라인 상수
@@ -22,69 +33,23 @@ const LC_FEATURE_COL = {
  */
 export const LC_SCHEDULER_SEED_TIMESTAMP_MS = Date.UTC(2020, 0, 1);
 
-export const LC_SCHEDULER_DATABASE_ID_PREFIX = "lc-scheduler-db:";
+// 작업 DB 스키마 상수·근태 판정은 클라·MCP 서버 공용 순수 모듈(schedulerSchema.ts)에 있다.
+export {
+  LC_SCHEDULER_ATTENDANCE_OPTIONS,
+  LC_SCHEDULER_ATTENDANCE_PRESET_ID,
+  LC_SCHEDULER_ATTENDANCE_TITLE,
+  LC_SCHEDULER_COLUMN_IDS,
+  LC_SCHEDULER_DATABASE_ID,
+  LC_SCHEDULER_DATABASE_ID_PREFIX,
+  LC_SCHEDULER_TASK_PRESET_ID,
+  getLCSchedulerAttendanceDayValue,
+  getLCSchedulerAttendanceLabel,
+  isLCSchedulerAttendanceValue,
+  normalizeLCSchedulerAttendanceValue,
+  type LCSchedulerAttendanceValue,
+} from "./schedulerSchema";
+
 export const LC_SCHEDULER_DATABASE_TITLE = "작업";
-export const LC_SCHEDULER_DATABASE_ID = `${LC_SCHEDULER_DATABASE_ID_PREFIX}${LC_SCHEDULER_WORKSPACE_ID}`;
-export const LC_SCHEDULER_TASK_PRESET_ID = "lc-scheduler-preset:task";
-export const LC_SCHEDULER_ATTENDANCE_PRESET_ID = "lc-scheduler-preset:annual-leave";
-
-export const LC_SCHEDULER_COLUMN_IDS = {
-  title: "lc-scheduler:title",
-  assignees: "lc-scheduler:assignees",
-  period: "lc-scheduler:period",
-  project: "lc-scheduler:project",
-  status: "lc-scheduler:status",
-  attendance: "lc-scheduler:attendance",
-  organization: "lc-scheduler:organization",
-  team: "lc-scheduler:team",
-  milestone: "lc-scheduler:milestone",
-  version: "lc-scheduler:version",
-  feature: "lc-scheduler:feature",
-  color: "lc-scheduler:color",
-  meta: "lc-scheduler:meta",
-} as const;
-
-export const LC_SCHEDULER_ATTENDANCE_TITLE = "근태";
-
-export const LC_SCHEDULER_ATTENDANCE_OPTIONS = [
-  { id: "annual-leave", label: "연차", color: "#e74c3c", dayValue: 1 },
-  { id: "morning-half-day", label: "오전반차", color: "#f97316", dayValue: 0.5 },
-  { id: "afternoon-half-day", label: "오후반차", color: "#f59e0b", dayValue: 0.5 },
-  { id: "morning-quarter-day", label: "오전반반차", color: "#a855f7", dayValue: 0.25 },
-  { id: "afternoon-quarter-day", label: "오후반반차", color: "#8b5cf6", dayValue: 0.25 },
-  { id: "hourly-leave-30m", label: "시간차(30분)", color: "#06b6d4", dayValue: 0.0625 },
-  { id: "hourly-leave-1h", label: "시간차(1시간)", color: "#0891b2", dayValue: 0.125 },
-  { id: "hourly-leave-90m", label: "시간차(1시간 30분)", color: "#0e7490", dayValue: 0.1875 },
-] as const;
-
-export type LCSchedulerAttendanceValue = typeof LC_SCHEDULER_ATTENDANCE_OPTIONS[number]["id"];
-
-const LEGACY_ATTENDANCE_VALUE_MAP: Record<string, LCSchedulerAttendanceValue> = {
-  "hourly-leave": "hourly-leave-1h",
-};
-
-export function normalizeLCSchedulerAttendanceValue(value: string | null | undefined): LCSchedulerAttendanceValue | null {
-  if (!value) return null;
-  if (LC_SCHEDULER_ATTENDANCE_OPTIONS.some((option) => option.id === value)) {
-    return value as LCSchedulerAttendanceValue;
-  }
-  return LEGACY_ATTENDANCE_VALUE_MAP[value] ?? null;
-}
-
-export function isLCSchedulerAttendanceValue(value: string | null | undefined): value is LCSchedulerAttendanceValue {
-  return LC_SCHEDULER_ATTENDANCE_OPTIONS.some((option) => option.id === value);
-}
-
-export function getLCSchedulerAttendanceLabel(value: string | null | undefined): string | null {
-  const normalized = normalizeLCSchedulerAttendanceValue(value);
-  return LC_SCHEDULER_ATTENDANCE_OPTIONS.find((option) => option.id === normalized)?.label ?? null;
-}
-
-export function getLCSchedulerAttendanceDayValue(value: string | null | undefined): number | null {
-  const normalized = normalizeLCSchedulerAttendanceValue(value);
-  return LC_SCHEDULER_ATTENDANCE_OPTIONS.find((option) => option.id === normalized)?.dayValue ?? null;
-}
-
 
 export function makeLCSchedulerDatabaseId(workspaceId: string): string {
   return `${LC_SCHEDULER_DATABASE_ID_PREFIX}${workspaceId}`;
@@ -301,13 +266,7 @@ function defaultPresets(databaseId: string, t: number): DatabaseRowPreset[] {
       databaseId,
       name: "일정",
       scope: "workspace",
-      columnDefaults: {
-        [LC_SCHEDULER_COLUMN_IDS.title]: "일정",
-        [LC_SCHEDULER_COLUMN_IDS.status]: "todo",
-        [LC_SCHEDULER_COLUMN_IDS.attendance]: null,
-        [LC_SCHEDULER_COLUMN_IDS.color]: "#3498DB",
-        [LC_SCHEDULER_COLUMN_IDS.meta]: { kind: "schedule" },
-      },
+      columnDefaults: lcSchedulerTaskPresetDefaults(),
       requiredColumnIds: visibleColumnIds,
       visibleColumnIds,
       hiddenColumnIds,
@@ -320,13 +279,7 @@ function defaultPresets(databaseId: string, t: number): DatabaseRowPreset[] {
       databaseId,
       name: "근태",
       scope: "workspace",
-      columnDefaults: {
-        [LC_SCHEDULER_COLUMN_IDS.title]: "연차",
-        [LC_SCHEDULER_COLUMN_IDS.status]: "todo",
-        [LC_SCHEDULER_COLUMN_IDS.attendance]: "annual-leave",
-        [LC_SCHEDULER_COLUMN_IDS.color]: "#E74C3C",
-        [LC_SCHEDULER_COLUMN_IDS.meta]: { kind: "leave", annualLeave: true, attendanceValue: "annual-leave" },
-      },
+      columnDefaults: lcSchedulerAttendancePresetDefaults(),
       requiredColumnIds: attendanceVisibleColumnIds,
       visibleColumnIds: attendanceVisibleColumnIds,
       hiddenColumnIds: [

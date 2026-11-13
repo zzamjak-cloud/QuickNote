@@ -224,24 +224,23 @@ export async function createWorkspace(args: {
     subjectId: e.subjectType === "EVERYONE" ? null : (e.subjectId ?? null),
     level: toLevel(e.level),
   }));
-  const putReqs = normalizedAccess.map((e) => ({
-    PutRequest: {
-      Item: {
-        workspaceId,
-        subjectKey: subjectKey(e.subjectType, e.subjectId),
-        subjectType: e.subjectType,
-        subjectId: e.subjectId,
-        level: e.level,
-      },
-    },
-  }));
-  if (putReqs.length > 0) {
-    await args.doc.send(
-      new BatchWriteCommand({
-        RequestItems: { [args.tables.WorkspaceAccess]: putReqs },
-      }),
-    );
-  }
+  // 엔트리별 PutItem — BatchWriteItem 권한(삭제까지 허용)이 없는 MCP Lambda 에서도 재사용할 수 있게 한다.
+  await Promise.all(
+    normalizedAccess.map((e) =>
+      args.doc.send(
+        new PutCommand({
+          TableName: args.tables.WorkspaceAccess,
+          Item: {
+            workspaceId,
+            subjectKey: subjectKey(e.subjectType, e.subjectId),
+            subjectType: e.subjectType,
+            subjectId: e.subjectId,
+            level: e.level,
+          },
+        }),
+      ),
+    ),
+  );
   return {
     workspaceId,
     name,
@@ -263,6 +262,8 @@ export async function updateWorkspace(args: {
   tables: Tables;
   caller: Member;
   input: { workspaceId: string; name?: string | null; options?: { jobFunctions?: string[] | null; jobTitles?: string[] | null } | null };
+  // 속성 제한(dynamodb:Attributes) IAM 아래(MCP)에서는 ALL_NEW 가 거부되므로 UPDATED_NEW 로 받아 기존 행과 합친다.
+  returnValues?: "ALL_NEW" | "UPDATED_NEW";
 }): Promise<Workspace> {
   requireRoleAtLeast(args.caller, "manager");
   if (args.input.workspaceId === LC_SCHEDULER_WORKSPACE_ID) {
@@ -298,10 +299,10 @@ export async function updateWorkspace(args: {
       UpdateExpression: `SET ${sets.join(", ")}`,
       ...(Object.keys(names).length > 0 ? { ExpressionAttributeNames: names } : {}),
       ExpressionAttributeValues: vals,
-      ReturnValues: "ALL_NEW",
+      ReturnValues: args.returnValues ?? "ALL_NEW",
     }),
   );
-  const updated = r.Attributes as WorkspaceRow;
+  const updated = { ...row, ...r.Attributes } as WorkspaceRow;
   const access = await getWorkspaceAccess(args.doc, args.tables, args.input.workspaceId);
   return {
     ...updated,

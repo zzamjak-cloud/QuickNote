@@ -535,6 +535,8 @@ export async function updateMyClientPrefs(args: {
   tables: Tables;
   caller: Member;
   input: { clientPrefs: string };
+  // MCP 처럼 속성 제한(dynamodb:Attributes) IAM 정책 아래에서 호출하면 ALL_NEW 가 거부되므로 NONE 을 쓴다.
+  returnValues?: "ALL_NEW" | "NONE";
 }): Promise<Member> {
   const target = await getMemberById(args.doc, args.tables, args.caller.memberId);
   if (!target) notFound("Member 없음");
@@ -646,10 +648,10 @@ export async function updateMyClientPrefs(args: {
       Key: { memberId: args.caller.memberId },
       UpdateExpression: "SET clientPrefs = :cp",
       ExpressionAttributeValues: { ":cp": toSave },
-      ReturnValues: "ALL_NEW",
+      ReturnValues: args.returnValues ?? "ALL_NEW",
     }),
   );
-  return r.Attributes as Member;
+  return (r.Attributes as Member | undefined) ?? { ...target, clientPrefs: toSave };
 }
 
 // ─── setMemberRole ────────────────────────────────────────────────────────────

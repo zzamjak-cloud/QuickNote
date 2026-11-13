@@ -118,6 +118,7 @@ DB 히스토리는 한 화면에서 두 탭으로 본다 (`DatabaseBlockHistoryD
     **언바인딩 → Y룸 본문 교체 → 재바인딩**을 요청(에디터 없으면 false → 비협업 폴백). 행 셀은
     `restoreRowCellsToCollabDoc(databaseId, pageId, dbCells)` 로 그 시점 셀을 **DB Y룸(권위)에 주입**
     (`4a8d1f5a`, 비협업이면 no-op). `applyRemotePageToStore` 는 `preserveCollabDoc` 로 협업 본문/셀을 덮어쓰지 않는다.
+- **MCP(외부 AI) 복원**: `restore_page_version`·`restore_database_version` 은 서버에서 같은 결과를 만든다 — 페이지 본문은 Y룸 replace, 행 셀은 DB 룸 정확 복원, DB 구조는 DB 룸 columns·presets·panelState 교체. 상세 [`settings/mcp.md`](../settings/mcp.md) "히스토리·휴지통 툴".
 - **삭제된 행 복구**: ① 페이지 탭에서 그 행 선택 → "이 버전으로 복원", 또는 ② 표 뷰의 톰스톤 "복구" 버튼(`restoreDeletedRowFromHistory`).
 - **DB 구조 복원**: `serverDatabaseHistoryStore.restoreDatabaseHistoryEvent` → 서버 `restoreDatabaseVersion`
   → `applyRemoteDatabaseToStore`. DB 구조(컬럼/필터/뷰)는 Y룸 본문 권위 이슈가 없어 단순 store 반영.

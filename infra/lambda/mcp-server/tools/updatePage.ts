@@ -46,7 +46,7 @@ async function buildMetaPatch(ctx: McpContext, page: Item, input: z.infer<typeof
   let title = input.title;
   if (input.properties) {
     if (!page.databaseId) throw new ToolError("properties can only be set on database rows");
-    const db = await loadWritableDatabase(ctx, String(page.databaseId));
+    const db = await loadWritableDatabase(ctx, String(page.databaseId), { allowSchedulerRows: true });
     const converted = await convertProperties(ctx, db, input.properties);
     if (title !== undefined && converted.title !== undefined && title !== converted.title) {
       throw new ToolError("Give the row title either as title or as the title column, not both");
@@ -83,7 +83,7 @@ export async function updatePageTool(ctx: McpContext, raw: UpdatePageInput) {
   if (input.title === undefined && input.icon === undefined && !input.properties && !input.content) {
     throw new ToolError("Nothing to update: pass title, icon, properties or content");
   }
-  const page = await loadWritablePage(ctx, input.pageId);
+  const page = await loadWritablePage(ctx, input.pageId, { allowSchedulerRows: true });
   if (page.fullPageDatabaseId) {
     if (input.content) throw new ToolError("This page is a full-page database home; its body is the database view (edit rows or columns instead)");
     // 앱 규약: 홈 제목 = DB 제목(setDatabaseTitle 이 홈을 함께 바꾼다) → 제목 변경은 DB 이름 변경으로 처리.

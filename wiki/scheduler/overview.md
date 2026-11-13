@@ -83,3 +83,7 @@ list 계열(조회)은 이 래퍼를 거치지 않는다.
 → `memberStore.members`(스케줄러 워크스페이스 멤버)에서 **이메일**로 나를 찾아 `myMemberId`를 확정한 뒤 사용한다. (memberId 직접 일치 우선 → 이메일 일치 fallback). 식별 불가 시 버튼 숨김.
 
 같은 이유로 `WeeklyMmPanel.tsx`의 `selectedMemberId === me.memberId` 비교도 cross-workspace 환경에선 신뢰할 수 없다.
+
+## MCP(외부 AI) 연동
+
+일정·프로젝트·공휴일·MM 을 MCP 스케줄러 툴로 쓴다 — 상세는 `wiki/settings/mcp.md` "스케줄러 툴". 작업 DB 컬럼 id·근태 옵션·프리셋 기본값·카드 id 규칙은 클라·람다 공용 순수 모듈 `src/lib/scheduler/schedulerSchema.ts` 에 있고(`database.ts`·`taskAdapter.ts` 가 re-export), `autoStatus.ts`·`taskMeta.ts`·`colors.ts` 도 람다가 직접 import 한다. **이 파일들에 스토어·브라우저 의존 import 금지**(람다 번들·infra tsc 파손). 생성·수정 규칙(프리셋·근태·색·auto-status)을 바꾸면 `infra/lambda/mcp-server/tools/scheduler/scheduleCells.ts` 도 함께 맞춘다.

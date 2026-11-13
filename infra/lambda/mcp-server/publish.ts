@@ -14,11 +14,11 @@ const COMMENT_FIELDS = "id workspaceId pageId blockId authorMemberId bodyText me
 const PUBLISH_PAGE = `mutation PublishPageChanged($input: PageInput!, $deletedAt: AWSDateTime) {
   publishPageChanged(input: $input, deletedAt: $deletedAt) { ${PAGE_FIELDS} }
 }`;
-const PUBLISH_DATABASE = `mutation PublishDatabaseChanged($input: DatabaseInput!) {
-  publishDatabaseChanged(input: $input) { ${DATABASE_FIELDS} }
+const PUBLISH_DATABASE = `mutation PublishDatabaseChanged($input: DatabaseInput!, $deletedAt: AWSDateTime) {
+  publishDatabaseChanged(input: $input, deletedAt: $deletedAt) { ${DATABASE_FIELDS} }
 }`;
-const PUBLISH_COMMENT = `mutation PublishCommentChanged($input: CommentInput!) {
-  publishCommentChanged(input: $input) { ${COMMENT_FIELDS} }
+const PUBLISH_COMMENT = `mutation PublishCommentChanged($input: CommentInput!, $deletedAt: AWSDateTime) {
+  publishCommentChanged(input: $input, deletedAt: $deletedAt) { ${COMMENT_FIELDS} }
 }`;
 
 function json(value: unknown): string | null {
@@ -61,11 +61,15 @@ export function toPublishDatabaseInput(db: Item): Item {
   };
 }
 
-export function publishDatabase(db: Item): Promise<boolean> {
-  return attempt("Database", db.id, () => postAppSyncIam(PUBLISH_DATABASE, { input: toPublishDatabaseInput(db) }));
+/** deletedAt 을 주면 구독 클라가 DB 삭제(휴지통)로 처리해 목록·번들에서 제거한다(페이지 tombstone 과 같은 규약). */
+export function publishDatabase(db: Item, opts: { deletedAt?: string } = {}): Promise<boolean> {
+  return attempt("Database", db.id, () =>
+    postAppSyncIam(PUBLISH_DATABASE, { input: toPublishDatabaseInput(db), deletedAt: opts.deletedAt ?? null }),
+  );
 }
 
-export function publishComment(comment: Item): Promise<boolean> {
+/** deletedAt 을 주면 구독 클라가 댓글 삭제로 처리한다(softDeleteComment 구독 payload 와 같은 의미). */
+export function publishComment(comment: Item, opts: { deletedAt?: string } = {}): Promise<boolean> {
   const input = {
     id: comment.id,
     workspaceId: comment.workspaceId,
@@ -79,5 +83,5 @@ export function publishComment(comment: Item): Promise<boolean> {
     createdAt: comment.createdAt,
     updatedAt: comment.updatedAt,
   };
-  return attempt("Comment", comment.id, () => postAppSyncIam(PUBLISH_COMMENT, { input }));
+  return attempt("Comment", comment.id, () => postAppSyncIam(PUBLISH_COMMENT, { input, deletedAt: opts.deletedAt ?? null }));
 }

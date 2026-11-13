@@ -61,7 +61,7 @@ async function resolveTarget(ctx: McpContext, parent: CreatePagesInput["parent"]
     return { workspaceId: String(page.workspaceId), parentId: String(page.id), db: null };
   }
   if ("databaseId" in parent) {
-    const db = await loadWritableDatabase(ctx, parent.databaseId);
+    const db = await loadWritableDatabase(ctx, parent.databaseId, { allowSchedulerRows: true });
     return { workspaceId: String(db.workspaceId), parentId: null, db };
   }
   await requireWritableWorkspace(ctx, parent.workspaceId);

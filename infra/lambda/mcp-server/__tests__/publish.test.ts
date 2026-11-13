@@ -37,6 +37,12 @@ describe("publish*Changed", () => {
     expect((posted[0].variables.input as Record<string, unknown>).columns).toBe('[{"id":"c"}]');
     expect((posted[1].variables.input as Record<string, unknown>).mentionMemberIds).toBe("[]");
   });
+
+  it("DB 삭제는 deletedAt 인자로 tombstone 발행", async () => {
+    await publishDatabase({ id: "d", workspaceId: "w", title: "T", columns: "[]", createdAt: "c", updatedAt: "u" }, { deletedAt: "2026-10-03T00:00:00.000Z" });
+    expect(posted[0].query).toContain("publishDatabaseChanged(input: $input, deletedAt: $deletedAt)");
+    expect(posted[0].variables.deletedAt).toBe("2026-10-03T00:00:00.000Z");
+  });
 });
 
 describe("v5 publishOnlyResult(IAM echo)", () => {
@@ -44,7 +50,9 @@ describe("v5 publishOnlyResult(IAM echo)", () => {
     expect(publishOnlyResult("publishPageChanged", { input: { id: "p" }, deletedAt: "d" })).toEqual({ id: "p", deletedAt: "d" });
     expect(publishOnlyResult("publishPageChanged", { input: { id: "p" } })).toEqual({ id: "p" });
     expect(publishOnlyResult("publishDatabaseChanged", { input: { id: "d" } })).toEqual({ id: "d", deletedAt: null });
+    expect(publishOnlyResult("publishDatabaseChanged", { input: { id: "d" }, deletedAt: "x" })).toEqual({ id: "d", deletedAt: "x" });
     expect(publishOnlyResult("publishCommentChanged", { input: { id: "c", importedAuthorMemberId: "x" } })).toEqual({ id: "c", deletedAt: null });
+    expect(publishOnlyResult("publishCommentChanged", { input: { id: "c" }, deletedAt: "x" })).toEqual({ id: "c", deletedAt: "x" });
     expect(publishOnlyResult("upsertPage", { input: { id: "p" } })).toBeNull();
   });
 });

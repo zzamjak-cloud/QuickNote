@@ -856,10 +856,10 @@ type Mutation {
   unpublishPage(pageId: ID!): PagePublishStatus!
   """IAM 전용(서버 Lambda) — 저장 없이 onPageChanged 를 발행한다. deletedAt 을 주면 구독 클라가 tombstone 으로 처리."""
   publishPageChanged(input: PageInput!, deletedAt: AWSDateTime): Page! @aws_iam
-  """IAM 전용(서버 Lambda) — 저장 없이 onDatabaseChanged 를 발행한다."""
-  publishDatabaseChanged(input: DatabaseInput!): Database! @aws_iam
-  """IAM 전용(서버 Lambda) — 저장 없이 onCommentChanged 를 발행한다."""
-  publishCommentChanged(input: CommentInput!): Comment! @aws_iam
+  """IAM 전용(서버 Lambda) — 저장 없이 onDatabaseChanged 를 발행한다. deletedAt 을 주면 구독 클라가 DB 삭제로 처리."""
+  publishDatabaseChanged(input: DatabaseInput!, deletedAt: AWSDateTime): Database! @aws_iam
+  """IAM 전용(서버 Lambda) — 저장 없이 onCommentChanged 를 발행한다. deletedAt 을 주면 구독 클라가 댓글 삭제로 처리."""
+  publishCommentChanged(input: CommentInput!, deletedAt: AWSDateTime): Comment! @aws_iam
   softDeletePage(id: ID!, workspaceId: ID!, updatedAt: AWSDateTime!, title: String, icon: String, databaseId: ID): Page!
   """휴지통 페이지 복원(deletedAt 제거)"""
   restorePage(id: ID!, workspaceId: ID!): Page!

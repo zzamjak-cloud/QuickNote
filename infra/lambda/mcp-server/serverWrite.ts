@@ -99,7 +99,7 @@ export function registerWriteTools(server: McpServer, ctx: McpContext): void {
     "trash_page",
     {
       description:
-        "Move a page and its child pages to the trash (restorable in QuickNote for 30 days). Permanent deletion is not available. " +
+        "Move a page and its child pages to the trash (restorable with restore_page for 30 days; permanently_delete_page needs explicit confirm). " +
         WRITE_NOTE,
       inputSchema: trashPageInputShape,
       annotations: DESTRUCTIVE,
@@ -111,7 +111,7 @@ export function registerWriteTools(server: McpServer, ctx: McpContext): void {
   server.registerTool(
     "create_comment",
     {
-      description: `Add a comment to a page block (defaults to the first block). ${WRITE_NOTE}`,
+      description: `Add a comment to a page block (defaults to the first block), or reply to a comment thread with parentId. ${WRITE_NOTE}`,
       inputSchema: createCommentInputShape,
       annotations: WRITE,
     },

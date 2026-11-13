@@ -4,7 +4,7 @@
 import { QueryCommand } from "@aws-sdk/lib-dynamodb";
 import type { APIGatewayProxyEventV2 } from "aws-lambda";
 import { MCP_TOKEN_SCOPES, type McpTokenScope } from "../../_shared/mcpToken";
-import { LC_SCHEDULER_WORKSPACE_ID, type Member } from "../../v5-resolvers/handlers/_auth";
+import type { Member } from "../../v5-resolvers/handlers/_auth";
 import { listMyWorkspaces } from "../../v5-resolvers/handlers/workspace";
 import { cognitoAuthorizeUrl } from "./cognito";
 import { originOf, resourceUrl } from "./config";
@@ -159,13 +159,14 @@ async function findMemberBySub(deps: OAuthDeps, sub: string): Promise<Member | n
 }
 
 /**
- * 동의 화면 워크스페이스 — MCP access.ts 와 같은 기준(스케줄러 가상 WS·삭제 WS·타인 개인 WS·MCP 정책 disabled 제외).
+ * 동의 화면 워크스페이스 — MCP access.ts 와 같은 기준(삭제 WS·타인 개인 WS·MCP 정책 disabled 제외).
+ * 스케줄러 WS 는 전용 스케줄러 툴(serverScheduler.ts) 대상이라 선택할 수 있다.
  * 정책 read 인 곳은 "읽기 전용" 표시.
  */
 async function consentWorkspaces(deps: OAuthDeps, caller: Member): Promise<{ id: string; name: string; readOnly: boolean }[]> {
   const all = await listMyWorkspaces({ doc: deps.doc, tables: deps.tables, caller });
   return all
-    .filter((w) => !w.removedAt && w.workspaceId !== LC_SCHEDULER_WORKSPACE_ID && w.mcpPolicy !== "disabled")
+    .filter((w) => !w.removedAt && w.mcpPolicy !== "disabled")
     .filter((w) => w.type !== "personal" || w.workspaceId === caller.personalWorkspaceId)
     .map((w) => ({ id: w.workspaceId, name: w.name, readOnly: w.mcpPolicy === "read" }));
 }

@@ -124,7 +124,7 @@ describe("McpSettingsTab", () => {
 
     fireEvent.change(screen.getByPlaceholderText(/내 노트북/), { target: { value: "쓰기 토큰" } });
     fireEvent.click(screen.getByRole("radio", { name: "읽기+쓰기" }));
-    expect(screen.getByRole("note").textContent).toMatch(/휴지통.*영구 삭제는 할 수 없고.*버전 히스토리/s);
+    expect(screen.getByRole("note").textContent).toMatch(/휴지통.*영구 삭제는.*명시적 확인.*버전 히스토리/s);
     fireEvent.click(screen.getByRole("button", { name: "토큰 발급" }));
 
     await screen.findByLabelText("발급된 토큰", { selector: "input" });

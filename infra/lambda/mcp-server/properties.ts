@@ -8,6 +8,8 @@ export type ColumnLite = {
   name: string;
   type: string;
   options: { id: string; label: string }[];
+  /** 옵션을 앱이 다른 원천(조직·팀·프로젝트 스토어, 다른 DB)에서 채우는 select — 저장된 옵션이 없을 수 있어 원시 id 를 받는다. */
+  linkedOptions?: boolean;
 };
 
 function parseJson(value: unknown): unknown {
@@ -34,6 +36,7 @@ export function parseColumns(raw: unknown): ColumnLite[] {
         options: options
           .filter((o) => o && !o.divider && typeof o.id === "string")
           .map((o) => ({ id: String(o.id), label: String(o.label ?? o.id) })),
+        ...(config.linkedScope || config.sourceFromDb ? { linkedOptions: true } : {}),
       };
     })
     .filter((c) => c.id !== "");

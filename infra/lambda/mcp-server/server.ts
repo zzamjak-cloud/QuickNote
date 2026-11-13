@@ -2,6 +2,10 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { QFM_SYNTAX_GUIDE } from "../../../src/lib/docModel/markdown";
 import type { McpContext } from "./context";
+import { registerAdminTools } from "./serverAdmin";
+import { registerContentTools } from "./serverContent";
+import { registerHistoryTools } from "./serverHistory";
+import { registerSchedulerTools } from "./serverScheduler";
 import { registerWriteTools } from "./serverWrite";
 import { runTool } from "./toolRunner";
 import { getCommentsInputShape, getCommentsTool } from "./tools/comments";
@@ -84,5 +88,9 @@ export function buildMcpServer(ctx: McpContext): McpServer {
   );
 
   registerWriteTools(server, ctx);
+  registerHistoryTools(server, ctx);
+  registerSchedulerTools(server, ctx);
+  registerAdminTools(server, ctx);
+  registerContentTools(server, ctx);
   return server;
 }

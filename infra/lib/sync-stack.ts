@@ -1241,6 +1241,21 @@ export function response(ctx) {
         SCHEDULES_TABLE_NAME: schedulesTable.tableName,
         DATABASE_ROW_MEMBERS_TABLE_NAME: databaseRowMembersTable.tableName,
         NOTIFICATIONS_TABLE_NAME: notificationTable.tableName,
+        // 스케줄러 툴: 프로젝트·공휴일·주간 MM(v5 핸들러 재사용).
+        PROJECTS_TABLE_NAME: projectsTable.tableName,
+        HOLIDAYS_TABLE_NAME: holidaysTable.tableName,
+        MM_ENTRIES_TABLE_NAME: mmEntriesTable.tableName,
+        // 관리 툴: 워크스페이스 커스텀 아이콘(v5 customIcon 핸들러 재사용).
+        CUSTOM_ICONS_TABLE_NAME: customIconsTable.tableName,
+        // 콘텐츠 툴: 웹 게시(공개 스냅샷)·플로우차트·이미지 업로드(v5 핸들러 재사용).
+        PUBLISHED_PAGES_TABLE_NAME: publishedPagesTable.tableName,
+        SHARED_BLOCKS_TABLE_NAME: this.sharedBlockTable.table.tableName,
+        FLOWCHARTS_TABLE_NAME: this.flowchartTable.table.tableName,
+        FLOWCHART_HISTORY_TABLE_NAME: flowchartHistoryTable.tableName,
+        IMAGES_BUCKET_NAME: imagesBucket.bucketName,
+        // 공개 URL(/p/<token>) origin — 게시 토큰은 이 환경 DDB 에만 있으므로 환경별 웹 origin 을 쓴다.
+        // 값은 cdk.json context(운영 publicWebOrigin·dev publicWebOriginDev), `-c <키>=...` 로 덮어쓸 수 있다.
+        PUBLIC_WEB_ORIGIN: String(this.node.tryGetContext(envPrefix ? "publicWebOriginDev" : "publicWebOrigin") ?? ""),
         APPSYNC_GRAPHQL_URL: api.graphqlUrl,
         // realtime/yjsStore·connections 가 모듈 로드 시 읽는 env 이름 그대로.
         YDOC_TABLE: rtYdocTableName,
@@ -1260,10 +1275,46 @@ export function response(ctx) {
       },
     });
     this.membersTable.grantReadData(mcpServerFn);
+    // 관리 툴 즐겨찾기(updateMyClientPrefs): 멤버 행은 clientPrefs 속성만 갱신할 수 있다.
+    mcpServerFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["dynamodb:UpdateItem"],
+        resources: [this.membersTable.tableArn],
+        conditions: { "ForAllValues:StringEquals": { "dynamodb:Attributes": ["memberId", "clientPrefs"] } },
+      }),
+    );
     this.teamsTable.grantReadData(mcpServerFn);
     this.memberTeamsTable.grantReadData(mcpServerFn);
+    // 관리 툴 create_workspace·update_workspace(v5 workspace 핸들러): 읽기 + 행 생성·이름/옵션 수정만.
+    // 삭제·BatchWrite 는 주지 않고, mcpPolicy 등 다른 속성은 쓸 수 없게 속성 조건으로 막는다.
     this.workspacesTable.grantReadData(mcpServerFn);
     this.workspaceAccessTable.grantReadData(mcpServerFn);
+    mcpServerFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["dynamodb:PutItem"],
+        resources: [this.workspacesTable.tableArn],
+        conditions: {
+          "ForAllValues:StringEquals": { "dynamodb:Attributes": ["workspaceId", "name", "type", "ownerMemberId", "createdAt"] },
+        },
+      }),
+    );
+    mcpServerFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["dynamodb:UpdateItem"],
+        resources: [this.workspacesTable.tableArn],
+        conditions: {
+          "ForAllValues:StringEquals": { "dynamodb:Attributes": ["workspaceId", "name", "jobFunctions", "jobTitles"] },
+          StringEqualsIfExists: { "dynamodb:ReturnValues": ["NONE", "UPDATED_OLD", "UPDATED_NEW"] },
+        },
+      }),
+    );
+    mcpServerFn.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["dynamodb:PutItem"],
+        resources: [this.workspaceAccessTable.tableArn],
+      }),
+    );
+    customIconsTable.grantReadWriteData(mcpServerFn);
     // 쓰기 툴: Pages·Comments 쓰기 + upsertPage/softDeletePage/upsertComment 부수 효과 테이블.
     this.pageTable.table.grantReadWriteData(mcpServerFn);
     // P3: DB 생성·구조 변경(upsertDatabase)과 DB 버전 히스토리.
@@ -1276,6 +1327,16 @@ export function response(ctx) {
     schedulesTable.grantReadWriteData(mcpServerFn);
     databaseRowMembersTable.grantReadWriteData(mcpServerFn);
     notificationTable.grantReadWriteData(mcpServerFn);
+    projectsTable.grantReadWriteData(mcpServerFn);
+    holidaysTable.grantReadWriteData(mcpServerFn);
+    mmEntriesTable.grantReadWriteData(mcpServerFn);
+    // 콘텐츠 툴: 게시 토큰·공개 스냅샷(public-snapshots/ PUT, 공유 블록 읽기)·플로우차트·이미지 업로드(users/ PUT).
+    publishedPagesTable.grantReadWriteData(mcpServerFn);
+    this.sharedBlockTable.table.grantReadData(mcpServerFn);
+    this.flowchartTable.table.grantReadWriteData(mcpServerFn);
+    flowchartHistoryTable.grantReadWriteData(mcpServerFn);
+    imagesBucket.grantPut(mcpServerFn, "users/*");
+    imagesBucket.grantPut(mcpServerFn, "public-snapshots/*");
     mcpServerFn.addToRolePolicy(
       new iam.PolicyStatement({
         actions: ["appsync:GraphQL"],

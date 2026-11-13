@@ -64,8 +64,8 @@ OAuth 를 지원하지 않는 클라이언트(Cursor 등)·자동화용. 기본 
 | `createMcpToken(input: {name, scopes, workspaceIds, expiresInDays})` | 발급. 응답 `token` 에만 원문 포함 |
 | `revokeMcpToken(tokenId)` | 즉시 무효화. 갱신된 메타 반환 → 목록에 "폐기됨" 표시 |
 
-- `workspaceIds: []` = 접근 가능한 전체 워크스페이스. 스케줄러 가상 WS·삭제된 WS 는 선택지에서 제외.
-- `scopes`: "읽기" = `["read"]`, "읽기+쓰기" = `["read","write"]`. 쓰기를 고르면 폼에 경고(편집·휴지통 이동 가능, 영구삭제 불가, 본문 교체 전 버전 저장)를 띄운다.
+- `workspaceIds: []` = 접근 가능한 전체 워크스페이스. 삭제된 WS·MCP 정책 disabled WS 는 선택지에서 제외. 스케줄러 WS 는 선택 가능(PAT 발급 폼·OAuth 동의 화면 모두) — 전용 스케줄러 툴 대상.
+- `scopes`: "읽기" = `["read"]`, "읽기+쓰기" = `["read","write"]`. 쓰기를 고르면 폼에 경고(편집·휴지통 이동 가능, 영구삭제는 confirm 필수, 본문 교체·버전 복원 전 버전 저장)를 띄운다.
 - `expiresInDays`: 30/90(기본)/365, 무기한은 `null`.
 
 ## 관리자 토큰 관리 (MCP 관리자 = developer·owner)
@@ -142,8 +142,32 @@ rank 는 `_auth.ts` `ROLE_RANK`(developer 5 > owner 4 > leader 3 > manager 2 > m
 | `update_page` | `pageId, title?, icon?(null=제거), properties?, content?: {mode, markdown, anchor?, rangeStart?, rangeEnd?, occurrence?}` | mode = `replace`·`append`·`insert_after`(최상위 블록 텍스트 일치)·`replace_range`(텍스트 접두) |
 | `move_pages` | `pageIds[1..20], newParent: {pageId}\|{workspaceId}` | 같은 워크스페이스만, 순환·DB 행 거부 |
 | `duplicate_page` | `pageId, includeChildren?: false` | 앱과 같게 자신만 복제, `"{title} (Copy)"`, 원본 다음 순서 |
-| `trash_page` | `pageId` | 자손 포함 soft delete(휴지통 30일) + tombstone 발행. DB 행은 DB 룸 rows·rowMembers·rowPageOrder 에서도 제거. **영구삭제 툴 없음** |
-| `create_comment` | `pageId, text, blockId?` | 기본은 첫 블록. v5 `upsertComment` 경로 + `publishCommentChanged` |
+| `trash_page` | `pageId` | 자손 포함 soft delete(휴지통 30일) + tombstone 발행. DB 행은 DB 룸 rows·rowMembers·rowPageOrder 에서도 제거. 복원·영구삭제는 아래 히스토리·휴지통 툴 |
+| `create_comment` | `pageId, text, blockId?, parentId?` | 기본은 첫 블록. `parentId` = 답글(같은 페이지의 살아 있는 댓글, 답글의 답글은 스레드 루트로 정규화, 앵커는 부모 blockId). v5 `upsertComment` 경로 + `publishCommentChanged` |
+
+## 히스토리·휴지통 툴 (`infra/lambda/mcp-server/serverHistory.ts`, 구현 `tools/history/`)
+
+| 툴 | 입력 | 동작 |
+|------|------|------|
+| `list_page_history` (읽기) | `pageId, limit 1..100` | v5 `listPageHistory`. 최신순 요약(historyId·kind·시각·편집자·제목, 스냅샷 본문 제외). 휴지통 페이지 허용 |
+| `save_page_version` | `pageId` | 현재 **협업 룸 본문**으로 `page.checkpoint` 강제 기록(`recordBodyCheckpoint`, epoch 가드). 풀페이지 홈은 v5 `savePageVersion`. 휴지통 거부 |
+| `restore_page_version` | `pageId, historyId` | ① 엔트리 존재·WS 일치 확인(페이지가 TTL 로 사라졌어도 엔트리 WS 로 인가) ② 빈 본문 버전은 거부 ③ 현재 룸 본문 체크포인트 ④ v5 `restorePageVersion` ⑤ `publishPageChanged` ⑥ 복원 본문을 `writePageBody` replace 로 룸에 반영(update_page 와 같은 경로 — 브로드캐스트·materialize) ⑦ DB 행이면 DB 룸 셀을 그 시점과 **정확히** 맞추고 멤버십 복귀(`restoreDbRow exact`, 클라 `restoreRowCellsToCollabDoc` 와 같은 결과). 휴지통·삭제 행도 되살린다 |
+| `list_database_history` (읽기) | `databaseId, limit` | v5 `listDatabaseHistory`. 컬럼·행 수 요약 |
+| `restore_database_version` | `databaseId, historyId` | 현재(룸) 구조 `database.checkpoint` → v5 `restoreDatabaseVersion` → 시드된 DB 룸 columns·presets·panelState 를 복원본으로 **제자리 교체**(안 하면 룸 materialize 가 옛 구조로 되돌림) → `publishDatabaseChanged` → 이름이 바뀌면 풀페이지 홈 제목 동기화. 삭제 행은 복구하지 않는다(서버 정책 동일) |
+| `list_database_row_history` (읽기) | `databaseId, limit, cursor?` | v5 `listDatabaseRowHistory`(GSI). 삭제 행 포함(`rowDeleted`) |
+| `list_trash` (읽기) | `workspaceId, kind?: all\|pages\|databases, limit 1..50, pagesCursor?, databasesCursor?` | v5 `listTrashedPages`·`listTrashedDatabases`. `daysUntilPurge`(30일 보관) |
+| `restore_page` | `pageId, includeChildren?: true` | v5 `restorePage`(purgeAt 제거) + 발행. 같은 작업으로 함께 버린(삭제 시각 ±10분) 자손도 복원. DB 행은 DB 룸 멤버십 복귀 — 룸에 행 엔트리가 남아 있으면 셀은 룸 유지, 없으면 `Pages.dbCells` 로 채움(`restoreDbRow`) |
+| `restore_database` | `databaseId, includePages?: true` | v5 `restoreDatabase` + 발행. 함께 버린(±10분) 행·풀페이지 홈도 `restore_page` 와 같은 경로로 복원 |
+| `trash_database` | `databaseId` | 앱 `deleteDatabase` 와 같은 범위: 행 페이지(`byDatabaseAndOrder` GSI 로 빠짐없이 조회 — 워크스페이스 메타 스캔은 5000 에서 잘림)·풀페이지 홈 `softDeletePage` → v5 `softDeleteDatabase`, 각각 tombstone 발행(DB 는 `publishDatabaseChanged(deletedAt)`). 행 500개 초과 거부, 메타 스캔이 잘렸는데 홈을 못 찾으면 거부(홈 고아 방지). DB 룸은 그대로 둔다(복원 시 멤버십 유지). 스케줄러·마일스톤·피처 DB 거부 |
+| `permanently_delete_page` | `pageId, confirm` | **confirm: true 필수**·휴지통 페이지만. v5 `permanentlyDeletePage`(댓글·AssetUsage 정리). 자손은 휴지통에 남는다 |
+| `permanently_delete_database` | `databaseId, confirm` | **confirm 필수**·휴지통 DB 만. v5 `permanentlyDeleteDatabase`(행·행 댓글·DB 히스토리 삭제, 스케줄러 DB resolver 거부 유지) |
+| `empty_trash` | `workspaceId, confirm` | **confirm 필수**. v5 `emptyTrash` — 그 WS 의 휴지통 페이지 전부 영구삭제(휴지통 DB 는 남김) |
+
+- 인가: 읽기 = `requireWorkspace`(토큰 범위·MCP 정책 disabled·타인 개인 WS), 쓰기 = `requireWritableWorkspace`(write scope·정책 read 거부·edit) — 휴지통 상태 대상도 같은 검사(`tools/history/shared.ts`). 스케줄러 가상 WS 쓰기 금지.
+- 영구삭제는 `destructiveHint` + 설명에 "IRREVERSIBLE … ask the user"; `confirm` 이 `true` 가 아니면 쓰기 전에 거부. 휴지통 밖 대상은 resolver 보다 먼저 거부(페이지 resolver 와 같은 규칙을 DB 에도 적용).
+- 버전 복원은 본문 권위가 Y 룸이라 **Pages 만 바꾸면 열린 클라 8초 materialize·다음 진입 룸 로드로 복원이 사라진다** — 반드시 룸 replace 까지 수행한다. 룸이 비어 있으면 룸은 건드리지 않고(첫 진입이 복원된 Pages.doc 으로 시드) `liveBody: "unchanged"`.
+- epoch 가드 대상: restore_page_version, save_page_version(일반 페이지), restore_database_version, DB 행이 포함된 restore_page·restore_database.
+- `publishDatabaseChanged` 에 `deletedAt` 인자 추가(스키마·`publishOnlyResult` echo) — 페이지 tombstone 과 같은 규약. **AppSync 스키마 배포 필요**.
 
 ## DB 툴 (P3)
 
@@ -162,23 +186,23 @@ rank 는 `_auth.ts` `ROLE_RANK`(developer 5 > owner 4 > leader 3 > manager 2 > m
 - 행 스캔(`dbRows.loadDatabaseRows`)은 `listDatabaseRows(projection)` 로 메타·dbCells·scope 키만 읽고(본문 doc 제외), 1000행당 분당 rate limit 1 unit 을 추가 차감한다. 컬럼 삭제 체크포인트의 행 순서는 상한 없이 끝까지 읽는다.
 - `upsertDatabase` 는 updatedAt LWW 라 서버 쓰기는 기존 updatedAt 보다 최소 1ms 뒤 시각을 쓴다(`nextUpdatedAt`).
 - **빈 DB 룸 시드(dbSeed) 는 바꾸지 않았다**: `rowPageOrder` 가 Database 레코드에 없어 시드는 빈 멤버십이고, 클라는 멤버가 비면 자기 행 순서로 폴백한다. 서버가 GSI 로 멤버를 채우면 부분 로드 클라(행 인덱스 캐시·scope 로드·1000행 상한)의 reconcile 이 미보유 멤버를 "삭제"로 판정할 위험이 있어 보류. 빈 멤버 룸에서는 MCP 가 멤버에 추가하지 않고 순서에만 넣는다.
-- **전파**: IAM 전용 `publishPageChanged(input, deletedAt?)`·`publishDatabaseChanged`·`publishCommentChanged`(저장 없음·입력 echo, v5 `publishOnlyResult`). 클라 구독·zod 스키마 그대로 소비(클라 변경 없음) — 휴지통은 tombstone 으로 즉시 제거된다. 페이지 발행은 메타만 싣는다(본문·셀 placeholder).
+- **전파**: IAM 전용 `publishPageChanged(input, deletedAt?)`·`publishDatabaseChanged(input, deletedAt?)`·`publishCommentChanged`(저장 없음·입력 echo, v5 `publishOnlyResult`). 클라 구독·zod 스키마 그대로 소비(클라 변경 없음) — 휴지통은 tombstone 으로 즉시 제거된다. 페이지 발행은 메타만 싣는다(본문·셀 placeholder).
 
 ### 쓰기 안전 규칙 (회귀 금지)
 
-- **인가**: 토큰 `write` scope ∩ 토큰 `workspaceIds` ∩ 멤버 **edit** 권한 ∩ 타인 개인 WS 차단(`writeAccess.ts`). 스케줄러 가상 WS 쓰기 금지. read 토큰은 `token lacks write scope` 툴 오류.
+- **인가**: 토큰 `write` scope ∩ 토큰 `workspaceIds` ∩ 멤버 **edit** 권한 ∩ 타인 개인 WS 차단(`writeAccess.ts`). 스케줄러 WS 는 범용 쓰기 금지 — 예외는 마일스톤·피처 DB 행의 `create_pages`·`update_page`·`trash_page`(`allowSchedulerRows`)와 전용 스케줄러 툴(아래 절). read 토큰은 `token lacks write scope` 툴 오류.
 - **본문은 Yjs 룸 경로만**(`collabWriter.ts`): 룸 로드 → update(append) → 룸 연결 브로드캐스트 → 병합 상태를 `upsertPage` 로 materialize(+`publishPageChanged`). `Pages.doc` 직접 기록은 열린 클라가 덮어쓴다.
   - 빈 룸: 서버 `Pages.doc` 을 `seedDocJson`(결정적 시드), placeholder/신규면 `allowEmptyRoom`.
   - 룸이 빈 문단뿐인데 `Pages.doc` 에 본문 → `Pages.doc` 기준 전체 교체로 룸 복구(삽입만 하면 기존 본문이 가려짐).
   - 결과 본문 350KB 초과·본문 전체 비우기(placeholder 가드가 옛 본문을 되살려 룸과 어긋남)는 룸에 쓰기 전에 거부. QFM 입력 512KB 초과는 `INPUT_TOO_LARGE`.
 - **QFM 규약**(Plan §10.1): replace 는 현재 본문 `collectBlockRefs` 로만 해석, replace_range 는 교체 구간 블록만, append/insert_after 는 기존 `qn-block` 참조 불가. 결과 문서의 `<database id>` 중복 거부, 새 database 블록은 같은 WS 의 살아 있는 DB 만.
 - **epoch 가드**(`epochGuard.ts`): rt-ydoc-updates·rt-ydoc(TTL 없음 — 옛 세대 룸 영구 잔존)·rt-connections(TTL, 활성 신호)를 Limit 100·키 projection 으로 Scan(컨테이너 캐시 10분). 거부(`EPOCH_MISMATCH`): (a) 관측 최대 epoch 이 서버 epoch 보다 큼(클라만 bump), (b) 활성 연결이 있는데 서버 epoch 연결이 없음. 그 외·빈 표본은 허용, 조회 실패는 거부. "서버 epoch 이 관측되는가" 판정은 옛 룸 잔재로 통과하므로 쓰지 않는다. 대상: update_page content/properties, DB 행 create, duplicate. 메타(제목·아이콘·move·trash·comment)·읽기는 대상 아님.
-- **일일 쓰기 상한**: 토큰별 UTC 하루 **쓰는 페이지·컬럼 수** 500(env `MCP_DAILY_WRITE_LIMIT`; create_pages·move_pages N, create_database 1+컬럼 수, update_database 변경 수, 나머지 1). ai-usage 원자 카운터 `pk=mcp-wd#<tokenId>#<YYYY-MM-DD>`, TTL 2일. 초과 시 다음 UTC 자정을 담은 툴 오류. read 토큰 호출은 카운트하지 않는다.
+- **일일 쓰기 상한**: 토큰별 UTC 하루 **쓰는 페이지·컬럼 수** 500(env `MCP_DAILY_WRITE_LIMIT`; create_pages·move_pages N, create_database 1+컬럼 수, update_database 변경 수, 나머지 1). 히스토리 일괄 툴은 인가·confirm 확인 **뒤** 영향 페이지 수만큼 툴 안에서 소비: restore_page 1+함께 복원되는 하위, restore_database·trash_database 1(DB)+행·홈, permanently_delete_database 1+행, empty_trash 휴지통 페이지 수(먼저 세고 남은 한도 초과면 아무것도 지우지 않고 거부), permanently_delete_page 1. ai-usage 원자 카운터 `pk=mcp-wd#<tokenId>#<YYYY-MM-DD>`, TTL 2일. 초과 시 다음 UTC 자정을 담은 툴 오류. read 토큰 호출은 카운트하지 않는다.
 - **히스토리**: `replace`·`replace_range` 는 쓰기 전에 현재 협업 본문으로 `page.checkpoint` 버전을 강제 기록(`recordPageHistory force`).
 - **DB 행 셀**: DB 룸(`db:<epoch>:<dbId>`)이 시드돼 있으면 `rows` 맵에도 기록(클라 `writeCellsToCollabDoc` 와 같은 구조) 후 `Pages.dbCells` 저장. 빈 룸이면 `Pages.dbCells` 만(첫 진입 `dbSeed` 가 시드). 신규 행은 같은 트랜잭션에서 `rowPageOrder` 끝·`rowMembers`(비어 있지 않을 때만 — 빈 멤버에 새 행만 넣으면 기존 행이 전부 숨는다)에 중복 없이 추가.
 - **부분 갱신**: 기존 페이지 저장은 저장 직전 최신 항목을 다시 읽어 툴이 바꾼 필드만 덮고(`patchPage`), `upsertPage(expectedUpdatedAt)` 로 updatedAt 조건부 Put — 충돌 시 1회 재시도 후 오류. 셀은 최신 dbCells 에 병합.
 - **입력 형식**: 신규 본문(create·duplicate)도 350KB 상한을 쓰기 전에 전부 검사. `icon` 은 이모지·`quicknote-lucide:<Name>:<hex>`·`quicknote-image://<id>` 만(임의 URL 거부). person 셀은 대상 워크스페이스 접근 멤버만이며 없음·권한 없음은 같은 오류.
-- **미지원**: DB 행 이동, 풀페이지 DB 홈 본문 수정·휴지통(DB 삭제는 앱에서).
+- **미지원**: DB 행 이동, 풀페이지 DB 홈 본문 수정·홈 단독 휴지통(DB 삭제는 `trash_database`).
 - **감사**: 툴마다 `{evt:"mcp.tool", tool, tokenId, memberId, ids(pageIds·mode·bytes), ms, ok}` 한 줄. 페이지에는 `lastEditedBy*`(토큰 소유 멤버)·`lastEditSource:"mcp"`.
 
 ### WS 브로드캐스트 배선 (스택 간)
@@ -187,6 +211,78 @@ RealtimeCollabStack 이 SyncStack 을 이미 참조하므로 역참조는 순환
 - SyncStack: `McpServerFn` 역할 이름 고정(`{envPrefix}quicknote-mcp-server`), rt-* 테이블 권한은 이름 규칙 ARN, env `COLLAB_WS_ENDPOINT_PARAM`.
 - RealtimeCollabStack: SSM `/{envPrefix}quicknote/collab-ws-management-endpoint`(= `stage.callbackUrl`) 게시 + 그 역할에 `execute-api:ManageConnections`(해당 API/stage)·`ssm:GetParameter` 정책 부착.
 - 배포 순서: **Sync → Realtime**(역할을 Sync 가 만들고 Realtime 이 `Role.fromRoleName` 으로 정책을 붙인다). `fromRoleName` 은 CFN 의존이 없어 역할 이름 변경·Realtime 단독 배포 시 결합이 조용히 끊길 수 있다 — `infra/deploy.md` STEP 3 참고. 엔드포인트를 못 읽으면 브로드캐스트만 생략(룸에는 저장 — 열린 클라는 재연결 hello 때 받음).
+
+## 스케줄러 툴 (`infra/lambda/mcp-server/serverScheduler.ts`, 구현 `tools/scheduler/`)
+
+토큰 범위에 스케줄러 WS(`lc-scheduler-global`)가 있어야 한다(빈 범위 = 전체). 읽기 = `requireWorkspace`, 쓰기 = `requireSchedulerWrite`(write scope·MCP 정책 read 거부, 멤버는 전원 edit) + 범용 쓰기와 같은 `beginWrite`(일일 상한 1 unit)·`runTool` 감사.
+
+| 툴 | 입력 | 동작 |
+|------|------|------|
+| `list_schedules` (읽기) | `from, to?(≤366일), assignee?, projectId?, organizationId?, teamId?, kind?, limit≤500` | Schedules 색인(`byWorkspaceAndStartAt`, 시작일 366일 앞까지)으로 후보 행을 찾고 **최신 행 페이지에서 카드 투영**(`buildLCScheduleIndexRecords` + 상태·근태·마일스톤/피처). 범위와 겹치는 카드만, 휴지통·템플릿 제외. 카드 id = `pageId::assigneeId`(담당자 없음 `::__global__`) |
+| `create_schedule` | `startDate, endDate?, title?, assignee?(id·이메일), projectId?, organizationId?, teamId?, status?, attendance?, color?, textColor?, rowIndex?, milestoneId?, featureId?` | 클라 `createLCSchedulerSchedule` 재현(`scheduleCells.buildCreateCells`): DB 레코드 presets 의 일정/근태 프리셋(없으면 시드 기본값) → 근태(제목 근태·연차 또는 attendance) 기본값·meta(kind leave·annualLeave·attendanceValue) → 범위 셀(원시 id) → 기간(KST 자정~23:59:59.999 → UTC ISO) → 담당자·색(담당자 없음 = `#f59e0b`, 명시 색 우선)·`pickTextColor`·rowIndex meta → auto-status(명시 status 우선). `saveNewPage`(upsertPage 가 Schedules·DatabaseRowMembers·dbScope 색인) + DB 룸 셀·멤버십 + 발행. order 는 생성 시각(행 순서 권위는 룸 rowPageOrder) |
+| `update_schedule` | `id, …create 필드, assignee?(null=담당자 전부 해제), colorScope?: row\|card` | 셀 기준은 **DB 룸 행**(없으면 Pages.dbCells). 담당자는 이 카드만 교체(`replaceAssignee`), 다중 담당자 행·`card` 는 meta 카드 색, 기간·근태 변경 시 auto-status(보류·레거시 leave·근태·meta leave 제외). 룸 patch → `patchPage`(최신 dbCells 병합) |
+| `delete_schedule` | `id`(카드 id 또는 행 id) | 행 전체(모든 담당자 카드) `softDeletePage` + tombstone + 룸 행 제거(`removeDbRow`). 앱 삭제와 같은 범위 |
+| `list/create/update/delete_scheduler_project` | `includeHidden?` / `name, color?, description?, members?, leaders?, isHidden?` / `id, …` / `id, confirm` | v5 `project.ts` 직접 호출. 멤버는 id·이메일, 리더는 멤버만. 수정·삭제 전 존재 확인(핸들러 UpdateItem 이 없는 id 를 새로 만들기 때문). 삭제는 하드 삭제라 `confirm: true` |
+| `list/create/update/delete_holiday` | `year?` / `title, date, type?, color?` / `id, …` / `id, confirm` | v5 `holiday.ts`. type = holiday·evaluation·release·meeting·custom(기본 holiday), 색 기본 `#3498DB`. 앱 내장 공휴일(`koreanHolidays`)은 목록에 없다 |
+| `list_mm_entries` (읽기) | `fromWeekStart, toWeekStart?(≤53주), member?, includeRevisions?` | v5 `listMmEntries`(+`listMmRevisions`). 주 시작은 월요일만 |
+| `upsert_mm_entry` | `weekStart, member?(기본 본인), buckets[{id,kind,scopeId?,label,ratioBp,editable?,reasons?}], organizationId?, teamId?, note?` | v5 `upsertMmEntry` 그대로 — 타인은 관리자(developer·owner·leader·manager)만, 잠금 항목 거부, ratioBp 합 10000. weekEnd = 시작+4일(월~금), "other" 버킷 기본 editable false |
+| `review_mm_entry` / `set_mm_entry_lock` | `entryId, buckets?, note?` / `entryId, locked, note?` | v5 `reviewMmEntry`·`setMmEntryLock` — 관리자만. 핸들러 거부는 `Rejected: …` 툴 오류 |
+
+- **작업 DB(`lc-scheduler-db:`) 행은 범용 툴 금지**(create_pages·update_page·trash_page·duplicate 모두 not found) — 프리셋·meta·auto-status 규칙을 거치지 않은 행이 생기므로 전용 툴만. **마일스톤·피처 DB 행**은 일반 셀 타입이라 범용 `create_pages`·`update_page`·`trash_page` 허용(duplicate·move 는 계속 거부). 옵션을 외부 원천에서 채우는 select(`linkedScope`·`sourceFromDb` — 조직·팀·프로젝트)는 원시 id 를 그대로 받는다(`cellInput` `linkedOptions`). progress·itemFetch 등 계산 컬럼은 쓰기 불가.
+- 세 보호 DB 스키마 변경(`update_database`)·스케줄러 WS 정책 변경은 계속 거부. 스케줄러 WS 의 일반 페이지 생성(`parent:{workspaceId}`)도 거부.
+- 레거시 `createSchedule`·`updateSchedule`·`deleteSchedule` 리졸버(Schedules 직접 기록)는 클라에 보이지 않아 쓰지 않는다.
+- 순수 규칙은 클라와 공유: `src/lib/scheduler/schedulerSchema.ts`(컬럼 id·근태 옵션·프리셋 기본값·카드 id, `database.ts`·`taskAdapter.ts` 가 re-export), `autoStatus.ts`·`taskMeta.ts`·`colors.ts` 를 람다가 직접 import. 이 파일들에 스토어·브라우저 의존 import 를 넣으면 람다 번들·infra tsc 가 깨진다.
+- **실시간 반영 한계**: 일정은 페이지 발행 + DB 룸 브로드캐스트로 열린 스케줄러에 즉시 반영된다. 프로젝트·공휴일·MM 은 IAM 발행 mutation 이 없어(구독은 `createProject` 등 사용자 mutation 에만 연결) 열린 클라는 다음 조회(모달 재진입·새로고침) 때 반영된다.
+- 앱의 "마지막 속성값 기억"(브라우저 로컬)·스코프 선택 기본값은 서버에 없어 적용하지 않는다 — 범위는 projectId·organizationId·teamId 로 명시.
+
+## 관리 툴 (`infra/lambda/mcp-server/serverAdmin.ts`, 구현 `tools/admin/`)
+
+| 툴 | 입력 | 동작 |
+|------|------|------|
+| `list_notifications` (읽기) | `unreadOnly?, limit 1..200(기본 50)` | v5 `listMyNotifications`(토큰 소유자, 최신 200건). 토큰이 읽을 수 없는 WS 알림은 제외. `unreadCount` |
+| `mark_notification_read` | `notificationIds[1..100]` 또는 `all: true` | 대상마다 먼저 `GetItem` 으로 본인·범위 확인(없는 키에 UpdateItem 이 빈 행을 만들지 않게) → v5 `markNotificationRead`. `all` 은 보이는 미읽음만 |
+| `delete_notification` | `notificationIds[1..100]` | 같은 확인 후 v5 `deleteMyNotification` |
+| `create_workspace` | `name, access?[{subjectType: member\|team\|everyone, subjectId?, level}] ≤23` | v5 `createWorkspace`(매니저 이상). 생성자 본인 member edit 엔트리를 항상 추가(매니저는 역할만으로 접근권이 없음). **workspaceIds 가 지정된 토큰은 거부** — 아래 참고 |
+| `update_workspace` | `workspaceId, name?, jobFunctions?, jobTitles?` | `requireWritableWorkspace`(edit·정책·스케줄러 WS 금지) + v5 `updateWorkspace`(매니저 이상) |
+| `list_favorites` (읽기) | — | `Members.clientPrefs.favoritePageIds` 순서대로 페이지 제목·아이콘. 범위 밖·영구삭제 페이지는 제외 |
+| `add_favorite` / `remove_favorite` | `pageId` | 최신 Members 행을 읽어 목록 끝에 추가/제거 → v5 `updateMyClientPrefs`(`favoritePageIdsUpdatedAt = max(now, 기존+1)`, 메타 `workspaceName·pageTitle·pageIcon` 채움, fullWidth 등 다른 prefs 는 타임스탬프를 안 보내 보존). 추가는 읽기 가능·휴지통 아님, 제거는 남아 있는 페이지면 토큰 범위 안이어야 함 |
+| `list_my_assets` (읽기) | `sortBy?, mimePrefix?, unusedOnly?, minSize?, limit 1..200, cursor?` | v5 `listMyAssets`(cognitoSub 소유분). `ref` = `quicknote-image://id`·`quicknote-file://id`. 범위 한정 토큰은 AssetUsage 로 범위 안 WS 에서 쓰이는 자산만(사용 수도 범위 안만, 미사용 자산 숨김, 페이지가 limit 보다 짧을 수 있음) |
+| `get_asset_usages` (읽기) | `assetId` | v5 `getAssetUsages`(본인 자산만) 중 토큰이 읽을 수 있는 WS 사용처 + 페이지 제목 |
+| `list_custom_icons` (읽기) | `workspaceId` | `requireWorkspace` + v5 `listCustomIcons` |
+| `create_custom_icon` | `workspaceId, src: quicknote-image://<assetId>, label?` | `requireWritableWorkspace` + 자산이 **본인·READY·image/*** 인지 확인 → v5 `createCustomIcon`(AssetUsage 라이브러리 행 포함). 외부 URL·base64 거부 — 이미지는 먼저 업로드 경로로 올린 뒤 ref 를 쓴다 |
+
+- 쓰기 툴은 `beginWrite`(write scope·일일 상한 1 unit) + 툴 내부 `requireWriteScope`.
+- **범위 한정 토큰의 워크스페이스 생성 거부**: 새 WS 를 쓰려면 토큰 `workspaceIds` 를 넓혀야 하는데, MCP Lambda 는 토큰 테이블에서 `lastUsedAt` 외 속성을 못 쓰게 IAM 으로 막혀 있다(범위 위변조 차단). 범위 확장은 사람이 토큰 설정에서만 하므로, 쓰지 못할 WS 를 만들지 않도록 생성 자체를 거부한다. 전체 범위(workspaceIds 빈 배열) 토큰은 만든 WS 를 바로 쓴다.
+- 노출하지 않음: 워크스페이스 삭제·보관, 워크스페이스 아이콘(앱 `settingsStore.entityIcons` — 브라우저 로컬 전용, 서버 상태 없음), 커스텀 아이콘 삭제.
+- **실시간 반영 한계**: 즐겨찾기는 clientPrefs LWW 라 열린 앱은 다음 부팅·재동기화 때 반영(앱이 그 전에 자기 즐겨찾기를 바꾸면 더 새 타임스탬프로 덮는다). 커스텀 아이콘·새 워크스페이스는 IAM 발행 mutation 이 없어(`onCustomIconChanged` 는 사용자 mutation 에만 연결) 다음 조회·새로고침 때 보인다.
+- 스택(`sync-stack.ts`): MCP Lambda 에 `CUSTOM_ICONS_TABLE_NAME` env·CustomIcons RW. Workspaces·WorkspaceAccess 는 읽기 + Workspaces `PutItem`(속성 workspaceId·name·type·ownerMemberId·createdAt)·`UpdateItem`(name·jobFunctions·jobTitles — `mcpPolicy` 못 씀), WorkspaceAccess `PutItem` 만(삭제·BatchWrite 없음 — v5 `createWorkspace` 는 접근 엔트리를 개별 PutItem 으로 쓴다). Members 는 `clientPrefs` 속성만 UpdateItem(조건 `dynamodb:Attributes`).
+- **속성 제한 IAM 과 ReturnValues**: `dynamodb:Attributes` 조건 아래에서는 `ReturnValues: ALL_NEW` 가 거부된다. 그래서 MCP 는 v5 `updateMyClientPrefs` 를 `returnValues: "NONE"`, `updateWorkspace` 를 `returnValues: "UPDATED_NEW"`(기존 행과 병합)로 호출한다. 앱(AppSync) 경로 기본값은 ALL_NEW 그대로.
+
+## 콘텐츠 툴 (`infra/lambda/mcp-server/serverContent.ts`, 구현 `tools/content/`)
+
+| 툴 | 입력 | 동작 |
+|------|------|------|
+| `list_database_views` (읽기) | `databaseId, pageId?` | 뷰 = 페이지 본문의 `databaseBlock`(attrs `view`·`panelState`). 홈(풀페이지) 블록 + `pageId` 의 인라인 블록 + DB 수준 panelState(룸 권위)를 컬럼 이름·옵션 라벨로 요약 |
+| `update_database_view` | `databaseId, pageId?, view?, filters?, sorts?, search?, groupBy?, kanbanGroupBy?, timelineDateColumn?, galleryCoverColumn?, galleryColumns?, itemLimit?, pageTreeEnabled?, hideTitle?, headerColor?, hiddenViews?, columns?[{view, order?, hidden?}], activePreset?` | 대상: `pageId` 블록 → 없으면 홈 블록 → 홈도 없으면 DB 수준(이때 `view` 거부 — 레이아웃은 블록 attr 뿐). 필터는 `query_database` 와 같은 사람 값 변환(`toFilterRules`). 컬럼 타입 검증(그룹=`COLUMN_TYPE_META.groupable`, 보드=status/select, 타임라인=date, 갤러리 표지=file/url). filters·sorts 를 주면 활성 탭 해제·레거시 `sortColumnId` null. 컬럼 표시는 `buildViewColumnConfig` |
+| `save_database_filter_preset` | `databaseId, pageId?, presetId?(id·이름), name?, icon?, filters?, sorts?, activate?=true` | `panelState.filterPresets` 탭 생성/수정 |
+| `delete_database_filter_preset` | `databaseId, pageId?, presetId` | 탭 제거, 활성이었으면 `activePresetId` null |
+| `publish_page` | `pageId` | `loadWritablePage` → v5 `publishPage`(멱등 재게시 = 링크 유지·스냅샷 갱신, DB 행 거부). 결과 `url` = `PUBLIC_WEB_ORIGIN/p/<token>` |
+| `unpublish_page` | `pageId`(휴지통 허용) | v5 `unpublishPage` — 모든 활성 토큰 revoke |
+| `get_publish_status` (읽기) | `pageId` | v5 `getPagePublishStatus` + url |
+| `list_flowcharts` / `get_flowchart` (읽기) | `workspaceId, limit?` / `flowchartId` | v5 `listFlowcharts`·`getFlowchart`. 본문 표기 `<qn-block id="<flowchartId>" type="flowchartBlock"/>`(flowchartBlock 은 UniqueID 가 없어 qn-block id = flowchartId) |
+| `save_flowchart` | `flowchartId?`(없으면 생성 + `workspaceId`), `title?, nodes[{id,label,shape,x,y,width?,height?,color?,align?,link?}], edges[{id?,from,to,fromSide?,toSide?,label?,color?}], appendToPageId?` | `buildFlowchartData` → v5 `upsertFlowchart`(updatedAt = 기존+1ms 이상, LWW 유실 방지). 엣지 핸들 생략 시 상대 위치로 추론(없으면 화살표 꼬임), id 생략 엣지는 결정적 id. 직전 버전과 다르면 `saveFlowchartVersion`. `appendToPageId` = 같은 WS 페이지 끝에 flowchartBlock(룸 insert) |
+| `list_flowchart_history` (읽기) | `flowchartId, limit?` | v5 `listFlowchartHistory` 요약 |
+| `update_comment` / `delete_comment` | `commentId, text` / `commentId` | **작성자 본인만**. 수정은 v5 `upsertComment` 전체 Put(앵커·스레드·멘션·리액션·createdAt 유지), 삭제는 `softDeleteComment` + `publishCommentChanged(deletedAt)` |
+| `toggle_comment_reaction` | `commentId, emoji, kind?, reacted?` | v5 `toggleCommentReaction`(생략 시 현재 상태 반전) + 발행. 타인 댓글 허용 |
+| `set_page_appearance` | `pageId, cover?(quicknote-image:// 또는 https, null 제거), titleColor?(hex, null 기본)` | `patchPage`(upsertPage → AssetUsage·발행). 업로드 ref 는 ImageAssets READY 확인 |
+| `upload_image` | `workspaceId, url? \| data?(base64·data URL, ~700KB), name?, alt?` | 클라 `uploadImage` 와 같은 결과: 매직 바이트로 PNG/JPEG/GIF/WebP 판정(선언 mime 불신), `createStableAssetId`(`_shared/assetId.ts`, image-presign 과 공용) → 같은 S3 키 PUT·ImageAssets READY(같은 바이트 재사용) → `WS#<ws>#PROVISIONAL` AssetUsage(confirmImage 와 같음). 반환 `ref`·`markdown`(`![alt](quicknote-image://…)`) |
+
+- 쓰기 툴은 `beginWrite`(1 unit) + 툴 내부 `requireWritableWorkspace`/`loadWritablePage`. 뷰 쓰기는 epoch 가드.
+- **뷰 쓰기 경로(회귀 금지)**: 블록은 `writePageBody` replace(페이지 룸 → 브로드캐스트 → materialize), attrs `panelState` 는 앱 `setPanelState` 처럼 **전체 JSON 문자열**. 컬럼 표시(`viewConfigs`)를 바꾸면 앱 표시설정처럼 DB 수준 panelState 에도 미러링. DB 수준은 룸 `panelState` Y.Map **바꾼 키만** set(클라 reconcile 키 병합과 같은 표현) + `saveDatabase`(룸 값 덮어 저장·발행).
+- 이미지 URL 다운로드(`urlFetch.ts`): http(s)만, `net.BlockList`(IPv4·IPv6 분리)로 비공인 대역 거부 — 사설·루프백·링크로컬·CGNAT·미지정·멀티캐스트·브로드캐스트·문서용, IPv6 `::/96`(IPv4 호환)·`::ffff:0:0/96`(매핑, 16진 표기 포함)·`64:ff9b::/96`·`2002::/16`·`2001::/32`·`fec0::/10`·`fc00::/7`·`fe80::/10`·`100::/64`·`2001:db8::/32`. DNS 리바인딩 차단: `node:http(s)` 요청의 `lookup` 옵션에 검증 lookup 을 넣어 **연결 시점에 해석한 IP 를 다시 검사하고 그 IP 로만 연결**(사전 검사는 빠른 거부용). 리다이렉트 수동 3회(홉마다 재검사·같은 검증 lookup), 전체 10초·20MB 상한. undici 의존성 없음.
+- 실시간 한계: 플로우차트는 구독이 없어 열린 블록은 다시 열 때 서버본(LWW)을 받는다. 웹 게시는 서버 상태라 앱 게시 버튼은 다음 조회 때 반영.
+- 스택(`sync-stack.ts`): MCP Lambda env `PUBLISHED_PAGES_TABLE_NAME`·`SHARED_BLOCKS_TABLE_NAME`·`FLOWCHARTS_TABLE_NAME`·`FLOWCHART_HISTORY_TABLE_NAME`·`IMAGES_BUCKET_NAME`·`PUBLIC_WEB_ORIGIN`(cdk.json context — live `publicWebOrigin`=khaki, dev `publicWebOriginDev`=develop Vercel, `-c` 로 덮어쓰기) + PublishedPages·Flowcharts·FlowchartHistory RW, SharedBlocks R, 이미지 버킷 `users/*`·`public-snapshots/*` PUT. 이 env 는 `missingTables` 대상이 아니라(콘텐츠 툴만 사용) 미배포 환경에서는 해당 툴만 "not configured".
+- `publishCommentChanged` 에 `deletedAt` 인자 추가(스키마·`publishOnlyResult` echo) — 클라 `commentApply` 가 삭제로 처리. **AppSync 스키마 배포 필요**.
 
 ## OAuth 2.1 연결 (P4-A, `infra/lambda/mcp-server/oauth/`)
 
@@ -269,4 +365,4 @@ CORS(`*`)는 메타데이터·register·token·revoke 에만. `/authorize`·`/ca
 `src/components/settings/__tests__/mcpPatSnippets.test.ts` — 셸 기본값, 셸 명령 원문 미포함, POSIX add-json JSON 유효성.
 `src/components/settings/__tests__/McpAdminAndPolicy.test.tsx` — 관리자 섹션 노출·강제/일괄 폐기·관리자 폐기 표시·정책 선택·발급 폼 정책 반영.
 `src/components/settings/__tests__/McpSettingsTab.test.tsx` — 빠른 연결 섹션 렌더·명령 복사·토큰 미포함, URL 미설정 시 안내만, 연결된 앱 그룹(앱 이름·마지막 사용·연결 해제), PAT 영역 기본 접힘·펼침(`hidden`·aria-controls), 셸별 탭(zsh·bash·PowerShell), 목록 렌더, 발급 시 원문 1회 표시·닫으면 제거·셸 스니펫에 원문 없음, 읽기+쓰기 경고·write scope 발급, 폐기 mutation 호출, URL 미설정 자리표시자.
-서버: `infra/lambda/mcp-server/__tests__/{updatePage,pageOps,collabWriter,concurrency,guards,queryDatabase,dbWrite,publish,edgeAndCost,adminPolicy,handler.e2e}.test.ts`, CloudFront: `infra/lib/mcp-edge-construct.test.ts`(엣지 함수 코드 직접 실행·배포 설정).
+서버: `infra/lambda/mcp-server/__tests__/{updatePage,pageOps,collabWriter,concurrency,guards,queryDatabase,dbWrite,publish,edgeAndCost,adminPolicy,handler.e2e,scheduler}.test.ts`, CloudFront: `infra/lib/mcp-edge-construct.test.ts`(엣지 함수 코드 직접 실행·배포 설정).

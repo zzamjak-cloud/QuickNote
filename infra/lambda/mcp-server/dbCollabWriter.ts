@@ -122,6 +122,33 @@ export async function writeDbRowCells(
 }
 
 /**
+ * 행 복원(휴지통 복원·버전 복원) — 행 멤버십(rowMembers·rowPageOrder)을 되살리고 셀을 넣는다.
+ * exact: 버전 복원 — 클라 restoreRowCellsToCollabDoc 처럼 복원본에 없는 기존 셀까지 지워 그 시점과 정확히 맞춘다.
+ * exact 아님: 휴지통 복원 — 룸에 행 엔트리가 남아 있으면 셀은 룸(권위)을 유지하고, 없을 때만 Pages.dbCells 로 채운다.
+ */
+export function restoreDbRow(
+  ctx: McpContext,
+  databaseId: string,
+  rowPageId: string,
+  cells: Record<string, unknown>,
+  opts: { exact: boolean },
+): Promise<"collab" | "pages"> {
+  return editDbRoom(ctx, databaseId, (root) => {
+    const rows = ensureMap(root, "rows");
+    const hadRow = rows.get(rowPageId) instanceof Y.Map;
+    const row = ensureMap(rows, rowPageId);
+    if (opts.exact || !hadRow) {
+      for (const columnId of [...row.keys()]) if (!(columnId in cells)) row.delete(columnId);
+      for (const [columnId, value] of Object.entries(cells)) {
+        if (value === undefined) row.delete(columnId);
+        else row.set(columnId, jsonToY(value));
+      }
+    }
+    addRowMembership(root, rowPageId);
+  });
+}
+
+/**
  * 행 제거(휴지통) — 클라 deleteRow 는 rows 엔트리 삭제(deleteRowFromCollabDoc) + 로컬 순서에서 제외 후 reconcile 로
  * rowMembers 에서 빠진다. 서버는 같은 결과를 한 트랜잭션으로 만든다. 이걸 안 하면 materialize 가 유령 행을 되살린다.
  */
