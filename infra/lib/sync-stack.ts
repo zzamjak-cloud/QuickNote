@@ -1272,6 +1272,8 @@ export function response(ctx) {
         externalModules: ["@aws-sdk/*"],
         // ESM 번들 안의 CJS 의존성(ajv 등)이 require 를 호출할 수 있게 한다.
         banner: "import { createRequire as __qnCreateRequire } from 'module'; const require = __qnCreateRequire(import.meta.url);",
+        // src/ 공유 모듈의 zod import 를 infra 의존성으로 고정 — CI 는 루트 node_modules 를 설치하지 않는다.
+        esbuildArgs: { "--alias:zod": path.join(__dirname, "..", "node_modules", "zod") },
       },
     });
     this.membersTable.grantReadData(mcpServerFn);
