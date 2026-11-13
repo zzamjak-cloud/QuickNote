@@ -29,8 +29,11 @@ export function isSchedulerSideDatabaseId(databaseId: unknown): boolean {
   return typeof databaseId === "string" && SCHEDULER_SIDE_DB_PREFIXES.some((p) => databaseId.startsWith(p));
 }
 
-/** allowSchedulerRows: 마일스톤·피처 DB 행 쓰기를 허용하는 툴(create_pages·update_page·trash_page)만 true. */
-export type SchedulerRowOption = { allowSchedulerRows?: boolean };
+/**
+ * allowSchedulerRows: 마일스톤·피처 DB 행 쓰기를 허용하는 툴(create_pages·update_page·trash_page)만 true.
+ * allowSchedulerTaskBody: 작업 DB 행(일정 카드)의 본문·아이콘 편집 — update_page 만 true. 제목·셀은 update_schedule 전용.
+ */
+export type SchedulerRowOption = { allowSchedulerRows?: boolean; allowSchedulerTaskBody?: boolean };
 
 /**
  * 쓰기 대상 워크스페이스 인가. 스케줄러 가상 WS 는 범용 쓰기 대상이 아니다 —
@@ -66,7 +69,9 @@ export async function loadWritablePage(ctx: McpContext, pageId: string, opts: Sc
   requireWriteScope(ctx);
   const page = await getItem(ctx.doc, ctx.tables.Pages, { id: pageId });
   if (!page) throw new ToolError(NOT_ACCESSIBLE);
-  const schedulerRow = Boolean(opts.allowSchedulerRows) && isSchedulerSideDatabaseId(page.databaseId);
+  const schedulerRow =
+    (Boolean(opts.allowSchedulerRows) && isSchedulerSideDatabaseId(page.databaseId)) ||
+    (Boolean(opts.allowSchedulerTaskBody) && isLCSchedulerDatabaseId(String(page.databaseId ?? "")));
   await requireWritableWorkspace(ctx, String(page.workspaceId ?? ""), { allowScheduler: schedulerRow });
   if (page.deletedAt) throw new ToolError("This page is in the trash. Restore it in QuickNote before editing.");
   return page;

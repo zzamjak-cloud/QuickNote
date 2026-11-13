@@ -1,6 +1,7 @@
 // update_page — 제목·아이콘·DB 행 속성·본문(5개 모드 중 replace/append/insert_after/replace_range)을 한 번에 갱신.
 // 본문은 collabWriter(Yjs 룸) 경로, 셀은 DB 룸 + Pages.dbCells 양쪽, 메타는 같은 upsert 에 싣는다.
 import { z } from "zod";
+import { isLCSchedulerDatabaseId } from "../../v5-resolvers/handlers/_auth";
 import type { DocNode } from "../../../../src/lib/docModel/types";
 import { convertProperties, mergeCells } from "../cellInput";
 import { pageIconInput } from "../iconInput";
@@ -83,7 +84,11 @@ export async function updatePageTool(ctx: McpContext, raw: UpdatePageInput) {
   if (input.title === undefined && input.icon === undefined && !input.properties && !input.content) {
     throw new ToolError("Nothing to update: pass title, icon, properties or content");
   }
-  const page = await loadWritablePage(ctx, input.pageId, { allowSchedulerRows: true });
+  const page = await loadWritablePage(ctx, input.pageId, { allowSchedulerRows: true, allowSchedulerTaskBody: true });
+  // 일정 카드는 제목·셀이 프리셋·meta·auto-status·색인 규칙과 묶여 있어 update_schedule 로만 바꾼다.
+  if (isLCSchedulerDatabaseId(String(page.databaseId ?? "")) && (input.title !== undefined || input.properties)) {
+    throw new ToolError("Scheduler task cards: change title/properties with update_schedule; update_page edits only content and icon");
+  }
   if (page.fullPageDatabaseId) {
     if (input.content) throw new ToolError("This page is a full-page database home; its body is the database view (edit rows or columns instead)");
     // 앱 규약: 홈 제목 = DB 제목(setDatabaseTitle 이 홈을 함께 바꾼다) → 제목 변경은 DB 이름 변경으로 처리.

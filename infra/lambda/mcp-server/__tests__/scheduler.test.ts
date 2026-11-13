@@ -252,11 +252,20 @@ describe("스케줄러 접근 인가", () => {
     await expect(listSchedulesTool(scoped.ctx, { from: "2026-03-10" })).rejects.toThrow(/Not found/);
   });
 
-  it("작업 DB 는 범용 툴 거부, 마일스톤 행은 create_pages·update_page 허용(연결 select 는 원시 id), 스키마 변경은 거부", async () => {
+  it("일정 카드 본문은 update_page 로 쓸 수 있고 셀은 그대로다", async () => {
+    const { ctx, fake } = setup();
+    fake.tables.pages.push(scheduleRow("row1", { [COL.status]: "todo" }));
+    const r = await updatePageTool(ctx, { pageId: "row1", content: { mode: "append", markdown: "회의 메모" } });
+    expect(r.contentChanged).toBe(true);
+    expect(cellsOf(fake, "row1")[COL.status]).toBe("todo");
+  });
+
+  it("작업 DB 는 범용 툴로 제목·셀·행 생성 거부, 마일스톤 행은 create_pages·update_page 허용(연결 select 는 원시 id), 스키마 변경은 거부", async () => {
     const { ctx, fake } = setup();
     fake.tables.pages.push(scheduleRow("row1", {}));
     await expect(createPagesTool(ctx, { parent: { databaseId: DB }, pages: [{ title: "x" }] })).rejects.toThrow(/Not found/);
-    await expect(updatePageTool(ctx, { pageId: "row1", title: "x" })).rejects.toThrow(/Not found/);
+    await expect(updatePageTool(ctx, { pageId: "row1", title: "x" })).rejects.toThrow(/update_schedule/);
+    await expect(updatePageTool(ctx, { pageId: "row1", properties: { 상태: "done" } })).rejects.toThrow(/update_schedule/);
     await expect(createPagesTool(ctx, { parent: { workspaceId: WS }, pages: [{ title: "x" }] })).rejects.toThrow(/Not found/);
     const r = await createPagesTool(ctx, { parent: { databaseId: MILESTONE_DB }, pages: [{ title: "M1", properties: { 목표: "출시", 프로젝트: "p1" } }] });
     const id = r.pages[0].id;
