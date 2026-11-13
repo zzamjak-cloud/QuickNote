@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LC_SCHEDULER_COLUMN_IDS as COL, LC_SCHEDULER_DATABASE_ID } from "../../../../src/lib/scheduler/schedulerSchema";
 import { runTool } from "../toolRunner";
+import { listWorkspacesTool } from "../tools/listWorkspaces";
 import { createPagesTool } from "../tools/createPages";
 import { updateDatabaseTool } from "../tools/updateDatabase";
 import { updatePageTool } from "../tools/updatePage";
@@ -68,6 +69,19 @@ beforeEach(() => {
   vi.setSystemTime(new Date("2026-03-10T03:00:00.000Z"));
 });
 afterEach(() => vi.useRealTimers());
+
+describe("list_workspaces — 스케줄러 DB id 노출", () => {
+  it("스케줄러 워크스페이스에 작업·마일스톤·피처 DB id 를 싣고, 일반 워크스페이스엔 싣지 않는다", async () => {
+    const { ctx } = setup();
+    const { workspaces } = await listWorkspacesTool(ctx);
+    expect(workspaces.find((w) => w.id === WS)?.schedulerDatabases).toEqual({
+      tasks: DB,
+      milestones: MILESTONE_DB,
+      features: `lc-feature-db:${WS}`,
+    });
+    expect(workspaces.filter((w) => w.id !== WS).every((w) => w.schedulerDatabases === undefined)).toBe(true);
+  });
+});
 
 describe("create_schedule", () => {
   it("일정 프리셋·KST 기간·meta·auto-status(진행중) + 색인·DB 룸·발행", async () => {

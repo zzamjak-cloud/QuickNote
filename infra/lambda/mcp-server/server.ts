@@ -24,7 +24,13 @@ export function buildMcpServer(ctx: McpContext): McpServer {
 
   server.registerTool(
     "list_workspaces",
-    { description: "List QuickNote workspaces this token can read (id, name, type, access level).", annotations: READ_ONLY },
+    {
+      description:
+        "List QuickNote workspaces this token can read (id, name, type, access level). " +
+        "The scheduler workspace also returns schedulerDatabases {tasks, milestones, features} — fixed database ids " +
+        "usable with fetch/query_database (milestone/feature rows also with create_pages/update_page; task rows via *_schedule tools).",
+      annotations: READ_ONLY,
+    },
     async () => runTool(ctx, "list_workspaces", {}, () => listWorkspacesTool(ctx)),
   );
 

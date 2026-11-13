@@ -48,7 +48,10 @@ const READ_ONLY = { readOnlyHint: true, destructiveHint: false, openWorldHint: f
 const WRITE = { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: false } as const;
 const DESTRUCTIVE = { ...WRITE, destructiveHint: true } as const;
 
-const SCHEDULER_NOTE = "Scheduler (스케줄러) workspace; the token must include it.";
+const SCHEDULER_NOTE =
+  "Scheduler (스케줄러) workspace 'lc-scheduler-global'; the token must include it. " +
+  "Database ids: tasks 'lc-scheduler-db:lc-scheduler-global', milestones 'lc-milestone-db:lc-scheduler-global', " +
+  "features 'lc-feature-db:lc-scheduler-global'.";
 const WRITE_NOTE = `${SCHEDULER_NOTE} Requires a token with write scope.`;
 
 /** write scope·일일 쓰기 상한을 통과한 뒤에만 실행(serverWrite.gated 와 같은 관문). */

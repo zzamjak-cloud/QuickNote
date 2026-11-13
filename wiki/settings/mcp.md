@@ -102,6 +102,7 @@ rank 는 `_auth.ts` `ROLE_RANK`(developer 5 > owner 4 > leader 3 > manager 2 > m
 - 시행(MCP 서버 `workspacePolicy.ts` → `access.ts`·`writeAccess.ts`):
   - `disabled`: MCP 에서 존재하지 않는 것처럼 — list_workspaces·search 대상에서 빠지고 fetch·query·get_comments·get_users(워크스페이스 지정) 등 직접 접근은 not found. PAT 발급 시 범위로도 고를 수 없다(서버 거부).
   - `read`: 모든 쓰기 툴이 `workspace MCP policy is read-only`. list_workspaces 결과에 `mcpPolicy: "read"`.
+- 스케줄러 WS(`lc-scheduler-global`)는 Workspaces 행이 없어도 list_workspaces·OAuth 동의 화면에 항상 포함된다(`listWorkspacesWithScheduler`). list_workspaces 는 이 WS 에 `schedulerDatabases {tasks, milestones, features}` 고정 DB id 를 싣는다 — 검색으로는 찾을 수 없으므로 회귀 주의.
   - 워크스페이스 레코드는 요청 안에서 한 번만 읽고(요청 캐시), 요청 사이 컨테이너 캐시는 15초 — 정책 변경은 늦어도 30초 안에 반영된다.
 - UI: 워크스페이스 관리 > 편집 모달의 "AI 연결(MCP) 허용"(즉시 저장), 개인 워크스페이스는 AI 연결(MCP) 탭의 "내 개인 워크스페이스". 토큰 발급 폼·OAuth 동의 화면은 disabled 를 빼고 read 에 "읽기 전용" 표시.
 

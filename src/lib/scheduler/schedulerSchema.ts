@@ -5,6 +5,8 @@ import { LC_SCHEDULER_WORKSPACE_ID } from "./scope";
 
 export const LC_SCHEDULER_DATABASE_ID_PREFIX = "lc-scheduler-db:";
 export const LC_SCHEDULER_DATABASE_ID = `${LC_SCHEDULER_DATABASE_ID_PREFIX}${LC_SCHEDULER_WORKSPACE_ID}`;
+export const LC_MILESTONE_DATABASE_ID = `lc-milestone-db:${LC_SCHEDULER_WORKSPACE_ID}`;
+export const LC_FEATURE_DATABASE_ID = `lc-feature-db:${LC_SCHEDULER_WORKSPACE_ID}`;
 export const LC_SCHEDULER_TASK_PRESET_ID = "lc-scheduler-preset:task";
 export const LC_SCHEDULER_ATTENDANCE_PRESET_ID = "lc-scheduler-preset:annual-leave";
 

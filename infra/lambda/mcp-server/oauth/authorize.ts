@@ -5,7 +5,7 @@ import { QueryCommand } from "@aws-sdk/lib-dynamodb";
 import type { APIGatewayProxyEventV2 } from "aws-lambda";
 import { MCP_TOKEN_SCOPES, type McpTokenScope } from "../../_shared/mcpToken";
 import type { Member } from "../../v5-resolvers/handlers/_auth";
-import { listMyWorkspaces } from "../../v5-resolvers/handlers/workspace";
+import { listWorkspacesWithScheduler } from "../tools/listWorkspaces";
 import { cognitoAuthorizeUrl } from "./cognito";
 import { originOf, resourceUrl } from "./config";
 import { consentPage, errorPage } from "./consentPage";
@@ -164,7 +164,7 @@ async function findMemberBySub(deps: OAuthDeps, sub: string): Promise<Member | n
  * 정책 read 인 곳은 "읽기 전용" 표시.
  */
 async function consentWorkspaces(deps: OAuthDeps, caller: Member): Promise<{ id: string; name: string; readOnly: boolean }[]> {
-  const all = await listMyWorkspaces({ doc: deps.doc, tables: deps.tables, caller });
+  const all = await listWorkspacesWithScheduler({ doc: deps.doc, tables: deps.tables, caller });
   return all
     .filter((w) => !w.removedAt && w.mcpPolicy !== "disabled")
     .filter((w) => w.type !== "personal" || w.workspaceId === caller.personalWorkspaceId)
