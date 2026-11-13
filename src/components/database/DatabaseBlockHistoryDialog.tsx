@@ -409,7 +409,7 @@ export function DatabaseBlockHistoryDialog({
                     type="button"
                     onClick={() => setDbPermanentDeleteOpen(true)}
                     disabled={isProtectedDatabase}
-                    title={isProtectedDatabase ? "LC스케줄러 DB는 삭제할 수 없습니다." : undefined}
+                    title={isProtectedDatabase ? "스케줄러 DB는 삭제할 수 없습니다." : undefined}
                     className="rounded border border-red-200 px-2 py-1 text-sm text-red-600 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent dark:border-red-900/40 dark:hover:bg-red-950/30"
                   >
                     영구삭제

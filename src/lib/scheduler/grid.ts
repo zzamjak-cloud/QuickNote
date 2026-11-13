@@ -1,4 +1,4 @@
-// LC 스케줄러 연간 그리드 픽셀·줌 상수.
+// 스케줄러 연간 그리드 픽셀·줌 상수.
 export const DEFAULT_CELL_WIDTH = 50;
 export const DEFAULT_CELL_HEIGHT = 56;
 export const CARD_MARGIN = 2;

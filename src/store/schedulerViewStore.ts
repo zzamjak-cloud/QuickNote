@@ -1,4 +1,4 @@
-// LC 스케줄러 뷰 상태(줌·필터·뷰 모드 등) 로컬 스토어.
+// 스케줄러 뷰 상태(줌·필터·뷰 모드 등) 로컬 스토어.
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { zustandStorage } from "../lib/storage/index";

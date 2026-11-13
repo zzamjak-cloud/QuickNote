@@ -185,7 +185,7 @@ export function DatabaseTimelineView({
     const saved = localStorage.getItem(LS_MONTH_KEY);
     return monthInputToStart(saved ?? "") ?? startOfMonth(Date.now());
   });
-  // 연간 축에서 보고 있는 연도 (LC 스케줄러와 동일하게 연도 단위 이동).
+  // 연간 축에서 보고 있는 연도 (스케줄러와 동일하게 연도 단위 이동).
   const [visibleYear, setVisibleYear] = useState(() => new Date().getFullYear());
 
   useEffect(() => {

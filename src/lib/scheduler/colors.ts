@@ -1,4 +1,4 @@
-// LC 스케줄러 색상 프리셋 — TeamScheduler 와 동일.
+// 스케줄러 색상 프리셋 — TeamScheduler 와 동일.
 export const COLOR_PRESETS = [
   // 빨강 계열
   "#FF5733", "#E74C3C", "#C0392B", "#FF6B6B", "#e64c4c",

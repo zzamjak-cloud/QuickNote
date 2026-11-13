@@ -167,7 +167,7 @@ export function DatabaseDirectPage({ databaseId, pageId }: Props) {
               aria-label="데이터베이스 삭제"
               title={
                 isProtectedDatabase
-                  ? "LC스케줄러 DB는 삭제할 수 없습니다."
+                  ? "스케줄러 DB는 삭제할 수 없습니다."
                   : "데이터베이스 삭제"
               }
               onClick={openDeleteDatabaseModal}

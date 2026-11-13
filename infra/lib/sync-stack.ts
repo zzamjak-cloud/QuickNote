@@ -387,7 +387,7 @@ export class QuicknoteSyncStack extends cdk.Stack {
       projectionType: dynamodb.ProjectionType.ALL,
     });
 
-    // LC 스케줄러 프로젝트 테이블 — 신규 생성
+    // 스케줄러 프로젝트 테이블 — 신규 생성
     const projectsTable = new dynamodb.Table(this, "SchedulerProjectsTable", {
       tableName: `${envPrefix}quicknote-scheduler-projects`,
       partitionKey: { name: "id", type: dynamodb.AttributeType.STRING },
@@ -402,7 +402,7 @@ export class QuicknoteSyncStack extends cdk.Stack {
       projectionType: dynamodb.ProjectionType.ALL,
     });
 
-    // LC 스케줄러 공휴일 테이블 — 신규 생성
+    // 스케줄러 공휴일 테이블 — 신규 생성
     const holidaysTable = new dynamodb.Table(this, "SchedulerHolidaysTable", {
       tableName: `${envPrefix}quicknote-scheduler-holidays`,
       partitionKey: { name: "id", type: dynamodb.AttributeType.STRING },
@@ -417,7 +417,7 @@ export class QuicknoteSyncStack extends cdk.Stack {
       projectionType: dynamodb.ProjectionType.ALL,
     });
 
-    // LC 스케줄러 주간 MM 원본 테이블
+    // 스케줄러 주간 MM 원본 테이블
     const mmEntriesTable = new dynamodb.Table(this, "SchedulerMmEntriesTable", {
       tableName: `${envPrefix}quicknote-scheduler-mm-entries`,
       partitionKey: { name: "id", type: dynamodb.AttributeType.STRING },
@@ -543,7 +543,7 @@ export class QuicknoteSyncStack extends cdk.Stack {
     });
     new cdk.CfnOutput(this, "FlowchartHistoryTableName", { value: flowchartHistoryTable.tableName });
 
-    // LC 스케줄러 일정 테이블
+    // 스케줄러 일정 테이블
     // live 환경: CDK 외부에서 먼저 생성된 테이블이므로 import. dev 환경: 신규 생성.
     let schedulesTable: dynamodb.ITable;
     if (envPrefix !== "") {

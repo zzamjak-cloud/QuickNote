@@ -303,7 +303,7 @@ describe("pageStore — DB 행 페이지 가시성", () => {
       .getState()
       .ensureFullPagePageForDatabase(
         "lc-scheduler-db:lc-scheduler-global",
-        "LC스케줄러",
+        "스케줄러",
         "table",
       );
 

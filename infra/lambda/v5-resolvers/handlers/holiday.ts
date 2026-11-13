@@ -1,4 +1,4 @@
-// LC 스케줄러 공휴일 핸들러 — workspace 권한 검사 후 DynamoDB CRUD 수행.
+// 스케줄러 공휴일 핸들러 — workspace 권한 검사 후 DynamoDB CRUD 수행.
 import {
   DynamoDBDocumentClient,
   DeleteCommand,

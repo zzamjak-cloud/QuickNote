@@ -1,4 +1,4 @@
-// LC 스케줄러용 GraphQL 쿼리/뮤테이션/서브스크립션 정의.
+// 스케줄러용 GraphQL 쿼리/뮤테이션/서브스크립션 정의.
 import type { GqlPage } from "../../queries/page";
 
 const SCHEDULE_SOURCE_PAGE_FIELDS = `

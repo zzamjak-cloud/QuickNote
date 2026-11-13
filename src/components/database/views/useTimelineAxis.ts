@@ -76,7 +76,7 @@ export function useTimelineAxis(params: {
       minT = visibleMonthStart;
       maxT = endOfMonth(visibleMonthStart);
     } else {
-      // 연간 축 — 해당 연도 1/1 ~ 12/31 전체를 일자 셀로 스크롤 표시 (LC 스케줄러와 동일).
+      // 연간 축 — 해당 연도 1/1 ~ 12/31 전체를 일자 셀로 스크롤 표시 (스케줄러와 동일).
       minT = startOfDay(new Date(visibleYear, 0, 1).getTime());
       maxT = startOfDay(new Date(visibleYear, 11, 31).getTime());
     }

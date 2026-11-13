@@ -1,6 +1,6 @@
 // 워크스페이스 MCP 허용 정책 설정 — 공유 워크스페이스는 MCP 관리자(developer·owner, mcpTokenAdmin.requireMcpTokenAdmin),
 // 개인 워크스페이스는 소유자 본인만(역할 무관),
-// LC 스케줄러 가상 워크스페이스는 변경 불가. MCP 서버는 30초 이하 캐시로 이 값을 시행한다(mcp-server/workspacePolicy.ts).
+// 스케줄러 가상 워크스페이스는 변경 불가. MCP 서버는 30초 이하 캐시로 이 값을 시행한다(mcp-server/workspacePolicy.ts).
 import { GetCommand, UpdateCommand, type DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import { MCP_POLICIES, type McpPolicy } from "../../_shared/mcpPolicy";
 import { LC_SCHEDULER_WORKSPACE_ID, badRequest, forbidden, notFound, type Member } from "./_auth";
@@ -42,7 +42,7 @@ export async function requireMcpPolicyEditor(
   caller: Member,
   row: WorkspaceRowLite,
 ): Promise<void> {
-  if (row.workspaceId === LC_SCHEDULER_WORKSPACE_ID) forbidden("LC스케줄러 워크스페이스 설정은 변경할 수 없습니다");
+  if (row.workspaceId === LC_SCHEDULER_WORKSPACE_ID) forbidden("스케줄러 워크스페이스 설정은 변경할 수 없습니다");
   const { personal, ownerMemberId } = await isPersonalWorkspace(doc, tables, caller, row);
   if (personal) {
     if (row.workspaceId !== caller.personalWorkspaceId && ownerMemberId !== caller.memberId) {

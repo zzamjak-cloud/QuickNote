@@ -266,7 +266,7 @@ export async function updateWorkspace(args: {
 }): Promise<Workspace> {
   requireRoleAtLeast(args.caller, "manager");
   if (args.input.workspaceId === LC_SCHEDULER_WORKSPACE_ID) {
-    forbidden("LC스케줄러 워크스페이스 설정은 변경할 수 없습니다");
+    forbidden("스케줄러 워크스페이스 설정은 변경할 수 없습니다");
   }
   const row = await getWorkspaceRow(args.doc, args.tables, args.input.workspaceId);
   if (!row) notFound("Workspace 없음");
@@ -324,7 +324,7 @@ export async function setWorkspaceAccess(args: {
 }): Promise<Workspace> {
   requireRoleAtLeast(args.caller, "manager");
   if (args.workspaceId === LC_SCHEDULER_WORKSPACE_ID) {
-    forbidden("LC스케줄러 워크스페이스 접근 권한은 모든 구성원 편집으로 고정됩니다");
+    forbidden("스케줄러 워크스페이스 접근 권한은 모든 구성원 편집으로 고정됩니다");
   }
   const row = await getWorkspaceRow(args.doc, args.tables, args.workspaceId);
   if (!row) notFound("Workspace 없음");
@@ -390,7 +390,7 @@ export async function deleteWorkspace(args: {
 }): Promise<boolean> {
   requireRoleAtLeast(args.caller, "manager");
   if (args.workspaceId === LC_SCHEDULER_WORKSPACE_ID) {
-    forbidden("LC스케줄러 워크스페이스는 삭제할 수 없습니다");
+    forbidden("스케줄러 워크스페이스는 삭제할 수 없습니다");
   }
   const row = await getWorkspaceRow(args.doc, args.tables, args.workspaceId);
   if (!row) return false;
@@ -519,7 +519,7 @@ export async function archiveWorkspace(args: {
 }): Promise<Workspace> {
   requireRoleAtLeast(args.caller, "leader");
   if (args.workspaceId === LC_SCHEDULER_WORKSPACE_ID) {
-    forbidden("LC스케줄러 워크스페이스는 보관할 수 없습니다");
+    forbidden("스케줄러 워크스페이스는 보관할 수 없습니다");
   }
   const row = await getWorkspaceRow(args.doc, args.tables, args.workspaceId);
   if (!row) notFound("워크스페이스 없음");
@@ -554,7 +554,7 @@ export async function restoreWorkspace(args: {
 }): Promise<Workspace> {
   requireRoleAtLeast(args.caller, "leader");
   if (args.workspaceId === LC_SCHEDULER_WORKSPACE_ID) {
-    forbidden("LC스케줄러 워크스페이스는 복원 대상이 아닙니다");
+    forbidden("스케줄러 워크스페이스는 복원 대상이 아닙니다");
   }
   const row = await getWorkspaceRow(args.doc, args.tables, args.workspaceId);
   if (!row) notFound("워크스페이스 없음");

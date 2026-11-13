@@ -509,7 +509,7 @@ export function SchedulerDatabaseTimeline({ mode, workspaceId }: Props) {
     () => new Set(timelineDateEntries.map((entry) => entry.columnId)),
     [timelineDateEntries],
   );
-  // 일반 DB 타임라인과 동일 규칙 — 설정 없으면 전체 표시. LC 스케줄러 DB도 컬럼 표시/순서를
+  // 일반 DB 타임라인과 동일 규칙 — 설정 없으면 전체 표시. 스케줄러 DB도 컬럼 표시/순서를
   // 동일하게 따른다(차이는 DB 삭제 불가뿐).
   const visibleTimelineColumnIdSet = useMemo(
     () =>
@@ -1060,7 +1060,7 @@ export function SchedulerDatabaseTimeline({ mode, workspaceId }: Props) {
                     viewKind="timeline"
                     panelState={bundle?.panelState ?? emptyPanelState()}
                     setPanelState={(patch) => patchDatabasePanelState(databaseId, patch)}
-                    // LC 스케줄러 모달(z-[500]) 내부라 팝오버가 뒤로 숨지 않도록 그 위 z-index 사용.
+                    // 스케줄러 모달(z-[500]) 내부라 팝오버가 뒤로 숨지 않도록 그 위 z-index 사용.
                     popoverZClassName="z-[560]"
                   />
                 </div>

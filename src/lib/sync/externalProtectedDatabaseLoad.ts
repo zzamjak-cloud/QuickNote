@@ -94,7 +94,7 @@ function hasScope(scope: DatabaseRowScope): boolean {
 
 /**
  * 행 로드 컨텍스트 — 전역 스케줄러 필터(org/team/project/멤버)를 적용할지 결정한다.
- * - "scheduler": LC 스케줄러 모달/타임라인. schedulerViewStore 의 현재 선택을 scope 로 적용.
+ * - "scheduler": 스케줄러 모달/타임라인. schedulerViewStore 의 현재 선택을 scope 로 적용.
  * - "inline": 인라인 DB 블록·풀페이지·피크 등. scope 없이(전체) 로드해 전역 필터에 끌려가지 않게 한다.
  * 기본값을 "inline"(scope 없음=전체)으로 두어, 누락(under-fetch)이 아니라 과다(over-fetch)가
  * 안전한 실패 모드가 되도록 한다. 스케줄러 경로만 명시적으로 "scheduler" 로 opt-in 한다.

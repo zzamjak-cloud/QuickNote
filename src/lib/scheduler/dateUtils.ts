@@ -1,4 +1,4 @@
-// LC 스케줄러 날짜 유틸 — 연간 그리드의 일 인덱스 계산.
+// 스케줄러 날짜 유틸 — 연간 그리드의 일 인덱스 계산.
 export function startOfDay(d: Date): Date {
   const x = new Date(d);
   x.setHours(0, 0, 0, 0);

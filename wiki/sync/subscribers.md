@@ -54,7 +54,7 @@ AppSync WebSocket 구독을 시작·관리하고, 인증 오류·네트워크 �
 
 ## 구독 수명주기 (호출측 — `Bootstrap.tsx`)
 구독을 **언제 열고 닫는지** 는 호출측이 결정한다(비용 직결). 회귀 주의:
-- **LC 스케줄러 구독은 스케줄러 팝업이 열려 있을 때만 유지**한다(`useSchedulerViewStore.schedulerOpen` 게이트). 공용 워크스페이스라 상시 구독하면 미사용 세션에서도 WebSocket 연결 시간이 과금된다. 닫혀 있는 동안의 변경분은 모달 진입 시 `fetchSchedules`·`refreshWorkspaceMeta`(증분)로 보정. → 상시 구독으로 되돌리지 말 것.
+- **스케줄러 구독은 스케줄러 팝업이 열려 있을 때만 유지**한다(`useSchedulerViewStore.schedulerOpen` 게이트). 공용 워크스페이스라 상시 구독하면 미사용 세션에서도 WebSocket 연결 시간이 과금된다. 닫혀 있는 동안의 변경분은 모달 진입 시 `fetchSchedules`·`refreshWorkspaceMeta`(증분)로 보정. → 상시 구독으로 되돌리지 말 것.
 - **커스텀 아이콘 구독은 페이로드를 직접 반영**한다 — 이벤트마다 `listCustomIcons` 전체 재페치 금지. `onCustomIconChanged` 페이로드의 `deletedAt` tombstone 으로 추가/삭제를 구분해 `useCustomIconStore.applyServerEvent(icon, !!icon.deletedAt)` 호출. (서버 `deleteCustomIcon` 이 `deletedAt` 을 채워 반환)
 - `onWorkspace` 는 권한 변경 신호(희소)라 수신 시 `listMyWorkspacesApi` 재페치 유지(정상).
 

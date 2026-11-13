@@ -11,7 +11,7 @@ export function shouldApplyRemoteSnapshot(remoteWorkspaceId: string | null | und
     console.warn("[sync] storeApply: workspaceId 없는 원격 항목은 적용하지 않음");
     return false;
   }
-  // LC 스케줄러는 공용 워크스페이스이므로 현재 선택 워크스페이스와 무관하게 반영한다.
+  // 스케줄러는 공용 워크스페이스이므로 현재 선택 워크스페이스와 무관하게 반영한다.
   if (remoteWorkspaceId === LC_SCHEDULER_WORKSPACE_ID) return true;
   const current = useWorkspaceStore.getState().currentWorkspaceId;
   if (!current) return true;

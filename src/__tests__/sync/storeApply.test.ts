@@ -440,7 +440,7 @@ describe("storeApply 워크스페이스 가드", () => {
     expect(usePageStore.getState().pages["pg-1"]?.title).toBe("KeepMe");
   });
 
-  it("증분 스냅샷에 없는(=변경되지 않은) 로컬 LC 스케줄러 행은 prune 하지 않는다", () => {
+  it("증분 스냅샷에 없는(=변경되지 않은) 로컬 스케줄러 행은 prune 하지 않는다", () => {
     // scoped/부분 로딩 방향: delta 에 없다고 살아있는 행을 지우면 안 된다.
     useWorkspaceStore.setState({ currentWorkspaceId: "personal-ws" });
     const dbId = makeLCSchedulerDatabaseId(LC_SCHEDULER_WORKSPACE_ID);
@@ -466,7 +466,7 @@ describe("storeApply 워크스페이스 가드", () => {
     useDatabaseStore.setState({
       databases: {
         [dbId]: {
-          meta: { id: dbId, title: "LC스케줄러", createdAt: old, updatedAt: old },
+          meta: { id: dbId, title: "스케줄러", createdAt: old, updatedAt: old },
           columns: [],
           rowPageOrder: ["unchanged-row"],
         },

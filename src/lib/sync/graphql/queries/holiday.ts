@@ -1,4 +1,4 @@
-// LC 스케줄러 공휴일용 GraphQL 쿼리/뮤테이션/서브스크립션 정의.
+// 스케줄러 공휴일용 GraphQL 쿼리/뮤테이션/서브스크립션 정의.
 export const HOLIDAY_FIELDS = `
   id workspaceId title date type color
   createdByMemberId createdAt updatedAt

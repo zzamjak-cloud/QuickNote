@@ -37,7 +37,7 @@ src/lib/sync/
 | `applyRemotePageMetasToStore` | `pageApply` | PageMeta 배치 적용 |
 | `applyRemoteDatabaseToStore` | `databaseApply` | GqlDatabase → databaseStore LWW 적용 |
 | `applyRemoteDatabasesToStore` | `databaseApply` | 배치 적용 |
-| `reconcileLCSchedulerRemoteSnapshot` | `storeApply.ts` | LC 스케줄러 증분 스냅샷 적용 전용 |
+| `reconcileLCSchedulerRemoteSnapshot` | `storeApply.ts` | 스케줄러 증분 스냅샷 적용 전용 |
 | `reconcileWorkspacePagesFullSnapshot` | `storeApply.ts` | 페이지 set-reconciliation(좀비 청소) — 전체 페이지 목록 필요 |
 | `reconcileWorkspaceDatabasesFullSnapshot` | `storeApply.ts` | DB 번들 set-reconciliation(좀비 청소) — DB 는 항상 전체 조회라 증분에서도 호출. 행 페이지는 건드리지 않음 |
 
@@ -98,7 +98,7 @@ reconcileWorkspaceDatabasesFullSnapshot({ workspaceId, remoteDatabaseIds, pendin
 1. `remoteIds`에 있는 id → 이미 `applyRemote*`가 처리, 건드리지 않음.
 2. `pendingUpsertIds`에 있는 id(outbox 대기 중) → 보호.
 3. 위 둘 모두 해당 없고 같은 워크스페이스 소속 → 좀비로 판정, 로컬 제거.
-4. LC 스케줄러(`isProtectedDatabaseId`) / 다른 워크스페이스 / 로컬 전용 id → 건드리지 않음.
+4. 스케줄러(`isProtectedDatabaseId`) / 다른 워크스페이스 / 로컬 전용 id → 건드리지 않음.
 
 ---
 

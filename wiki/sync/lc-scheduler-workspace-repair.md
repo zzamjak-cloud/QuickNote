@@ -1,7 +1,7 @@
-# LC 스케줄러 루트 DB 페이지 결손 복구
+# 스케줄러 루트 DB 페이지 결손 복구
 
 ## 역할
-LC 스케줄러 워크스페이스에서 보호 DB 정의와 row cache 는 남아 있는데 사이드바 루트 페이지만 빠진 캐시를 복구한다.
+스케줄러 워크스페이스에서 보호 DB 정의와 row cache 는 남아 있는데 사이드바 루트 페이지만 빠진 캐시를 복구한다.
 
 대상 루트 페이지:
 
@@ -32,7 +32,7 @@ LC 스케줄러 워크스페이스에서 보호 DB 정의와 row cache 는 남�
 - 제목이 `마일스톤 DB`, `피처 DB`, `작업 DB` 중 하나면 meta-only 페이지여도 존재로 인정한다.
 - 사용자가 제목을 바꾼 경우 첫 블록이 inline `databaseBlock` 이고 `databaseId` 가 필수 DB ID 중 하나면 존재로 인정한다.
 
-첫 `databaseBlock` 이 `layout: "fullPage"` 인 페이지는 루트 페이지 후보에서 제외한다. 풀페이지 DB 홈 페이지와 LC 스케줄러 사이드바 루트 페이지를 섞지 않기 위한 경계다.
+첫 `databaseBlock` 이 `layout: "fullPage"` 인 페이지는 루트 페이지 후보에서 제외한다. 풀페이지 DB 홈 페이지와 스케줄러 사이드바 루트 페이지를 섞지 않기 위한 경계다.
 
 ## Bootstrap 복구 흐름
 `Bootstrap.tsx` 의 워크스페이스 동기화 흐름에서 기존 cache repair 와 함께 검사한다.

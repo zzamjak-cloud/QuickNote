@@ -362,7 +362,7 @@ export async function upsertDatabase(args: {
   const workspaceId = typeof args.input.workspaceId === "string" ? args.input.workspaceId : "";
   const schedulerWorkspaceId = getLCSchedulerWorkspaceIdFromDatabaseId(id);
   if (schedulerWorkspaceId && schedulerWorkspaceId !== workspaceId) {
-    badRequest("LC스케줄러 DB ID와 워크스페이스가 일치하지 않습니다");
+    badRequest("스케줄러 DB ID와 워크스페이스가 일치하지 않습니다");
   }
   // rowPageOrder 는 Database 레코드에 저장하지 않는다(클라가 페이지의 databaseId 로 역추적).
   // 히스토리 스냅샷에만 싣기 위해 input 에서 분리·제거한 뒤, 아래 after 스냅샷에만 합친다.
@@ -579,7 +579,7 @@ export async function softDeleteDatabase(args: {
 }): Promise<Record<string, unknown>> {
   if (!args.tables.Databases) badRequest("Databases table 미설정");
   if (isLCSchedulerDatabaseId(args.id)) {
-    forbidden("LC스케줄러 데이터베이스는 삭제할 수 없습니다");
+    forbidden("스케줄러 데이터베이스는 삭제할 수 없습니다");
   }
   if (args.tables.DatabaseHistory) requireDatabaseHistoryOwnerKey(args.caller);
   const existing = await args.doc.send(

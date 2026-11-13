@@ -348,7 +348,7 @@ export function AdminWorkspacesTab() {
             if (!editingWorkspace) return;
             if (editingWorkspaceLocked) {
               showToast(
-                "LC스케줄러는 특수한 워크스페이스로 편집 또는 삭제할 수 없습니다.",
+                "스케줄러는 특수한 워크스페이스로 편집 또는 삭제할 수 없습니다.",
                 { kind: "info" },
               );
               return;
@@ -372,7 +372,7 @@ export function AdminWorkspacesTab() {
           onRequestDelete={() => {
             if (editingWorkspace.workspaceId === LC_SCHEDULER_WORKSPACE_ID) {
               showToast(
-                "LC스케줄러는 특수한 워크스페이스로 편집 또는 삭제할 수 없습니다.",
+                "스케줄러는 특수한 워크스페이스로 편집 또는 삭제할 수 없습니다.",
                 { kind: "info" },
               );
               return;
@@ -386,7 +386,7 @@ export function AdminWorkspacesTab() {
           }}
           lockedReason={
             editingWorkspaceLocked
-              ? "LC스케줄러는 특수한 워크스페이스로 편집 또는 삭제할 수 없습니다."
+              ? "스케줄러는 특수한 워크스페이스로 편집 또는 삭제할 수 없습니다."
               : undefined
           }
         />

@@ -210,14 +210,14 @@ describe("applyWorkspaceSwitch", () => {
     });
   });
 
-  it("LC 스케줄러 워크스페이스도 일반 페이지와 스케줄러 페이지/DB 스냅샷을 복원한다", async () => {
+  it("스케줄러 워크스페이스도 일반 페이지와 스케줄러 페이지/DB 스냅샷을 복원한다", async () => {
     usePageStore.setState({
       cacheWorkspaceId: LC_SCHEDULER_WORKSPACE_ID,
       activePageId: "lc-page-1",
       pages: {
         "lc-page-1": {
           id: "lc-page-1",
-          title: "LC 스케줄러",
+          title: "스케줄러",
           doc: {
             type: "doc",
             content: [
@@ -253,7 +253,7 @@ describe("applyWorkspaceSwitch", () => {
         "lc-scheduler-db:lc-scheduler-global": {
           meta: {
             id: "lc-scheduler-db:lc-scheduler-global",
-            title: "LC스케줄러",
+            title: "스케줄러",
             createdAt: 0,
             updatedAt: 0,
           },
@@ -279,7 +279,7 @@ describe("applyWorkspaceSwitch", () => {
     expect(useDatabaseStore.getState().databases["lc-scheduler-db:lc-scheduler-global"]).toBeDefined();
   });
 
-  it("LC 스케줄러 전환 클리어 시 현재 열린 스케줄러 행 페이지는 유지한다", () => {
+  it("스케줄러 전환 클리어 시 현재 열린 스케줄러 행 페이지는 유지한다", () => {
     usePageStore.setState({
       cacheWorkspaceId: "ws-1",
       activePageId: "scheduler-row-1",
@@ -320,7 +320,7 @@ describe("applyWorkspaceSwitch", () => {
         "lc-scheduler-db:lc-scheduler-global": {
           meta: {
             id: "lc-scheduler-db:lc-scheduler-global",
-            title: "LC스케줄러",
+            title: "스케줄러",
             createdAt: 0,
             updatedAt: 0,
           },
@@ -372,7 +372,7 @@ describe("applyWorkspaceSwitch", () => {
     expect(Object.keys(usePageStore.getState().pages).length).toBe(1);
   });
 
-  it("LC 스케줄러 공용 캐시만 있으면 현재 워크스페이스 prepaint 차단 대상으로 보지 않는다", () => {
+  it("스케줄러 공용 캐시만 있으면 현재 워크스페이스 prepaint 차단 대상으로 보지 않는다", () => {
     usePageStore.setState({
       cacheWorkspaceId: "lc-scheduler-global",
       pages: {
@@ -394,7 +394,7 @@ describe("applyWorkspaceSwitch", () => {
         "lc-scheduler-db:lc-scheduler-global": {
           meta: {
             id: "lc-scheduler-db:lc-scheduler-global",
-            title: "LC스케줄러",
+            title: "스케줄러",
             createdAt: 0,
             updatedAt: 0,
           },
@@ -407,7 +407,7 @@ describe("applyWorkspaceSwitch", () => {
     expect(workspaceCacheNeedsPrepaintClear("ws-1")).toBe(false);
   });
 
-  it("LC 스케줄러 루트 페이지만 남아 있으면 일반 워크스페이스 구조 캐시로 보지 않는다", () => {
+  it("스케줄러 루트 페이지만 남아 있으면 일반 워크스페이스 구조 캐시로 보지 않는다", () => {
     usePageStore.setState({
       cacheWorkspaceId: LC_SCHEDULER_WORKSPACE_ID,
       pages: {
@@ -430,7 +430,7 @@ describe("applyWorkspaceSwitch", () => {
     expect(workspaceCacheNeedsPrepaintClear("cat-workspace")).toBe(false);
   });
 
-  it("LC 스케줄러 공용 outbox 만 있으면 캐시 클리어 보류 사유에서 제외한다", async () => {
+  it("스케줄러 공용 outbox 만 있으면 캐시 클리어 보류 사유에서 제외한다", async () => {
     usePageStore.getState().createPage("a");
     usePageStore.setState({ cacheWorkspaceId: "ws-1" });
     setSnapshot([{ workspaceId: "lc-scheduler-global" }]);

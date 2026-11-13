@@ -50,7 +50,7 @@ AI 탐색용 위키 인덱스. 작업 전 해당 파일을 먼저 읽으면 소�
 | 앱 초기 로드 흐름 | `sync/Bootstrap.md` |
 | 워크스페이스 생성 저장 실패 후 새로고침하면 생성됨 | `workspace/overview.md` |
 | 새로고침/워크스페이스 전환 첫 인덱스 landing 회귀 | `workspace/overview.md` |
-| LC 스케줄러 루트 DB 페이지 결손·사이드바 복구 | `sync/lc-scheduler-workspace-repair.md` → `sync/Bootstrap.md` |
+| 스케줄러 루트 DB 페이지 결손·사이드바 복구 | `sync/lc-scheduler-workspace-repair.md` → `sync/Bootstrap.md` |
 | 워크스페이스 재페치 증분 동기화(워터마크) | `sync/incremental-sync.md` |
 | 페이지 본문 지연 로드(metaOnly) | `sync/page-content-load.md` |
 | 보호 DB 행 배치 로드 + scope(조직/팀/프로젝트/구성원) 서버 필터링 | `sync/external-protected-database-load.md` |
@@ -137,7 +137,7 @@ AI 탐색용 위키 인덱스. 작업 전 해당 파일을 먼저 읽으면 소�
 | `outbox.md` | IndexedDB outbox 디버깅 |
 | `conflict-resolution.md` | LWW 전략 개요 |
 | `Bootstrap.md` | 앱 초기 로드 흐름 |
-| `lc-scheduler-workspace-repair.md` | LC 스케줄러 루트 DB 페이지 결손 감지·세션당 1회 repair gate |
+| `lc-scheduler-workspace-repair.md` | 스케줄러 루트 DB 페이지 결손 감지·세션당 1회 repair gate |
 | `incremental-sync.md` | 증분 동기화(델타+워터마크)·회귀 규칙 |
 | `page-content-load.md` | 페이지 본문 지연 로드 |
 | `external-protected-database-load.md` | 외부 보호 DB 행 배치·페이지네이션 로드 |

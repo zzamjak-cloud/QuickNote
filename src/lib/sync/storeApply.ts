@@ -31,7 +31,7 @@ export {
 } from "./storeApply/databaseApply";
 
 /**
- * LC 스케줄러 워크스페이스의 증분(delta) 스냅샷을 적용한다.
+ * 스케줄러 워크스페이스의 증분(delta) 스냅샷을 적용한다.
  *
  * 과거에는 "전체 살아있는 목록을 받아 그에 없는 로컬 행을 prune" 했으나, 이는 scoped/부분 로딩
  * (필터 단위·범위 단위로만 가져오는 효율적 방향)과 양립하지 않는다. 부분만 로드한 상태에서
@@ -78,7 +78,7 @@ export function reconcileWorkspacePagesFullSnapshot(args: {
 
     for (const [pageId, page] of Object.entries(s.pages)) {
       if (!page) continue;
-      // LC 스케줄러·마일스톤·피처 DB 영역은 별도 흐름이므로 보호.
+      // 스케줄러·마일스톤·피처 DB 영역은 별도 흐름이므로 보호.
       if (page.databaseId && isProtectedDatabaseId(page.databaseId)) continue;
       const pageWs = page.workspaceId;
       // 페이지가 다른 워크스페이스 또는 미지정이면 건드리지 않음.
@@ -118,7 +118,7 @@ export function reconcileWorkspacePagesFullSnapshot(args: {
  * 규칙:
  * 1) `remoteDatabaseIds` 에 있으면 서버에 살아있음 → 보존.
  * 2) `pendingUpsertDatabaseIds` (outbox 업로드 대기) → 보존.
- * 3) LC 스케줄러·보호 DB / 다른 워크스페이스 DB → 보존.
+ * 3) 스케줄러·보호 DB / 다른 워크스페이스 DB → 보존.
  * 4) 위에 모두 해당 없으면 서버에서 사라진 좀비 → 로컬 DB 번들 + 템플릿만 제거.
  *
  * 주의: 그 DB 의 **행 페이지는 건드리지 않는다**. 행 페이지 meta 는 멘션·페이지링크가 아이콘/이동을
@@ -149,7 +149,7 @@ export function reconcileWorkspaceDatabasesFullSnapshot(args: {
 
     for (const [dbId, bundle] of Object.entries(s.databases)) {
       if (!bundle) continue;
-      // LC 스케줄러·마일스톤·피처 DB 는 별도 흐름.
+      // 스케줄러·마일스톤·피처 DB 는 별도 흐름.
       if (isProtectedDatabaseId(dbId)) continue;
       const bundleWs = bundle.meta.workspaceId;
       if (bundleWs && bundleWs !== workspaceId) continue;

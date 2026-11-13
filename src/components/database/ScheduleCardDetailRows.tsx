@@ -1,4 +1,4 @@
-// 모든 일정 카드(LC 스케줄러 + 일반 DB 타임라인) 공용 호버 툴팁 상세 행.
+// 모든 일정 카드(스케줄러 + 일반 DB 타임라인) 공용 호버 툴팁 상세 행.
 // 카드 라벨과 동일하게 viewConfigs.timeline 표시 설정을 따르되, 툴팁은 "컬럼명: 값" 세로 목록으로 렌더한다.
 import { useMemo } from "react";
 import { usePageStore } from "../../store/pageStore";

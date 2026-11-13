@@ -57,7 +57,7 @@ beforeEach(() => {
 });
 
 describe("externalProtectedDatabaseLoad", () => {
-  it("LC 스케줄러 DB id를 canonical id로 해석한다", () => {
+  it("스케줄러 DB id를 canonical id로 해석한다", () => {
     expect(resolveExternalProtectedDatabaseId(makeLCSchedulerDatabaseId("legacy-ws"))).toBe(
       LC_SCHEDULER_DATABASE_ID,
     );
@@ -199,7 +199,7 @@ describe("externalProtectedDatabaseLoad", () => {
     expect(protectedDatabaseRowsAreCached(LC_SCHEDULER_DATABASE_ID)).toBe(false);
   });
 
-  it("홈 워크스페이스(LC 스케줄러) 내부에서도 row 콘텐츠를 listDatabaseRows 로 적재한다", async () => {
+  it("홈 워크스페이스(스케줄러) 내부에서도 row 콘텐츠를 listDatabaseRows 로 적재한다", async () => {
     const updatedAt = "2026-06-04T00:00:00.000Z";
     fetchDatabaseByIdMock.mockResolvedValue({
       id: LC_SCHEDULER_DATABASE_ID,

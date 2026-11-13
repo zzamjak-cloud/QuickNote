@@ -1,7 +1,7 @@
 # schedulerStore
 
 ## 역할
-LC 스케줄러(일정 캘린더)의 일정 데이터를 관리하는 스토어. persist로 로컬 캐시를 유지하여 초기 로딩 시 빈 화면을 방지한다.
+스케줄러(일정 캘린더)의 일정 데이터를 관리하는 스토어. persist로 로컬 캐시를 유지하여 초기 로딩 시 빈 화면을 방지한다.
 
 ## 위치
 `src/store/schedulerStore.ts`
@@ -70,9 +70,9 @@ LC 스케줄러(일정 캘린더)의 일정 데이터를 관리하는 스토어.
 - `src/components/scheduler/LCSchedulerModal.tsx` — 모달 진입 시 `fetchSchedules` 호출(useEffect). 작업 탭: `ScheduleGrid`(연)/`ScheduleRangeView`(주·월). 마일스톤/피처 탭: `SchedulerDatabaseTimeline`.
 - 작업 탭 그리드는 `schedulerStore.schedules` + `useVisibleMembers()`(멤버 행)를 읽는다.
 
-## LC 스케줄러 range index 계약
+## 스케줄러 range index 계약
 
-LC 스케줄러 작업 탭의 source of truth는 작업 DB page다. `Schedules` DynamoDB 테이블은 빠른 range 조회를 위한 read index일 뿐이며, 타임라인에서 수정, 삭제, 드래그 가능한 작업 카드로 투영하려면 반드시 작업 DB page와 연결되어야 한다.
+스케줄러 작업 탭의 source of truth는 작업 DB page다. `Schedules` DynamoDB 테이블은 빠른 range 조회를 위한 read index일 뿐이며, 타임라인에서 수정, 삭제, 드래그 가능한 작업 카드로 투영하려면 반드시 작업 DB page와 연결되어야 한다.
 
 `fetchScheduleRange` 응답을 `schedulerStore.schedules`에 넣을 때 다음 조건을 만족하는 record만 허용한다.
 

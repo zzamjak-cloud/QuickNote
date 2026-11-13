@@ -17,7 +17,7 @@
 
 ### 공개 워크스페이스 교차 멘션/링크/피크
 
-공개(`Workspace.access` 에 `EVERYONE` view/edit) shared 워크스페이스의 페이지·DB를 현재 워크스페이스에서 멘션·링크·연결할 수 있다. 팀/멤버 전용 통제 워크스페이스와 LC 스케줄러 공용 워크스페이스는 교차 후보에서 제외한다(`isPublicCrossWorkspace`, `src/lib/crossWorkspaceSearch.ts`).
+공개(`Workspace.access` 에 `EVERYONE` view/edit) shared 워크스페이스의 페이지·DB를 현재 워크스페이스에서 멘션·링크·연결할 수 있다. 팀/멤버 전용 통제 워크스페이스와 스케줄러 공용 워크스페이스는 교차 후보에서 제외한다(`isPublicCrossWorkspace`, `src/lib/crossWorkspaceSearch.ts`).
 
 **후보 로딩 (`crossWorkspaceSearch.ts`)**
 - `loadCrossWorkspacePageCandidates` / `loadCrossWorkspaceDatabaseCandidates` = 로컬 + 공개 외부 워크스페이스. 외부 로딩은 워크스페이스별 `Promise.allSettled` 격리 — 한 곳이 실패해도 로컬+나머지는 유지(picker 가 통째로 비지 않음).
@@ -73,7 +73,7 @@ TipTap `Link` 는 `openOnClick: false`(`useEditorExtensions.ts`) — 편집 중 
 - 복원: `App.tsx` 의 `popstate`/`hashchange` 리스너 `applyLocationLink` 가 URL 의 `?page` 를 읽어 `setActivePage` + `setCurrentTabPage` **직접 호출**(헬퍼 미사용 → 재push 없음).
 - 초기 진입 URL 에 `?page` 가 있으면 기존 탭/마지막 페이지가 URL 을 덮지 못하게 pending target 으로 잡고, page meta 가 아직 로드 전이면 최대 20초 동안 store 구독으로 대기한 뒤 연다.
 - 마운트 시 URL 에 `?page` 가 없으면 현재 활성 페이지를 `replaceState` 로 초기 히스토리 엔트리에 기록 → 첫 뒤로가기가 시작 페이지로 정확히 복귀.
-- LC 스케줄러 모달(`TabBar.tsx`)은 열릴 때 현재 URL 위에 `qnLCSchedulerModal` history entry 를 하나 쌓는다. 브라우저 뒤로가기는 이 entry 를 소비해 모달만 닫고 앱 밖으로 나가지 않는다.
+- 스케줄러 모달(`TabBar.tsx`)은 열릴 때 현재 URL 위에 `qnLCSchedulerModal` history entry 를 하나 쌓는다. 브라우저 뒤로가기는 이 entry 를 소비해 모달만 닫고 앱 밖으로 나가지 않는다.
 
 > **회귀 주의**
 > - popstate 복원 경로는 `openPageInCurrentTab` 을 **쓰지 말 것**(직접 setter 사용). 안 그러면 pushState 재진입 루프.

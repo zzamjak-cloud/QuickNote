@@ -1,4 +1,4 @@
-// 모든 일정 카드(LC 스케줄러 작업·마일스톤·피처 + 일반 DB 타임라인) 공용 보조 속성 라벨.
+// 모든 일정 카드(스케줄러 작업·마일스톤·피처 + 일반 DB 타임라인) 공용 보조 속성 라벨.
 // 원본 DB 행의 cells + viewConfigs.timeline 표시 설정대로 컬럼을 나열하고,
 // 개별 속성은 잘리지 않은 채(`whitespace-nowrap`) 카드 너비에서만 클리핑한다.
 import { useMemo, type CSSProperties } from "react";

@@ -1,6 +1,6 @@
 # 외부/보호 DB 행 배치 로드 + scope 필터링
 
-LC 스케줄러 워크스페이스에 속한 보호 DB(작업·마일스톤·피처)의 행(row)을 배치 + 페이지네이션으로 지연 로드하고, **조직/팀/프로젝트/구성원 scope로 서버 필터링**하는 메커니즘.
+스케줄러 워크스페이스에 속한 보호 DB(작업·마일스톤·피처)의 행(row)을 배치 + 페이지네이션으로 지연 로드하고, **조직/팀/프로젝트/구성원 scope로 서버 필터링**하는 메커니즘.
 
 > **scope A안 적용 (2026-06)**: `DatabaseRowLoadContext` 타입 도입 + 인라인 DB 전역 scope 오염 버그 수정 + 스케줄러 피처 "inline" 로드 분리.
 
@@ -133,7 +133,7 @@ const milestoneRowIndexKey = resolveDatabaseRowRemoteKey(milestoneDatabaseId, wo
 - `complete=true` row index는 서버 최신 상태의 영구 보증이 아니다. 캐시는 stale-while-revalidate 용도로 즉시 렌더하고, 새 뷰 마운트의 `viewLoadToken`은 반드시 첫 row batch를 다시 확인해야 한다. 동일 마운트의 row order 변경만 토큰으로 dedupe 한다.
 - in-flight 요청은 시작한 뷰의 `cancelled` 결과를 다른 뷰가 완료로 오인하면 안 된다. 합류 호출은 해당 **요청 시도 토큰**이 실제 완료 표시됐는지 확인하고, 선행 뷰 cleanup으로 취소된 시도라면 새 요청을 실행한다. 반대로 합류한 소비자 자체가 대기 중 취소되면 그 소비자의 `viewLoadToken`은 완료 처리하지 않는다.
 - `loadContext`가 다르면 `compositeKey`도 달라진다. 로드 측과 읽기 측의 `loadContext`가 불일치하면 캐시 miss → 무한로드 또는 빈 뷰. 피처 타임라인에서 `rowIndexKey` 산출 시 반드시 `"inline"` 사용.
-- 홈 워크스페이스(LC 스케줄러) 내부에서도 로드한다(과거엔 skip 했음). 메타 baseline 이 row 콘텐츠를 안 내려주기 때문.
+- 홈 워크스페이스(스케줄러) 내부에서도 로드한다(과거엔 skip 했음). 메타 baseline 이 row 콘텐츠를 안 내려주기 때문.
 - scope 하 "더 보기" 페이지네이션은 `DatabaseBlockView` 가 databaseId 키로만 nextToken 을 읽어 제한적 — scope 지정 시 1회 로드로 단순화. (후속 개선 여지)
 - toolbar 에 서버 데이터 강제 refresh 버튼을 두지 않는다. row index 전체 캐시 이후에는 실수로 전체 row를 다시 받는 UI가 비용·성능 리스크가 된다.
 - cached-only row 를 열 때는 `useOpenDatabaseRow`/`useEnsureDatabaseRowContent`가 `ensurePageContentLoaded`를 먼저 호출해야 한다. 실패 시 placeholder row가 있어도 피커뷰를 열지 않는다.

@@ -370,7 +370,7 @@ function useSyncBootstrap(): void {
         if (!cancelled && oneTimeWorkspaceCacheRepair) {
           markWorkspaceCacheRepaired(currentWorkspaceId);
         }
-        // LC 스케줄러 워크스페이스 데이터는 CAT 등 다른 워크스페이스 진입 시 미리 끌어오지 않는다.
+        // 스케줄러 워크스페이스 데이터는 CAT 등 다른 워크스페이스 진입 시 미리 끌어오지 않는다.
         // 외부 DB/row page 는 사용자가 실제로 열 때 캐시 결손만 보정해야 한다.
 
         if (cancelled) return;
@@ -416,7 +416,7 @@ function useSyncBootstrap(): void {
               });
           },
         });
-        // LC 스케줄러 구독은 스케줄러 팝업이 열려 있을 때만 유지한다(#8 — 아래 별도 effect).
+        // 스케줄러 구독은 스케줄러 팝업이 열려 있을 때만 유지한다(#8 — 아래 별도 effect).
         // 닫혀 있는 동안의 변경분은 모달 진입 시 fetchSchedules/refreshWorkspaceMeta(증분)로 보정된다.
 
         const engine = await getSyncEngine();
@@ -512,14 +512,14 @@ function useSyncBootstrap(): void {
     };
   }, [authStatus, authSub, currentWorkspaceId]);
 
-  // LC 스케줄러 구독은 스케줄러 팝업이 열려 있을 때만 유지한다(#8).
+  // 스케줄러 구독은 스케줄러 팝업이 열려 있을 때만 유지한다(#8).
   // 공용 워크스페이스라 상시 구독하면 미사용 세션에서도 AppSync WebSocket 연결 시간이 과금된다.
   // 닫혀 있는 동안의 변경분은 모달 진입 시 fetchSchedules·refreshWorkspaceMeta(증분)로 보정된다.
   const schedulerOpen = useSchedulerViewStore((s) => s.schedulerOpen);
   useEffect(() => {
     if (authStatus !== "authenticated" || !authSub || !currentWorkspaceId) return;
     if (!schedulerOpen) return;
-    // 현재 워크스페이스가 이미 LC 스케줄러면 메인 구독이 커버하므로 중복 구독하지 않는다.
+    // 현재 워크스페이스가 이미 스케줄러면 메인 구독이 커버하므로 중복 구독하지 않는다.
     if (currentWorkspaceId === LC_SCHEDULER_WORKSPACE_ID) return;
     const refreshSchedulerPage = (pageId: string) => {
       useSchedulerStore

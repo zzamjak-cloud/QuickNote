@@ -1,4 +1,4 @@
-// LC 스케줄러 풀스크린 모달 — createPortal, 뷰 모드 라우팅.
+// 스케줄러 풀스크린 모달 — createPortal, 뷰 모드 라우팅.
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { useSchedulerStore } from "../../store/schedulerStore";

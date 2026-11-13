@@ -1,4 +1,4 @@
-// LC 스케줄러 공휴일 스토어 — persist 미들웨어로 로컬 캐시 유지.
+// 스케줄러 공휴일 스토어 — persist 미들웨어로 로컬 캐시 유지.
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import {

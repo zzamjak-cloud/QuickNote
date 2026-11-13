@@ -1,4 +1,4 @@
-// LC 스케줄러 일정 데이터를 보관·동기화하는 Zustand 스토어.
+// 스케줄러 일정 데이터를 보관·동기화하는 Zustand 스토어.
 // persist 미들웨어로 로컬 캐시를 유지하여 초기 로딩 시 빈 화면 방지.
 import { create } from "zustand";
 import { persist } from "zustand/middleware";

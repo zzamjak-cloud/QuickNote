@@ -44,13 +44,13 @@ export type Tables = {
   Organizations?: string;
   /** 멤버-조직 관계 테이블 (memberId PK, organizationId SK) */
   MemberOrganizations?: string;
-  /** LC 스케줄러 일정 테이블 */
+  /** 스케줄러 일정 테이블 */
   Schedules?: string;
-  /** LC 스케줄러 프로젝트 테이블 */
+  /** 스케줄러 프로젝트 테이블 */
   Projects?: string;
-  /** LC 스케줄러 공휴일 테이블 */
+  /** 스케줄러 공휴일 테이블 */
   Holidays?: string;
-  /** LC 스케줄러 주간 MM 원본/리비전 테이블 */
+  /** 스케줄러 주간 MM 원본/리비전 테이블 */
   MmEntries?: string;
   /** 이미지/파일 자산 메타 테이블 (image-presign 과 공용) */
   ImageAssets?: string;

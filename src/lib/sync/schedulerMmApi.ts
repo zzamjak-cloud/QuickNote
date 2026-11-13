@@ -1,4 +1,4 @@
-// LC 스케줄러 M/M(맨먼스) AppSync 호출 — store 에서 분리(5.1).
+// 스케줄러 M/M(맨먼스) AppSync 호출 — store 에서 분리(5.1).
 // 호출 형태는 보존(직접 graphql, outbox 비경유). 요청 shaping(bucketToInput 등)은 전송 관심사라 여기 둔다.
 // store 는 이 함수를 호출하고 응답 정규화(normalizeEntry)·낙관적 캐시를 담당.
 import { appsyncClient } from "./graphql/client";

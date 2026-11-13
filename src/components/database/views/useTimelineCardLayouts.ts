@@ -105,7 +105,7 @@ export function useTimelineCardLayouts(params: {
         rowHasScheduledCard = true;
       }
       // 날짜가 하나도 지정되지 않은 행 → 미등록(흰색) 카드 1개를 항목열 우측에 표시한다.
-      // (날짜 컬럼이 여러 개여도 항상 표시 — LC 스케줄러 타임라인과 동일 동작)
+      // (날짜 컬럼이 여러 개여도 항상 표시 — 스케줄러 타임라인과 동일 동작)
       if (!rowHasScheduledCard) {
         const entry =
           timelineDateEntries.find((e) => e.isPrimary) ?? timelineDateEntries[0];

@@ -97,7 +97,7 @@ function LCSchedulerModalFallback({ onClose }: { onClose: () => void }) {
       <div className="bg-white dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800 px-6 py-3 flex items-center justify-between flex-shrink-0">
         <div className="flex items-center gap-2">
           <h1 className="text-xl font-bold text-zinc-900 dark:text-zinc-100">
-            LC 스케줄러
+            스케줄러
           </h1>
           <span className="text-sm text-zinc-500">일정</span>
         </div>
@@ -393,7 +393,7 @@ export function TabBar() {
         style={{ backgroundColor: "#edac46" }}
         className="ml-1 inline-flex h-6 shrink-0 items-center rounded px-2 text-xs font-semibold text-white hover:opacity-90"
       >
-        LC 스케줄러
+        스케줄러
       </button>
       <div
         className="ml-1 flex items-center gap-1 rounded-md border border-zinc-200 bg-white p-0.5 dark:border-zinc-700 dark:bg-zinc-900"

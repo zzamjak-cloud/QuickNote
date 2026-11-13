@@ -98,7 +98,7 @@ rank 는 `_auth.ts` `ROLE_RANK`(developer 5 > owner 4 > leader 3 > manager 2 > m
 
 ## 워크스페이스 MCP 허용 정책
 
-- Workspace `mcpPolicy: "disabled" | "read" | "readWrite"`(미설정 = readWrite, 정책 도입 전 동작). `setWorkspaceMcpPolicy(workspaceId, policy)` — 공유 워크스페이스는 **MCP 관리자(developer·owner)**, **개인 워크스페이스는 소유자 본인만**(역할 무관), LC 스케줄러 가상 WS 는 거부. 개인 판별은 `type` 이 있으면 그 값, 없는 레거시 행은 personalWorkspaceId 매칭(호출자 본인 또는 소유자 멤버의 personalWorkspaceId)으로 한다.
+- Workspace `mcpPolicy: "disabled" | "read" | "readWrite"`(미설정 = readWrite, 정책 도입 전 동작). `setWorkspaceMcpPolicy(workspaceId, policy)` — 공유 워크스페이스는 **MCP 관리자(developer·owner)**, **개인 워크스페이스는 소유자 본인만**(역할 무관), 스케줄러 가상 WS 는 거부. 개인 판별은 `type` 이 있으면 그 값, 없는 레거시 행은 personalWorkspaceId 매칭(호출자 본인 또는 소유자 멤버의 personalWorkspaceId)으로 한다.
 - 시행(MCP 서버 `workspacePolicy.ts` → `access.ts`·`writeAccess.ts`):
   - `disabled`: MCP 에서 존재하지 않는 것처럼 — list_workspaces·search 대상에서 빠지고 fetch·query·get_comments·get_users(워크스페이스 지정) 등 직접 접근은 not found. PAT 발급 시 범위로도 고를 수 없다(서버 거부).
   - `read`: 모든 쓰기 툴이 `workspace MCP policy is read-only`. list_workspaces 결과에 `mcpPolicy: "read"`.

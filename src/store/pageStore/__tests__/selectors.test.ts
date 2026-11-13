@@ -109,7 +109,7 @@ describe("pageStore/selectors", () => {
 
     it("일반 워크스페이스에서는 workspaceId 없는 LC 보호 DB 루트 페이지를 제외한다", () => {
       const store = makeStore([
-        makePage("lc", "LC스케줄러", null, 0, {
+        makePage("lc", "스케줄러", null, 0, {
           doc: {
             type: "doc",
             content: [

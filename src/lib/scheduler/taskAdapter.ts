@@ -388,11 +388,11 @@ export async function createLCSchedulerSchedule(input: CreateScheduleInput): Pro
 export async function updateLCSchedulerSchedule(input: UpdateScheduleInput): Promise<Schedule> {
   const schedulerWorkspaceId = resolveLCSchedulerWorkspaceId(input.workspaceId);
   const parsed = parseScheduleInstanceId(input.id);
-  if (!parsed) throw new Error("LC스케줄러 카드 ID가 올바르지 않습니다");
+  if (!parsed) throw new Error("스케줄러 카드 ID가 올바르지 않습니다");
   const databaseId = makeLCSchedulerDatabaseId(schedulerWorkspaceId);
   const page = usePageStore.getState().pages[parsed.pageId];
   if (!page || page.databaseId !== databaseId) {
-    throw new Error("LC스케줄러 행 페이지를 찾을 수 없습니다");
+    throw new Error("스케줄러 행 페이지를 찾을 수 없습니다");
   }
 
   if (input.title !== undefined && input.title !== null) {
@@ -455,14 +455,14 @@ export async function updateLCSchedulerSchedule(input: UpdateScheduleInput): Pro
       ? makeScheduleInstanceId(page.id, input.assigneeId)
       : input.id
   ));
-  if (!schedule) throw new Error("LC스케줄러 카드 투영에 실패했습니다");
+  if (!schedule) throw new Error("스케줄러 카드 투영에 실패했습니다");
   return schedule;
 }
 
 export async function deleteLCSchedulerSchedule(id: string, workspaceId: string): Promise<void> {
   const schedulerWorkspaceId = resolveLCSchedulerWorkspaceId(workspaceId);
   const parsed = parseScheduleInstanceId(id);
-  if (!parsed) throw new Error("LC스케줄러 카드 ID가 올바르지 않습니다");
+  if (!parsed) throw new Error("스케줄러 카드 ID가 올바르지 않습니다");
   const databaseId = makeLCSchedulerDatabaseId(schedulerWorkspaceId);
   markDeletedSchedulePage(parsed.pageId);
   useDatabaseStore.getState().deleteRow(databaseId, parsed.pageId);

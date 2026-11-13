@@ -26,7 +26,7 @@ type WorkspaceSnapshot = {
 };
 
 const workspaceSnapshotById = new Map<string, WorkspaceSnapshot>();
-// v3: 구버전 clearWorkspaceScopedStores 버그로 LC 스케줄러 루트 페이지가 빠진 채
+// v3: 구버전 clearWorkspaceScopedStores 버그로 스케줄러 루트 페이지가 빠진 채
 // persist 된 스냅샷을 일괄 무효화한다. 키가 바뀌면 부팅 시 복원할 캐시가 없어
 // full 재페치(no-cache)가 강제되어 서버 권위 데이터로 자기복구된다.
 const WORKSPACE_SNAPSHOT_KEY_PREFIX = "quicknote.workspace.snapshot.v3:";
@@ -357,7 +357,7 @@ function filterPagesForWorkspaceSnapshot(
   pages: WorkspaceSnapshot["pages"],
 ): WorkspaceSnapshot["pages"] {
   if (workspaceId === LC_SCHEDULER_WORKSPACE_ID) {
-    // LC스케줄러 스냅샷은 반드시 LC스케줄러 소속 페이지만 포함.
+    // 스케줄러 스냅샷은 반드시 스케줄러 소속 페이지만 포함.
     // workspaceId 가 명시적으로 lc-scheduler-global 이거나
     // databaseId 가 스케줄러 DB인 행 페이지를 허용한다.
     // 과거 캐시에는 workspaceId 가 없는 일반 LC 페이지가 남아 있을 수 있어 함께 보존한다.
@@ -370,7 +370,7 @@ function filterPagesForWorkspaceSnapshot(
       ),
     );
   }
-  // 다른 워크스페이스 스냅샷에는 LC스케줄러 전용 페이지를 포함하지 않는다.
+  // 다른 워크스페이스 스냅샷에는 스케줄러 전용 페이지를 포함하지 않는다.
   return Object.fromEntries(
     Object.entries(pages).filter(
       ([, page]) =>
@@ -733,7 +733,7 @@ export async function applyWorkspaceSwitch(
     const snapshot = (await engine.debugSnapshot()) as Array<{ workspaceId?: string | null }>;
     pending = snapshot.filter((entry) => {
       const ws = typeof entry.workspaceId === "string" ? entry.workspaceId : null;
-      // LC 스케줄러 공용 outbox 항목은 일반 워크스페이스 캐시 전환 보류 사유에서 제외한다.
+      // 스케줄러 공용 outbox 항목은 일반 워크스페이스 캐시 전환 보류 사유에서 제외한다.
       if (ws === LC_SCHEDULER_WORKSPACE_ID) return false;
       return true;
     }).length;

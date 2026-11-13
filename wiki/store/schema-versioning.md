@@ -56,6 +56,6 @@ location.reload();
 - 손상된 스냅샷을 전 사용자에게서 일괄 무효화하려면 prefix 의 버전을 올린다(예: `v2:`→`v3:`).
 - 키가 바뀌면 부팅 시 복원할 캐시가 없어 `structureCacheAvailable=false` → `resolveWorkspaceRemoteFetchMode`
   가 **full(no-cache)** 을 강제 → 서버 권위 데이터로 자기복구된다. migrate 함수 불필요.
-- 실제 사례: 구버전 `clearWorkspaceScopedStores` 버그로 LC 스케줄러 루트/일정 페이지가 빠진 채
+- 실제 사례: 구버전 `clearWorkspaceScopedStores` 버그로 스케줄러 루트/일정 페이지가 빠진 채
   persist 된 스냅샷이 delta 경로에서 영영 복구되지 않던 문제를 `v2→v3` bump 으로 해결.
 - 구 `v2:` 잔여 키는 IDB LRU prune 으로 자연 정리됨.

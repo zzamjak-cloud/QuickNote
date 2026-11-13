@@ -1,4 +1,4 @@
-// LC 스케줄러 공휴일 AppSync 호출 — store 에서 분리(5.1).
+// 스케줄러 공휴일 AppSync 호출 — store 에서 분리(5.1).
 // 호출 형태는 보존(직접 graphql, outbox 비경유). store 는 이 함수를 호출하고 캐시·정규화를 담당.
 import { appsyncClient } from "./graphql/client";
 import {

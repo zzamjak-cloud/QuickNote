@@ -243,7 +243,7 @@ describe("SyncEngine", () => {
     ]);
   });
 
-  it("LC스케줄러 DB 삭제 mutation 은 enqueue 하지 않는다", async () => {
+  it("스케줄러 DB 삭제 mutation 은 enqueue 하지 않는다", async () => {
     const outbox = new MemoryOutboxAdapter();
     const gql = makeGql();
     const engine = new SyncEngine(outbox, gql);
@@ -257,7 +257,7 @@ describe("SyncEngine", () => {
     expect(gql.calls).toEqual([]);
   });
 
-  it("이미 outbox 에 남은 LC스케줄러 DB 삭제 mutation 은 성공 처리로 제거한다", async () => {
+  it("이미 outbox 에 남은 스케줄러 DB 삭제 mutation 은 성공 처리로 제거한다", async () => {
     const outbox = new MemoryOutboxAdapter();
     const gql = makeGql();
     const engine = new SyncEngine(outbox, gql);

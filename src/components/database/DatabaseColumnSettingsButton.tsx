@@ -29,7 +29,7 @@ type Props = {
   layout?: "inline" | "fullPage";
   /**
    * 팝오버 z-index Tailwind 클래스. 기본 z-[320].
-   * LC 스케줄러처럼 z-[500] 모달 내부에서 띄울 때는 그 위 값을 넘겨 뒤로 숨지 않게 한다.
+   * 스케줄러처럼 z-[500] 모달 내부에서 띄울 때는 그 위 값을 넘겨 뒤로 숨지 않게 한다.
    */
   popoverZClassName?: string;
 };

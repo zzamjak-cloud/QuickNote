@@ -155,7 +155,7 @@ export function SchedulerGuideModal({ onClose }: Props) {
         <div className="flex items-center justify-between border-b border-zinc-200 px-5 py-4 dark:border-zinc-800">
           <div>
             <h2 id="lc-scheduler-guide-title" className="text-lg font-semibold text-zinc-950 dark:text-zinc-50">
-              LC스케줄러 사용가이드
+              스케줄러 사용가이드
             </h2>
             <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
               처음 접근한 사용자가 일정 구조와 입력 흐름을 빠르게 이해할 수 있도록 정리했습니다.

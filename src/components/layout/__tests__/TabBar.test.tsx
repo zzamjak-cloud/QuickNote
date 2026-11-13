@@ -57,7 +57,7 @@ describe("TabBar", () => {
     expect(useWorkspaceStore.getState().currentWorkspaceId).not.toBe(LC_SCHEDULER_WORKSPACE_ID);
   });
 
-  it("LC 스케줄러 모달이 열려 있으면 브라우저 뒤로가기로 앱을 벗어나지 않고 모달만 닫는다", async () => {
+  it("스케줄러 모달이 열려 있으면 브라우저 뒤로가기로 앱을 벗어나지 않고 모달만 닫는다", async () => {
     useSchedulerViewStore.setState({ schedulerOpen: true });
 
     render(<TabBar />);

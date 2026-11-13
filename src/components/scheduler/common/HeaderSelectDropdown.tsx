@@ -1,4 +1,4 @@
-// LC 스케줄러 헤더(컴팩트)용 소형 선택 드롭다운 — 네이티브 select 대체.
+// 스케줄러 헤더(컴팩트)용 소형 선택 드롭다운 — 네이티브 select 대체.
 // 퀵노트 팝업 규약에 따라 useAnchoredPopover 로 버튼 아래 1차 배치 + 화면 클리핑 방지(플립·클램프).
 import { createPortal } from "react-dom";
 import { ChevronDown } from "lucide-react";
@@ -50,7 +50,7 @@ export function HeaderSelectDropdown<T extends string>({
             ref={popoverRef}
             role="listbox"
             aria-label={ariaLabel}
-            // LC 스케줄러 모달(z-[500]) 내부에서도 가려지지 않도록 z-[560]
+            // 스케줄러 모달(z-[500]) 내부에서도 가려지지 않도록 z-[560]
             className="fixed z-[560] rounded-md border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 py-1 shadow-xl"
             style={{ top: coords.top, left: coords.left, width: menuWidth }}
           >

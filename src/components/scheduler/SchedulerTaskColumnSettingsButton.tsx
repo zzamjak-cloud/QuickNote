@@ -16,7 +16,7 @@ export function SchedulerTaskColumnSettingsButton({ workspaceId }: { workspaceId
       viewKind="timeline"
       panelState={bundle.panelState ?? emptyPanelState()}
       setPanelState={(patch) => patchDatabasePanelState(databaseId, patch)}
-      // LC 스케줄러 모달(z-[500]) 내부라 팝오버가 뒤로 숨지 않도록 그 위 z-index 사용.
+      // 스케줄러 모달(z-[500]) 내부라 팝오버가 뒤로 숨지 않도록 그 위 z-index 사용.
       popoverZClassName="z-[560]"
     />
   );

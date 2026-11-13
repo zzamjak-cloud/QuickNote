@@ -1,4 +1,4 @@
-// LC 스케줄러 헤더 — 뷰 모드 탭 + 조직/팀/프로젝트 선택 + 설정 버튼 + 닫기 버튼.
+// 스케줄러 헤더 — 뷰 모드 탭 + 조직/팀/프로젝트 선택 + 설정 버튼 + 닫기 버튼.
 import { useState, useEffect, useMemo } from "react";
 import { Calendar, X, Settings, CalendarCheck } from "lucide-react";
 import { useSchedulerViewStore } from "../../store/schedulerViewStore";
@@ -113,20 +113,20 @@ export function SchedulerHeader({ onClose }: Props) {
 
   // 헤더 타이틀 계산
   const headerTitle = (() => {
-    if (!selectedProjectId) return "LC 스케줄러";
+    if (!selectedProjectId) return "스케줄러";
     if (selectedProjectId.startsWith("org:")) {
       const id = selectedProjectId.slice(4);
-      return organizations.find((o) => o.organizationId === id)?.name ?? "LC 스케줄러";
+      return organizations.find((o) => o.organizationId === id)?.name ?? "스케줄러";
     }
     if (selectedProjectId.startsWith("team:")) {
       const id = selectedProjectId.slice(5);
-      return teams.find((t) => t.teamId === id)?.name ?? "LC 스케줄러";
+      return teams.find((t) => t.teamId === id)?.name ?? "스케줄러";
     }
     if (selectedProjectId.startsWith("proj:")) {
       const id = selectedProjectId.slice(5);
-      return projects.find((p) => p.id === id)?.name ?? "LC 스케줄러";
+      return projects.find((p) => p.id === id)?.name ?? "스케줄러";
     }
-    return "LC 스케줄러";
+    return "스케줄러";
   })();
 
   const scopeOrganizations = useMemo(

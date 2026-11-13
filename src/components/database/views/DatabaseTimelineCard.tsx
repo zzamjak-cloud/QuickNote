@@ -74,13 +74,13 @@ export function DatabaseTimelineCard({
   const [localW, setLocalW] = useState(card.width);
   const dragMovedRef = useRef(false);
   const resizeStartRef = useRef<{ startIdx: number; endIdx: number } | null>(null);
-  // 호버 툴팁 위치 — LC 스케줄러 카드와 동일한 상세 속성 툴팁을 띄운다.
+  // 호버 툴팁 위치 — 스케줄러 카드와 동일한 상세 속성 툴팁을 띄운다.
   const [tipPos, setTipPos] = useState<{ top: number; left: number; placeAbove: boolean } | null>(null);
   const [contextMenuPos, setContextMenuPos] = useState<{ left: number; top: number } | null>(null);
 
   useLayoutEffect(() => {
     // 미등록(날짜 없음) 카드는 가로 스크롤과 무관하게 항상 항목열 우측에 고정한다.
-    // (scrollLeft 만큼 더해 트랙이 스크롤돼도 화면상 같은 위치 유지 — LC 스케줄러와 동일)
+    // (scrollLeft 만큼 더해 트랙이 스크롤돼도 화면상 같은 위치 유지 — 스케줄러와 동일)
     setLocalX(card.isUnscheduled ? scrollLeft + card.left : card.left);
     setLocalW(card.width);
   }, [card.left, card.width, card.isUnscheduled, scrollLeft]);
@@ -102,7 +102,7 @@ export function DatabaseTimelineCard({
     !card.isUnscheduled && multiDragDeltaX != null
       ? card.left + multiDragDeltaX
       : localX;
-  // 긴 카드가 좌측으로 스크롤될 때 텍스트를 화면 안에 유지 (LC 스케줄러와 동일)
+  // 긴 카드가 좌측으로 스크롤될 때 텍스트를 화면 안에 유지 (스케줄러와 동일)
   const contentOffset = card.isUnscheduled
     ? 0
     : getScheduleCardContentOffset({ scrollLeft, cardLeft: visualX, cardWidth: localW });

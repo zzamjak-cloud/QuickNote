@@ -348,14 +348,14 @@ export type DatabasePanelState = {
   filterPresets?: FilterPreset[];
   /** 현재 활성화된 프리셋 ID. null이면 전역 filterRules/sortRules 사용. */
   activePresetId?: string | null;
-  /** LC 스케줄러 피처 모드에서 표시할 마일스톤 항목 ID. null이면 전체 표시. */
+  /** 스케줄러 피처 모드에서 표시할 마일스톤 항목 ID. null이면 전체 표시. */
   schedulerFeatureMilestoneIds?: string[] | null;
   /**
-   * LC 스케줄러 구성원 탭/타임라인 표시 순서. 작업 DB(LC_SCHEDULER_DATABASE_ID) panelState 에 저장해
+   * 스케줄러 구성원 탭/타임라인 표시 순서. 작업 DB(LC_SCHEDULER_DATABASE_ID) panelState 에 저장해
    * 워크스페이스 전 사용자에게 공유 동기화한다(개인 설정 아님).
    */
   schedulerMemberOrder?: string[];
-  /** LC 스케줄러 구성원 순서의 field-level LWW 타임스탬프(epoch ms). */
+  /** 스케줄러 구성원 순서의 field-level LWW 타임스탬프(epoch ms). */
   schedulerMemberOrderUpdatedAt?: number;
 };
 
@@ -415,7 +415,7 @@ export function defaultMinWidthForType(type: ColumnType): number {
 
 /**
  * 표시 UI(뷰·표시설정·속성 패널)에서 항상 숨기는 내부 전용 컬럼 id.
- * LC 스케줄러의 카드 색상·메타 컬럼은 우클릭 프리셋 메뉴 등 내부 로직에서만 사용하므로
+ * 스케줄러의 카드 색상·메타 컬럼은 우클릭 프리셋 메뉴 등 내부 로직에서만 사용하므로
  * 사용자가 볼 수 있는 어떤 화면에서도 노출/선택되지 않는다.
  * (scheduler/database.ts 의 LC_SCHEDULER_COLUMN_IDS.color / .meta 와 동일 — 순환 import 방지용 인라인 상수)
  */

@@ -473,7 +473,7 @@ describe("applyRemoteDatabaseToStore", () => {
     ]);
   });
 
-  it("LC 스케줄러 DB 의 표시설정(viewConfigs)은 일반 LWW 로 동기화된다", () => {
+  it("스케줄러 DB 의 표시설정(viewConfigs)은 일반 LWW 로 동기화된다", () => {
     // 시드는 고정 과거 타임스탬프라 로컬이 항상 원격 편집보다 오래됨 → 원격(더 최신)이 적용된다.
     // 별도 보호 DB 특수처리 없이 일반 DB 와 동일하게 동기화되어야 한다.
     useDatabaseStore.setState({

@@ -48,7 +48,7 @@ function isHiddenInSidebar(
   pages: Record<string, Page>,
   currentWorkspaceId: string | null,
 ): boolean {
-  // 다른 워크스페이스(예: LC 스케줄러 공용 워크스페이스) 페이지가 구독/스냅샷으로
+  // 다른 워크스페이스(예: 스케줄러 공용 워크스페이스) 페이지가 구독/스냅샷으로
   // 공용 store 에 섞여 들어와도 현재 워크스페이스 사이드바엔 절대 노출하지 않는다.
   // workspaceId 가 없는(레거시) 페이지는 안전하게 현재 워크스페이스 소속으로 간주.
   if (

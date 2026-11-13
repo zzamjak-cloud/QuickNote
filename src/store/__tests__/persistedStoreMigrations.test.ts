@@ -265,12 +265,12 @@ describe("persisted store migrations", () => {
       {
         databases: {
           [LC_SCHEDULER_DATABASE_ID]: {
-            meta: { id: LC_SCHEDULER_DATABASE_ID, title: "LC스케줄러", createdAt: 1, updatedAt: 2 },
+            meta: { id: LC_SCHEDULER_DATABASE_ID, title: "스케줄러", createdAt: 1, updatedAt: 2 },
             columns: [{ id: "title", name: "Name", type: "title" }],
             rowPageOrder: [],
           },
           "lc-scheduler-db:personal-ws": {
-            meta: { id: "lc-scheduler-db:personal-ws", title: "LC스케줄러", createdAt: 1, updatedAt: 3 },
+            meta: { id: "lc-scheduler-db:personal-ws", title: "스케줄러", createdAt: 1, updatedAt: 3 },
             columns: [{ id: "title", name: "Name", type: "title" }],
             rowPageOrder: ["legacy-row"],
           },

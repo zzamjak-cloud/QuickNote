@@ -18,7 +18,7 @@
 | #9 | customIcon 구독 tombstone(`deletedAt`)으로 전체 refetch 제거 | schema + v5-resolvers + 프론트 | 불필요 |
 | #3 | 워크스페이스 재페치 증분 동기화(updatedAfter 워터마크) | 프론트만 | 불필요 |
 | #4 | 즐겨찾기 폴백을 현재 워크스페이스 우선 | 프론트만 | 불필요 |
-| #8 | LC 스케줄러 구독을 스케줄러 오픈 시에만 유지 | 프론트만 | 불필요 |
+| #8 | 스케줄러 구독을 스케줄러 오픈 시에만 유지 | 프론트만 | 불필요 |
 
 ---
 
@@ -88,7 +88,7 @@ AWS_REGION=ap-northeast-2 npx ts-node scripts/backfill-name-lower.ts --apply  # 
 - [ ] 같은 이름의 팀/조직 생성 시 중복 거부되는지(백필 후).
 - [ ] 다른 클라이언트에서 커스텀 아이콘 추가/삭제 시, 내 화면이 **전체 refetch 없이** 추가/제거 반영되는지.
 - [ ] 오프라인→온라인 복귀 시 네트워크 탭에서 listPages 가 `updatedAfter` 로 호출되는지(증분).
-- [ ] 스케줄러 팝업을 닫은 상태에서 LC 스케줄러 구독(WebSocket)이 유지되지 않는지.
+- [ ] 스케줄러 팝업을 닫은 상태에서 스케줄러 구독(WebSocket)이 유지되지 않는지.
 
 ---
 

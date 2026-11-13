@@ -39,11 +39,11 @@ describe("WorkspaceSwitcher", () => {
     expect(useWorkspaceStore.getState().currentWorkspaceId).toBe("ws-2");
   });
 
-  it("LC 스케줄러 워크스페이스를 선택할 수 있다", () => {
+  it("스케줄러 워크스페이스를 선택할 수 있다", () => {
     render(<WorkspaceSwitcher />);
     const trigger = screen.getByLabelText("워크스페이스 선택");
     fireEvent.click(trigger);
-    fireEvent.click(screen.getByText("LC 스케줄러"));
+    fireEvent.click(screen.getByText("스케줄러"));
 
     expect(useWorkspaceStore.getState().currentWorkspaceId).toBe(LC_SCHEDULER_WORKSPACE_ID);
   });

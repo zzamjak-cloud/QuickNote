@@ -1,4 +1,4 @@
-// LC 스케줄러 프로젝트용 GraphQL 쿼리/뮤테이션/서브스크립션 정의.
+// 스케줄러 프로젝트용 GraphQL 쿼리/뮤테이션/서브스크립션 정의.
 export const PROJECT_FIELDS = `
   id workspaceId name color description memberIds leaderMemberIds isHidden
   createdByMemberId createdAt updatedAt

@@ -81,7 +81,7 @@ describe("lcSchedulerWorkspaceRepair", () => {
     expect(lcSchedulerRootPagesNeedRepair(LC_SCHEDULER_WORKSPACE_ID, pages)).toBe(false);
   });
 
-  it("LC 스케줄러 워크스페이스가 아니면 repair 대상으로 보지 않는다", () => {
+  it("스케줄러 워크스페이스가 아니면 repair 대상으로 보지 않는다", () => {
     expect(lcSchedulerRootPagesNeedRepair("normal-workspace", {})).toBe(false);
   });
 

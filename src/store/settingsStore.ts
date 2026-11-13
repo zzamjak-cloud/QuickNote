@@ -212,7 +212,7 @@ export function migrateSettingsStore(
         }),
       },
       {
-        // v12: 과거 LC스케줄러 구성원 순서 개인화(clientPrefs) 필드를 제거한다.
+        // v12: 과거 스케줄러 구성원 순서 개인화(clientPrefs) 필드를 제거한다.
         // 구성원 순서는 공유 DB panelState 로 일원화됨.
         version: 12,
         migrate: (state) => {
