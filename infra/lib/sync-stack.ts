@@ -1129,7 +1129,8 @@ export function response(ctx) {
       runtime: lambda.Runtime.NODEJS_22_X,
       handler: "handler",
       memorySize: 512,
-      timeout: cdk.Duration.seconds(120),
+      // thinking 모델(Claude Opus·Sonnet 5.5)은 생각 시간이 붙어 한 라운드가 길어질 수 있다.
+      timeout: cdk.Duration.seconds(300),
       logRetention: logs.RetentionDays.ONE_MONTH,
       // 남용 시 폭발 반경 제한 (동시 스트림 상한)
       reservedConcurrentExecutions: 20,

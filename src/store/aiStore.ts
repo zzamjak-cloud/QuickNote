@@ -302,7 +302,13 @@ export const useAiStore = create<AiState & AiActions>()(
                 // 도구 호출 턴 — 로컬 해석 후 후속 요청
                 wireMessages = [
                   ...wireMessages,
-                  { role: "assistant_tools", toolCalls: result.toolCalls },
+                  {
+                    role: "assistant_tools",
+                    toolCalls: result.toolCalls,
+                    ...(result.anthropicContent
+                      ? { anthropicContent: result.anthropicContent }
+                      : {}),
+                  },
                 ];
                 for (const call of result.toolCalls) {
                   set({ toolStatus: toolStatusLabel(call.name) });

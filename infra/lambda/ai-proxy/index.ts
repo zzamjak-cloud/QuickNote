@@ -14,16 +14,16 @@ import {
   type Member,
 } from "../v5-resolvers/handlers/_auth";
 import {
-  AI_DEFAULT_MODEL_BY_PROVIDER,
-  AI_MODELS_BY_PROVIDER,
+  allowedModelsForKeys,
   GLOBAL_AI_CONFIG_ID,
-  normalizeModelId,
+  keyProviderForModel,
+  pickDefaultModel,
   providersWithKeys,
   resolveKeysMap,
-  type AiModelProvider,
 } from "../v5-resolvers/handlers/aiConfig";
 import { ProviderError } from "./provider";
 import { streamOpenRouterChat } from "./openai";
+import { streamAnthropicChat } from "./anthropic";
 import {
   buildSystemPromptParts,
   AI_ACTIONS,
@@ -33,6 +33,7 @@ import {
 } from "./prompts";
 import {
   TOOLS_SYSTEM_HINT,
+  type AiAnthropicContentBlock,
   type AiGeminiHistoryPart,
   type AiImageAttachment,
   type AiToolCall,
@@ -64,6 +65,8 @@ const MAX_TOOL_CALL_ID_CHARS = 4_096;
 const MAX_TOOL_NAME_CHARS = 128;
 const MAX_TOOL_ARGS_CHARS = 32_000;
 const MAX_GEMINI_HISTORY_PARTS = 200;
+const MAX_ANTHROPIC_CONTENT_BLOCKS = 100;
+const MAX_ANTHROPIC_CONTENT_CHARS = 200_000;
 // 이미지 첨부 — Lambda 요청 페이로드 6MB 제한 내 여유
 const IMAGE_MIME_WHITELIST = new Set([
   "image/jpeg",
@@ -113,6 +116,7 @@ type AiChatRequest = {
       args?: Record<string, unknown>;
       thoughtSignature?: string;
     }>;
+    anthropicContent?: unknown;
     toolCallId?: string;
     name?: string;
   }>;
@@ -301,7 +305,7 @@ async function authorize(
         apiKeyEnc?: string;
         apiKeyLast4?: string;
         provider?: string;
-        keys?: Partial<Record<string, { enc: string; last4: string }>>;
+        keys?: Partial<Record<string, { enc: string; last4: string; v?: number }>>;
         defaultModel?: string;
         monthlyTokenLimit?: number;
       }
@@ -313,14 +317,7 @@ async function authorize(
     return { ok: false, status: 403, error: "이 워크스페이스에서 AI 가 비활성화되어 있습니다" };
   }
 
-  const allowedModels = (Object.keys(AI_MODELS_BY_PROVIDER) as AiModelProvider[]).flatMap(
-    (provider) => [...AI_MODELS_BY_PROVIDER[provider]],
-  );
-  const savedModel = item.defaultModel ? normalizeModelId(item.defaultModel) : null;
-  const defaultModel =
-    savedModel && allowedModels.includes(savedModel)
-      ? savedModel
-      : AI_DEFAULT_MODEL_BY_PROVIDER.gemini;
+  const defaultModel = pickDefaultModel(item, keys);
 
   return {
     ok: true,
@@ -329,6 +326,38 @@ async function authorize(
     defaultModel,
     monthlyTokenLimit: item.monthlyTokenLimit ?? 0,
   };
+}
+
+/**
+ * assistant_tools.anthropicContent 검증 — 블록 배열·크기 상한, 그리고 tool_use ID 집합이
+ * toolCalls 와 일치해야 한다(도구 결과와 짝이 어긋난 콘텐츠 주입 차단).
+ */
+function validateAnthropicContent(
+  raw: unknown,
+  toolCalls: AiToolCall[],
+): AiAnthropicContentBlock[] | null {
+  if (!Array.isArray(raw) || raw.length === 0 || raw.length > MAX_ANTHROPIC_CONTENT_BLOCKS) {
+    return null;
+  }
+  if (JSON.stringify(raw).length > MAX_ANTHROPIC_CONTENT_CHARS) return null;
+  const blocks: AiAnthropicContentBlock[] = [];
+  for (const b of raw) {
+    if (!b || typeof b !== "object" || Array.isArray(b)) return null;
+    if (typeof (b as { type?: unknown }).type !== "string") return null;
+    blocks.push(b as AiAnthropicContentBlock);
+  }
+  // fallback 블록 이전의 tool_use 는 서버가 이미 제거해 내려보내므로 전부 대조 대상이다.
+  const blockIds = blocks
+    .filter((b) => b.type === "tool_use")
+    .map((b) => (b as { id?: unknown }).id);
+  const callIds = toolCalls.map((tc) => tc.id);
+  if (
+    blockIds.length !== callIds.length ||
+    blockIds.some((id, i) => typeof id !== "string" || id !== callIds[i])
+  ) {
+    return null;
+  }
+  return blocks;
 }
 
 function validateRequest(req: AiChatRequest):
@@ -473,6 +502,12 @@ function validateRequest(req: AiChatRequest):
         });
       }
       if (toolCalls.length === 0) return { ok: false, error: "toolCalls 필요" };
+      if (m.anthropicContent !== undefined) {
+        const content = validateAnthropicContent(m.anthropicContent, toolCalls);
+        if (!content) return { ok: false, error: "잘못된 Claude 응답 블록" };
+        messages.push({ role: "assistant_tools", toolCalls, anthropicContent: content });
+        continue;
+      }
       messages.push({ role: "assistant_tools", toolCalls });
       continue;
     }
@@ -507,6 +542,14 @@ function validateRequest(req: AiChatRequest):
   const totalChars = messages.reduce(
     (sum, m) => {
       if (m.role === "assistant_tools") {
+        // anthropicContent 는 toolCalls 를 포함하므로 중복 합산하지 않는다. thinking 블록(서명)은
+        // 메시지별 상한(MAX_ANTHROPIC_CONTENT_CHARS)으로만 막아 도구 루프가 중간에 끊기지 않게 한다.
+        if (m.anthropicContent) {
+          const visible = m.anthropicContent.filter(
+            (b) => b.type !== "thinking" && b.type !== "redacted_thinking",
+          );
+          return sum + JSON.stringify(visible).length;
+        }
         return sum + JSON.stringify(m.toolCalls).length;
       }
       if (m.role === "tool") {
@@ -578,19 +621,19 @@ export const handler = awslambda.streamifyResponse<FnUrlEvent>(
         return;
       }
 
-      // OpenRouter 키 하나로 화이트리스트의 모든 원제공사 모델을 호출한다.
-      const allowedModels = (Object.keys(AI_MODELS_BY_PROVIDER) as AiModelProvider[]).flatMap(
-        (provider) => [...AI_MODELS_BY_PROVIDER[provider]],
-      );
+      // OpenRouter 키 → 전 모델, Claude 키 → anthropic/* 직접 호출(두 키가 모두 있으면 직접 호출 우선).
+      const allowedModels = allowedModelsForKeys(auth.keys);
       const model =
         req.model && allowedModels.includes(req.model) ? req.model : auth.defaultModel;
-      if (!auth.keys.openrouter?.enc) {
+      const keyProvider = keyProviderForModel(model, auth.keys);
+      const keySlot = keyProvider ? auth.keys[keyProvider] : undefined;
+      if (!keyProvider || !keySlot?.enc) {
         respondJson(responseStream, 403, {
-          error: "OpenRouter API 키가 등록되어 있지 않습니다",
+          error: "선택한 모델에 사용할 API 키가 등록되어 있지 않습니다",
         });
         return;
       }
-      const apiKey = await decryptApiKey(auth.keys.openrouter.enc);
+      const apiKey = await decryptApiKey(keySlot.enc);
 
       const { instructions: baseInstructions, contextBlock } = buildSystemPromptParts(
         valid.action,
@@ -629,13 +672,19 @@ export const handler = awslambda.streamifyResponse<FnUrlEvent>(
           onDelta: (text: string) => sseWrite(stream, { delta: text }),
           onToolCall,
         };
-        const result = await streamOpenRouterChat({ ...common, systemPrompt });
+        const result =
+          keyProvider === "anthropic"
+            ? await streamAnthropicChat({ ...common, instructions, contextBlock })
+            : await streamOpenRouterChat({ ...common, systemPrompt });
         sseWrite(stream, {
           done: true,
           finishReason: result.finishReason,
           usage: { inputTokens: result.inputTokens, outputTokens: result.outputTokens },
           toolCalls: result.toolCalls.length > 0 ? result.toolCalls : undefined,
           geminiParts: result.geminiParts?.length ? result.geminiParts : undefined,
+          anthropicContent: result.anthropicContent?.length
+            ? result.anthropicContent
+            : undefined,
         });
         await logUsage(
           req.workspaceId!,

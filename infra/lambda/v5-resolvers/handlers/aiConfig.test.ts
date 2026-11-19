@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   AI_DEFAULT_MODEL_BY_PROVIDER,
+  allowedModelsForKeys,
+  keyProviderForModel,
   AI_MODELS_BY_PROVIDER,
   aiConfigToGql,
   normalizeModelId,
@@ -35,6 +37,7 @@ describe("AI 서버 모델 계약", () => {
     expect(config.provider).toBe("openrouter");
     expect(config.providers).toEqual([
       { provider: "openrouter", hasKey: true, apiKeyMasked: "****1234" },
+      { provider: "anthropic", hasKey: false, apiKeyMasked: null },
     ]);
   });
 
@@ -47,5 +50,53 @@ describe("AI 서버 모델 계약", () => {
 
     expect(config.hasKey).toBe(false);
     expect(config.providers[0]?.hasKey).toBe(false);
+  });
+
+  it("Claude 키만 있으면 Claude 모델만 허용하고 기본값도 Claude 로 둔다", () => {
+    const keys = { anthropic: { enc: "encrypted", last4: "abcd", v: 2 } };
+    const config = aiConfigToGql("workspace-1", {
+      workspaceId: "workspace-1",
+      enabled: true,
+      defaultModel: "google/gemini-3.8-flash",
+      keys,
+    });
+
+    expect(config.hasKey).toBe(true);
+    expect(config.provider).toBe("anthropic");
+    expect(config.apiKeyMasked).toBe("****abcd");
+    expect(config.defaultModel).toBe("anthropic/claude-haiku-4.5");
+    expect(allowedModelsForKeys(keys)).toEqual(AI_MODELS_BY_PROVIDER.anthropic);
+    expect(keyProviderForModel("anthropic/claude-sonnet-5", keys)).toBe("anthropic");
+    expect(keyProviderForModel("google/gemini-3.8-flash", keys)).toBeNull();
+  });
+
+  it("두 키가 모두 있으면 Claude 모델만 직접 호출로 보낸다", () => {
+    const keys = {
+      openrouter: { enc: "encrypted-or", last4: "1234" },
+      anthropic: { enc: "encrypted-ant", last4: "abcd", v: 2 },
+    };
+    expect(keyProviderForModel("anthropic/claude-haiku-4.5", keys)).toBe("anthropic");
+    expect(keyProviderForModel("google/gemini-3.8-flash", keys)).toBe("openrouter");
+    expect(keyProviderForModel("openai/gpt-5.1", keys)).toBe("openrouter");
+    expect(keyProviderForModel("unknown/model", keys)).toBeNull();
+  });
+
+  it("직접 제공사 시절의 anthropic 슬롯(v 없음)은 되살리지 않는다", () => {
+    const config = aiConfigToGql("workspace-1", {
+      workspaceId: "workspace-1",
+      enabled: true,
+      keys: { anthropic: { enc: "old-encrypted", last4: "zzzz" } },
+    });
+    expect(config.hasKey).toBe(false);
+    expect(config.providers.find((p) => p.provider === "anthropic")?.hasKey).toBe(false);
+  });
+
+  it("Opus 5.5·Sonnet 5.5 는 Claude 키가 있을 때만 허용·라우팅한다", () => {
+    const openrouterOnly = { openrouter: { enc: "encrypted-or", last4: "1234" } };
+    const both = { ...openrouterOnly, anthropic: { enc: "encrypted-ant", last4: "abcd", v: 2 } };
+    expect(allowedModelsForKeys(openrouterOnly)).not.toContain("anthropic/claude-opus-5.5");
+    expect(keyProviderForModel("anthropic/claude-opus-5.5", openrouterOnly)).toBeNull();
+    expect(allowedModelsForKeys(both)).toContain("anthropic/claude-opus-5.5");
+    expect(keyProviderForModel("anthropic/claude-sonnet-5.5", both)).toBe("anthropic");
   });
 });

@@ -18,10 +18,21 @@ export type AiGeminiHistoryPart = {
   thoughtSignature?: string;
 };
 
+/** Anthropic 응답 콘텐츠 블록(불투명). type 외 필드는 서버·클라이언트가 해석하지 않는다. */
+export type AiAnthropicContentBlock = { type: string } & Record<string, unknown>;
+
 export type AiWireMessage =
   | { role: "user"; content: string; images?: AiImageAttachment[] }
   | { role: "assistant"; content: string; geminiParts?: AiGeminiHistoryPart[] }
-  | { role: "assistant_tools"; toolCalls: AiToolCall[] }
+  | {
+      role: "assistant_tools";
+      toolCalls: AiToolCall[];
+      /**
+       * Anthropic 직접 경로 전용 — 도구 호출 턴의 assistant 콘텐츠 블록 원문(thinking 포함).
+       * thinking 블록은 수정 없이 되돌려야 하므로 서버가 내려준 그대로 왕복한다.
+       */
+      anthropicContent?: AiAnthropicContentBlock[];
+    }
   | { role: "tool"; toolCallId: string; name: string; content: string };
 
 const LIST_ROWS_PARAMS = {

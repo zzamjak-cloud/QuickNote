@@ -30,10 +30,18 @@ export type AiGeminiHistoryPart = {
   thoughtSignature?: string;
 };
 
+/** Anthropic 응답 콘텐츠 블록(불투명) — 서버가 내려준 그대로 다음 도구 라운드에 되돌린다. */
+export type AiAnthropicContentBlock = { type: string } & Record<string, unknown>;
+
 export type AiWireMessage =
   | { role: "user"; content: string; images?: AiImageAttachment[] }
   | { role: "assistant"; content: string; geminiParts?: AiGeminiHistoryPart[] }
-  | { role: "assistant_tools"; toolCalls: AiToolCall[] }
+  | {
+      role: "assistant_tools";
+      toolCalls: AiToolCall[];
+      /** Claude 직접 호출 도구 턴의 thinking 포함 원문(수정 금지). */
+      anthropicContent?: AiAnthropicContentBlock[];
+    }
   | { role: "tool"; toolCallId: string; name: string; content: string };
 
 /** tool 왕복 상한(계획 §6). */

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   AI_DEFAULT_MODEL_BY_PROVIDER,
+  AI_DIRECT_ONLY_MODELS,
   AI_MODELS_BY_PROVIDER,
   availableModels,
   providerForModel,
@@ -26,8 +27,23 @@ describe("Gemini 모델 계약", () => {
     expect(availableModels(["gemini"])).toEqual([]);
     expect(availableModels(["openrouter"]).map((model) => model.id)).toEqual([
       ...AI_MODELS_BY_PROVIDER.gemini.map((model) => model.id),
-      ...AI_MODELS_BY_PROVIDER.anthropic.map((model) => model.id),
+      ...AI_MODELS_BY_PROVIDER.anthropic
+        .map((model) => model.id)
+        .filter((id) => !AI_DIRECT_ONLY_MODELS.includes(id)),
       ...AI_MODELS_BY_PROVIDER.openai.map((model) => model.id),
     ]);
+  });
+
+  it("Claude 키만 있으면 Claude 모델만 노출한다", () => {
+    expect(availableModels(["anthropic"]).map((model) => model.id)).toEqual(
+      AI_MODELS_BY_PROVIDER.anthropic.map((model) => model.id),
+    );
+    // Opus 5.5·Sonnet 5.5 는 Claude 키 전용
+    const openRouterOnly = availableModels(["openrouter"]).map((model) => model.id);
+    expect(openRouterOnly).not.toContain("anthropic/claude-opus-5.5");
+    expect(openRouterOnly).not.toContain("anthropic/claude-sonnet-5.5");
+    expect(availableModels(["anthropic", "openrouter"])).toHaveLength(
+      openRouterOnly.length + AI_DIRECT_ONLY_MODELS.length,
+    );
   });
 });

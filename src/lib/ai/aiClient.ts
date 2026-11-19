@@ -3,7 +3,12 @@
 
 import { ensureFreshTokensForAppSync } from "../auth/apiTokens";
 import { createSseJsonDecoder } from "./sse";
-import type { AiGeminiHistoryPart, AiToolCall, AiWireMessage } from "./tools";
+import type {
+  AiAnthropicContentBlock,
+  AiGeminiHistoryPart,
+  AiToolCall,
+  AiWireMessage,
+} from "./tools";
 
 export type AiChatMessage = { role: "user" | "assistant"; content: string };
 
@@ -14,6 +19,8 @@ export type AiStreamResult = {
   usage: AiStreamUsage | null;
   toolCalls: AiToolCall[];
   geminiParts: AiGeminiHistoryPart[];
+  /** Claude 직접 호출 도구 턴 — 다음 라운드 assistant_tools 에 그대로 되돌린다. */
+  anthropicContent?: AiAnthropicContentBlock[];
 };
 
 export class AiRequestError extends Error {
@@ -85,6 +92,7 @@ type SseEvent = {
   tool_call?: AiToolCall;
   toolCalls?: AiToolCall[];
   geminiParts?: AiGeminiHistoryPart[];
+  anthropicContent?: AiAnthropicContentBlock[];
 };
 
 export type AiAction =
@@ -176,6 +184,9 @@ export async function streamAiChat(args: {
       result.usage = event.usage ?? null;
       for (const tc of event.toolCalls ?? []) pushTool(tc);
       result.geminiParts = event.geminiParts ?? [];
+      if (Array.isArray(event.anthropicContent) && event.anthropicContent.length > 0) {
+        result.anthropicContent = event.anthropicContent;
+      }
     }
     if (event.error) {
       streamError = new AiRequestError(event.error, null, event.retryAfterSec ?? null);
