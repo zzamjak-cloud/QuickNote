@@ -557,6 +557,7 @@ export function DatabaseBlockView(props: NodeViewProps) {
           <>
             {layout === "inline" ? (
               <DatabaseBlockInlineHeader
+                databaseId={databaseId}
                 displayDbTitle={displayDbTitle}
                 onTitleCommit={commitDbTitle}
                 inlineTitleLocked={inlineTitleLocked}
@@ -587,6 +588,7 @@ export function DatabaseBlockView(props: NodeViewProps) {
               />
             ) : (
               <DatabaseBlockFullPageHeader
+                databaseId={databaseId}
                 displayDbTitle={displayDbTitle}
                 onTitleCommit={commitDbTitle}
                 titleLocked={isProtectedDatabase}

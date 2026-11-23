@@ -1,7 +1,9 @@
 import { Database, History, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { DatabaseCopyIdButton } from "./DatabaseCopyIdButton";
 
 type Props = {
+  databaseId: string;
   displayDbTitle: string;
   onTitleCommit: (draft: string) => boolean;
   titleLocked?: boolean;
@@ -11,6 +13,7 @@ type Props = {
 };
 
 export function DatabaseBlockFullPageHeader({
+  databaseId,
   displayDbTitle,
   onTitleCommit,
   titleLocked,
@@ -88,6 +91,7 @@ export function DatabaseBlockFullPageHeader({
         )}
       </div>
       <div className="flex shrink-0 items-center gap-0.5">
+        <DatabaseCopyIdButton databaseId={databaseId} />
         <button
           type="button"
           title="DB 버전 히스토리"

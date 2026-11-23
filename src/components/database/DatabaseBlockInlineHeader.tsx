@@ -1,8 +1,10 @@
 import { ChevronDown, Database, History, Link2, Maximize2 } from "lucide-react";
 import { memo, useEffect, useRef, useState } from "react";
 import type { DragEvent as ReactDragEvent } from "react";
+import { DatabaseCopyIdButton } from "./DatabaseCopyIdButton";
 
 type Props = {
+  databaseId: string;
   displayDbTitle: string;
   onTitleCommit: (draft: string) => boolean;
   inlineTitleLocked: boolean;
@@ -23,6 +25,7 @@ type Props = {
 };
 
 export const DatabaseBlockInlineHeader = memo(function DatabaseBlockInlineHeader({
+  databaseId,
   displayDbTitle,
   onTitleCommit,
   inlineTitleLocked,
@@ -150,6 +153,7 @@ export const DatabaseBlockInlineHeader = memo(function DatabaseBlockInlineHeader
         </div>
         )}
         <div className="flex shrink-0 items-center gap-0.5">
+          <DatabaseCopyIdButton databaseId={databaseId} />
           <button
             type="button"
             title="DB 버전 히스토리"
