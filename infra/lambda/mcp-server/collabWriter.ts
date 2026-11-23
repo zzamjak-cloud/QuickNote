@@ -16,12 +16,29 @@ import { appendPageUpdate, loadPageState } from "../realtime/yjsStore";
 import { hasMeaningfulPageDocContent } from "../v5-resolvers/handlers/pageDatabase";
 import { ToolError, type McpContext } from "./context";
 import { pageRoomKey } from "./pageBody";
-import { CONCURRENT_MODIFICATION, patchPage, recordBodyCheckpoint, type PagePatch, type SavedPage } from "./pageWrite";
+import {
+  CHECKPOINT_TOO_LARGE,
+  CONCURRENT_MODIFICATION,
+  patchPage,
+  recordBodyCheckpoint,
+  type PagePatch,
+  type SavedPage,
+} from "./pageWrite";
 import { parseDocJson } from "./text";
 import { broadcastRoomUpdate, type BroadcastResult } from "./wsBroadcast";
 
 /** Pages.doc 상한 — 클라 upsertPage payload 가드(MAX_UPSERT_PAGE_PAYLOAD_BYTES 350KB)와 맞춘다. */
 export const MAX_PAGE_DOC_BYTES = 350 * 1024;
+
+/** 크기 초과 안내 — 한도는 마크다운이 아니라 저장 형식(에디터 JSON) 기준이라 표가 많으면 훨씬 일찍 걸린다. */
+export function pageSizeError(prefix: string, bytes: number, inputBytes?: number): ToolError {
+  const input = inputBytes === undefined ? "" : ` from ${inputBytes} bytes of markdown`;
+  return new ToolError(
+    `${prefix} is ${bytes} bytes in stored editor JSON${input} (max ${MAX_PAGE_DOC_BYTES}). ` +
+      "Stored size is several times the markdown size (table-heavy markdown expands ~7-9x, so keep it under ~40KB per page). " +
+      "Split the content into child pages.",
+  );
+}
 
 type Item = Record<string, unknown>;
 
@@ -52,6 +69,8 @@ export type BodyWriteResult = {
   broadcast: BroadcastResult | null;
   /** 교체 전 버전 히스토리 체크포인트를 남겼는지. */
   checkpointed: boolean;
+  /** 체크포인트를 시도했으나 히스토리 항목 크기 한도로 건너뜀. */
+  checkpointSkipped?: "too_large";
   /** Pages.doc materialize(+publish) 성공 여부. 룸 반영 뒤 실패해도 쓰기 자체는 성공이다. */
   materialized: boolean;
 };
@@ -119,7 +138,7 @@ export async function writePageBody(
   page: Item,
   base: BodyBase,
   edit: BodyEdit,
-  opts: { checkpoint?: boolean; patch?: PagePatch } = {},
+  opts: { checkpoint?: boolean; patch?: PagePatch; inputBytes?: number } = {},
 ): Promise<BodyWriteResult> {
   const patch = opts.patch;
   const pageId = String(page.id);
@@ -136,14 +155,29 @@ export async function writePageBody(
   }
   const bytes = docByteLength(nextDoc);
   if (bytes > MAX_PAGE_DOC_BYTES) {
-    throw new ToolError(`Resulting page body is ${bytes} bytes (max ${MAX_PAGE_DOC_BYTES}). Split the content into child pages.`);
+    throw pageSizeError("Resulting page body", bytes, opts.inputBytes);
   }
-  const checkpointed = Boolean(opts.checkpoint) && hasMeaningfulPageDocContent(base.doc);
-  if (checkpointed) await recordBodyCheckpoint(ctx, page, base.doc);
+  const { checkpointed, checkpointSkipped } = await tryCheckpoint(ctx, page, base, Boolean(opts.checkpoint));
   await appendPageUpdate(base.room, update);
   const broadcast = await broadcastRoomUpdate(base.room, update);
   const saved = await materializeAfterRoomWrite(ctx, pageId, JSON.stringify(nextDoc), patch);
-  return { changed: true, doc: nextDoc, saved, broadcast, checkpointed, materialized: saved !== null };
+  return {
+    changed: true, doc: nextDoc, saved, broadcast, checkpointed, materialized: saved !== null,
+    ...(checkpointSkipped ? { checkpointSkipped } : {}),
+  };
+}
+
+/** 체크포인트는 안전망이라 실패하면 편집을 막는다. 단, 크기 한도는 재시도해도 영영 못 남기므로 건너뛰고 진행한다. */
+async function tryCheckpoint(ctx: McpContext, page: Item, base: BodyBase, wanted: boolean) {
+  if (!wanted || !hasMeaningfulPageDocContent(base.doc)) return { checkpointed: false };
+  try {
+    await recordBodyCheckpoint(ctx, page, base.doc);
+    return { checkpointed: true };
+  } catch (err) {
+    if (!(err instanceof ToolError && err.message === CHECKPOINT_TOO_LARGE)) throw err;
+    console.warn("mcp 체크포인트 생략(히스토리 항목 크기 초과)", { pageId: String(page.id) });
+    return { checkpointed: false, checkpointSkipped: "too_large" as const };
+  }
 }
 
 /**

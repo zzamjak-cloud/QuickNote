@@ -152,7 +152,7 @@ describe("create_pages", () => {
     const { ctx, fake } = setup([page("p1")]);
     const big = "x".repeat(360 * 1024);
     await expect(createPagesTool(ctx, { parent: { pageId: "p1" }, pages: [{ title: "ok" }, { title: "big", content: big }] }))
-      .rejects.toThrow(/max 358400/);
+      .rejects.toThrow(/^pages\[1\] "big": Page body is \d+ bytes in stored editor JSON from 368640 bytes of markdown \(max 358400\)/);
     for (const icon of ["https://evil.example/pixel.png", "data:image/png;base64,AA", "hello", "quicknote-image://../x"]) {
       await expect(createPagesTool(ctx, { parent: { pageId: "p1" }, pages: [{ title: "i", icon }] })).rejects.toThrow(/icon must be/);
     }

@@ -46,7 +46,8 @@ async function propertyLines(ctx: McpContext, db: Record<string, unknown> | null
 }
 
 function childLines(pageId: string, metas: PageMeta[], truncated: boolean): string[] {
-  const children = metas.filter((m) => m.parentId === pageId && !m.deleted);
+  // 사이드바와 같은 형제 순서(order 오름차순). 스캔 결과 순서는 정렬 보장이 없다.
+  const children = metas.filter((m) => m.parentId === pageId && !m.deleted).sort((a, b) => a.order - b.order);
   if (children.length === 0 && !truncated) return [];
   const shown = children.slice(0, MAX_CHILD_PAGES);
   return [

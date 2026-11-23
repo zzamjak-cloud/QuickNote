@@ -108,13 +108,17 @@ export async function updatePageTool(ctx: McpContext, raw: UpdatePageInput) {
   const plan = planContentEdit(base.doc, input.content);
   const existing = new Set(databaseIdsOf(base.doc as DocNode));
   await assertDatabasesUsable(ctx, plan.databaseIds.filter((id) => !existing.has(id)), String(page.workspaceId));
-  const result = await writePageBody(ctx, page, base, plan.edit, { checkpoint: plan.checkpoint, patch });
+  const inputBytes = Buffer.byteLength(input.content.markdown, "utf8");
+  const result = await writePageBody(ctx, page, base, plan.edit, { checkpoint: plan.checkpoint, patch, inputBytes });
   return {
     id: String(page.id),
     updatedAt: String(result.saved?.page.updatedAt ?? page.updatedAt ?? ""),
     contentChanged: result.changed,
     bodySource: base.source,
     historyCheckpoint: result.checkpointed,
+    ...(result.checkpointSkipped
+      ? { historyCheckpointNote: "Skipped: page too large for a version snapshot. The edit was applied." }
+      : {}),
     ...(result.broadcast ? { liveClients: result.broadcast.delivered } : {}),
     // 본문은 룸에 반영됐으나 Pages 스냅샷 저장이 밀린 경우 — 본문 재전송 금지(중복). 제목·아이콘·속성은 멱등이라 재시도 가능.
     ...(result.changed && !result.materialized

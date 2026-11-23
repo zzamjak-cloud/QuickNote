@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { PutCommand } from "@aws-sdk/lib-dynamodb";
 import * as Y from "yjs";
 import { stateToDocJson } from "../../_shared/collabContent";
 import { loadBodyBase, MAX_PAGE_DOC_BYTES, writePageBody } from "../collabWriter";
+import type { McpContext } from "../context";
 import { buildRowCellsUpdate } from "../dbCollabWriter";
 import { appended, broadcastMock, docOf, para, publishMock, resetCollabMocks, rooms, seedRoom } from "./collabMocks";
 import { baseTables, makeCtx } from "./fixtures";
@@ -15,6 +17,18 @@ function setup(doc: unknown) {
   tables.pages = [{ id: "p1", workspaceId: "ws-a", title: "P", order: "0", updatedAt: "2026-01-01T00:00:00.000Z", doc: JSON.stringify(doc) }];
   const made = makeCtx(tables, { scopes: ["read", "write"] });
   return { ...made, page: tables.pages[0] };
+}
+
+/** 히스토리 테이블 Put 만 지정 오류로 실패시킨다(DynamoDB 항목 크기 초과 등 재현). */
+function failHistoryPut(ctx: McpContext, doc: McpContext["doc"], message: string, name: string) {
+  const send = doc.send.bind(doc);
+  vi.spyOn(doc, "send").mockImplementation(async (cmd) => {
+    const table = (cmd.input as { TableName?: string } | undefined)?.TableName;
+    if (table === ctx.tables.PageHistory && cmd instanceof PutCommand) {
+      throw Object.assign(new Error(message), { name });
+    }
+    return send(cmd);
+  });
 }
 
 beforeEach(() => resetCollabMocks());
@@ -46,11 +60,30 @@ describe("collabWriter.writePageBody", () => {
     expect(r).toMatchObject({ changed: true, checkpointed: false });
   });
 
+  it("체크포인트가 히스토리 항목 크기 한도(400KB)에 걸리면 건너뛰고 교체는 진행", async () => {
+    const { ctx, fake, page } = setup(docOf(para("old")));
+    failHistoryPut(ctx, fake.doc, "Item size has exceeded the maximum allowed size", "ValidationException");
+    const base = await loadBodyBase(ctx, page);
+    const r = await writePageBody(ctx, page, base, { kind: "replace", doc: docOf(para("new")) }, { checkpoint: true });
+    expect(r).toMatchObject({ changed: true, checkpointed: false, checkpointSkipped: "too_large" });
+    expect(appended).toHaveLength(1);
+  });
+
+  it("체크포인트의 다른 오류는 편집을 막는다", async () => {
+    const { ctx, fake, page } = setup(docOf(para("old")));
+    failHistoryPut(ctx, fake.doc, "Throughput exceeded", "ProvisionedThroughputExceededException");
+    const base = await loadBodyBase(ctx, page);
+    await expect(writePageBody(ctx, page, base, { kind: "replace", doc: docOf(para("new")) }, { checkpoint: true }))
+      .rejects.toThrow(/Throughput/);
+    expect(appended).toHaveLength(0);
+  });
+
   it("결과 본문이 350KB 를 넘으면 룸에 쓰기 전에 거부", async () => {
     const { ctx, page } = setup(docOf(para("x")));
     const base = await loadBodyBase(ctx, page);
     const huge = para("y".repeat(MAX_PAGE_DOC_BYTES));
-    await expect(writePageBody(ctx, page, base, { kind: "insert", blocks: [huge], at: "end" })).rejects.toThrow(/max/);
+    await expect(writePageBody(ctx, page, base, { kind: "insert", blocks: [huge], at: "end" }, { inputBytes: 1234 }))
+      .rejects.toThrow(/stored editor JSON from 1234 bytes of markdown \(max 358400\).*~40KB/);
     expect(appended).toHaveLength(0);
   });
 

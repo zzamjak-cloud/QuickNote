@@ -17,7 +17,10 @@ export const contentInput = z
       "replace: whole body. append: add blocks at the end. insert_after: add blocks after the top-level block whose text equals `anchor`. " +
         "replace_range: replace top-level blocks from the one starting with `rangeStart` through the first one at/after it starting with `rangeEnd`.",
     ),
-    markdown: z.string().describe("QFM content (see fetch tool description for syntax). Max 512KB."),
+    markdown: z.string().describe(
+      "QFM content (see fetch tool description for syntax). Max 512KB of markdown; the resulting page is also limited to " +
+        "358,400 bytes of stored editor JSON (table-heavy markdown expands ~7-9x, so keep it under ~40KB per page).",
+    ),
     anchor: z.string().trim().min(1).max(2000).optional().describe("insert_after: exact text of a top-level block"),
     rangeStart: z.string().trim().min(1).max(2000).optional().describe("replace_range: text prefix of the first block to replace"),
     rangeEnd: z.string().trim().min(1).max(2000).optional().describe("replace_range: text prefix of the last block to replace"),

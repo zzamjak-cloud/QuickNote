@@ -25,7 +25,10 @@ export const pageSpecInput = z
   .object({
     title: z.string().max(500).optional().describe("Page title (DB rows: may instead be given via the title column in properties)"),
     icon: pageIconInput.optional().describe('Emoji, "quicknote-lucide:<Name>:<hex>" or "quicknote-image://<imageId>"'),
-    content: z.string().optional().describe("Body as QFM markdown (max 512KB)"),
+    content: z.string().optional().describe(
+      "Body as QFM markdown (max 512KB). Stored body limit is 358,400 bytes of editor JSON — " +
+        "table-heavy markdown expands ~7-9x, so keep it under ~40KB per page and split long documents into child pages.",
+    ),
     properties: z.record(z.string(), z.unknown()).optional()
       .describe("Database rows only: {columnNameOrId: value}. select/status: option label; multiSelect: labels[]; person: member id or email (or list); date: YYYY-MM-DD or {start,end}; checkbox: boolean; pageLink: page ids"),
   })
@@ -79,10 +82,21 @@ async function prepare(ctx: McpContext, target: Target, spec: z.infer<typeof pag
   return {
     title: spec.title ?? converted.title,
     icon: spec.icon,
-    doc: JSON.stringify(prepareNewDoc(doc)),
+    doc: JSON.stringify(prepareNewDoc(doc, { inputBytes: Buffer.byteLength(spec.content ?? "", "utf8") })),
     databaseIds,
     cells,
   };
+}
+
+/** 여러 페이지 중 어느 것이 거부됐는지 알 수 있게 인덱스·제목을 오류에 붙인다. */
+async function prepareAt(ctx: McpContext, target: Target, spec: z.infer<typeof pageSpecInput>, index: number): Promise<Prepared> {
+  try {
+    return await prepare(ctx, target, spec);
+  } catch (err) {
+    if (!(err instanceof ToolError)) throw err;
+    const title = spec.title ? ` "${spec.title}"` : "";
+    throw new ToolError(`pages[${index}]${title}: ${err.message}`);
+  }
 }
 
 export async function createPagesTool(ctx: McpContext, raw: CreatePagesInput) {
@@ -91,7 +105,7 @@ export async function createPagesTool(ctx: McpContext, raw: CreatePagesInput) {
   // DB 행 셀은 DB 룸이 권위(epoch 가드). 신규 일반 페이지는 룸이 없어 Pages.doc 시드라 무관하다.
   if (target.db) await requireCollabEpoch(ctx);
   const prepared: Prepared[] = [];
-  for (const spec of input.pages) prepared.push(await prepare(ctx, target, spec));
+  for (const [i, spec] of input.pages.entries()) prepared.push(await prepareAt(ctx, target, spec, i));
   await assertDatabasesUsable(ctx, prepared.flatMap((p) => p.databaseIds), target.workspaceId);
 
   const metas = await workspaceMetas(ctx, target.workspaceId);

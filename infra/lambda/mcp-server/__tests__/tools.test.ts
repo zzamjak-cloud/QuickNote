@@ -27,6 +27,22 @@ function page(id: string, overrides: Item = {}): Item {
 
 beforeEach(() => roomStates.clear());
 
+describe("fetch 하위 페이지 목록", () => {
+  it("Child pages 는 저장 순서와 무관하게 order 오름차순(사이드바 순서)으로 나온다", async () => {
+    const tables = baseTables();
+    tables.pages = [
+      page("parent", { doc: JSON.stringify(docOf("body")) }),
+      page("c3", { title: "셋", parentId: "parent", order: "2" }),
+      page("c10", { title: "열하나", parentId: "parent", order: "10" }),
+      page("c1", { title: "하나", parentId: "parent", order: "0" }),
+      page("c2", { title: "둘", parentId: "parent", order: "1" }),
+    ];
+    const out = await fetchTool(makeCtx(tables).ctx, { id: "parent" });
+    const titles = out.split("## Child pages")[1].split("\n\n")[0].match(/\/> (\S+)/g);
+    expect(titles).toEqual(["/> 하나", "/> 둘", "/> 셋", "/> 열하나"]);
+  });
+});
+
 describe("워크스페이스 인가", () => {
   it("list_workspaces 는 멤버 접근 ∩ 토큰 범위만 돌려준다", async () => {
     const all = await listWorkspacesTool(makeCtx().ctx);

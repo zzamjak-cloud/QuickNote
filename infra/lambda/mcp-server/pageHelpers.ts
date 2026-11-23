@@ -9,7 +9,7 @@ import {
 } from "../_shared/collabContent";
 import { fillMissingBlockIds, stripBlockIds } from "../_shared/docJson";
 import type { DocNode } from "../../../src/lib/docModel/types";
-import { docByteLength, MAX_PAGE_DOC_BYTES } from "./collabWriter";
+import { docByteLength, MAX_PAGE_DOC_BYTES, pageSizeError } from "./collabWriter";
 import { ToolError, type McpContext } from "./context";
 import { batchGetByKey } from "./ddb";
 import { scanWorkspaceMetas, MAX_SCANNED_METAS, type PageMeta } from "./pageScan";
@@ -50,7 +50,10 @@ export function allocateUniqueTitle(metas: PageMeta[], preferred: string | undef
  * 신규 페이지 본문: 스키마 검증 + 블록 id 부여(클라 UniqueID 는 원격 시드 블록에 id 를 채우지 않는다)
  * + 크기 상한(협업 쓰기와 같은 350KB — 넘는 Pages.doc 은 클라 업서트 가드에 막혀 이후 저장이 끊긴다).
  */
-export function prepareNewDoc(doc: DocNode | DocJson | null, opts: { freshIds?: boolean } = {}): DocJson {
+export function prepareNewDoc(
+  doc: DocNode | DocJson | null,
+  opts: { freshIds?: boolean; inputBytes?: number } = {},
+): DocJson {
   if (!doc) return EMPTY_PAGE_DOC;
   const schema = schemaFromSpec();
   const idTypes = blockIdTypesOf(schema);
@@ -65,7 +68,7 @@ export function prepareNewDoc(doc: DocNode | DocJson | null, opts: { freshIds?: 
   const prepared = fillMissingBlockIds(opts.freshIds ? stripBlockIds(json, idTypes) : json, idTypes);
   const bytes = docByteLength(prepared);
   if (bytes > MAX_PAGE_DOC_BYTES) {
-    throw new ToolError(`Page body is ${bytes} bytes (max ${MAX_PAGE_DOC_BYTES}). Split the content into several pages.`);
+    throw pageSizeError("Page body", bytes, opts.inputBytes);
   }
   return prepared;
 }

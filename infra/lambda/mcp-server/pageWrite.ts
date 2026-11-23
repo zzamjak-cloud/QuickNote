@@ -64,15 +64,28 @@ export async function patchPage(ctx: McpContext, pageId: string, patch: PagePatc
  * 사용자가 버전 히스토리에서 교체 직전 상태로 복원할 수 있게 한다(savePageVersion 과 같은 kind).
  * doc 은 Pages.doc 스냅샷이 아니라 현재 협업 본문을 쓴다(8초 업서트 지연분까지 보존).
  */
+export const CHECKPOINT_TOO_LARGE =
+  "This page is too large to save as a version snapshot (history entries are limited to 400KB, about 190KB of stored body)";
+
+/** DynamoDB 항목 400KB 초과 — 히스토리 항목은 본문을 patch·snapshot 으로 두 번 담아 큰 페이지에서 걸린다. */
+function isItemTooLarge(err: unknown): boolean {
+  return err instanceof Error && err.name === "ValidationException" && /item size/i.test(err.message);
+}
+
 export async function recordBodyCheckpoint(ctx: McpContext, page: Item, currentDoc: unknown): Promise<void> {
   const snapshot = { ...page, doc: JSON.stringify(currentDoc) };
-  await recordPageHistory({
-    doc: ctx.doc,
-    tables: ctx.tables,
-    caller: ctx.caller,
-    before: snapshot,
-    after: snapshot,
-    kind: "page.checkpoint",
-    force: true,
-  });
+  try {
+    await recordPageHistory({
+      doc: ctx.doc,
+      tables: ctx.tables,
+      caller: ctx.caller,
+      before: snapshot,
+      after: snapshot,
+      kind: "page.checkpoint",
+      force: true,
+    });
+  } catch (err) {
+    if (isItemTooLarge(err)) throw new ToolError(CHECKPOINT_TOO_LARGE);
+    throw err;
+  }
 }
